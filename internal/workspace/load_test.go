@@ -241,6 +241,116 @@ func TestLoadInputsRejectsInvalidMQTTClientIDPrefix(t *testing.T) {
 	}
 }
 
+func TestLoadInputsAcceptsMongoDBAtlasBinding(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mongodb-atlas-check
+spec:
+  operations:
+    - id: assert-reading
+      type: mongodb.expect
+      mongodb:
+        collection: readings
+        filter: |
+          {"scenarioRunId":"${scenarioRunId}","correlationId":"reading-1"}
+        correlationId: reading-1
+        match:
+          - path: $.scenarioRunId
+            equalsString: ${scenarioRunId}
+          - path: $.correlationId
+            equalsString: reading-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: atlas
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    atlas-credentials:
+      type: kubernetesSecret
+      name: atlas-credentials
+      keys:
+        username: username
+        password: password
+  mongodb:
+    deployment: atlas
+    uri: mongodb+srv://cluster.example.mongodb.net
+    database: app
+    credentialsRef: atlas-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatalf("expected Atlas binding to validate: %v", err)
+	}
+	if inputs.Binding.Spec.MongoDB.Deployment != "atlas" {
+		t.Fatalf("expected atlas deployment, got %q", inputs.Binding.Spec.MongoDB.Deployment)
+	}
+}
+
+func TestLoadInputsRejectsMongoDBAtlasWithoutCredentials(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mongodb-atlas-check
+spec:
+  operations:
+    - id: assert-reading
+      type: mongodb.expect
+      mongodb:
+        collection: readings
+        filter: |
+          {"scenarioRunId":"${scenarioRunId}","correlationId":"reading-1"}
+        correlationId: reading-1
+        match:
+          - path: $.scenarioRunId
+            equalsString: ${scenarioRunId}
+          - path: $.correlationId
+            equalsString: reading-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: atlas
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets: {}
+  mongodb:
+    deployment: atlas
+    uri: mongodb+srv://cluster.example.mongodb.net
+    database: app
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadInputs(scenarioPath, bindingPath)
+	if err == nil || !strings.Contains(err.Error(), "spec.mongodb.credentialsRef is required") {
+		t.Fatalf("expected missing Atlas credentials error, got %v", err)
+	}
+}
+
 func TestLoadInputsRejectsGraphQLEndpointWithoutURLHost(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")

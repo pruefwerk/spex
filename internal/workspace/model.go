@@ -182,6 +182,7 @@ type GraphQLBinding struct {
 }
 
 type MongoDBBinding struct {
+	Deployment     string `yaml:"deployment"`
 	URI            string `yaml:"uri"`
 	Database       string `yaml:"database"`
 	CredentialsRef string `yaml:"credentialsRef"`
