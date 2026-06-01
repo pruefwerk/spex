@@ -2305,6 +2305,7 @@ type suiteExplainOperation struct {
 	PayloadTemplateRef string `json:"payloadTemplateRef,omitempty"`
 	QueryRef           string `json:"queryRef,omitempty"`
 	Collection         string `json:"collection,omitempty"`
+	ArgCount           int    `json:"argCount,omitempty"`
 	CorrelationID      string `json:"correlationId,omitempty"`
 	VariableCount      int    `json:"variableCount,omitempty"`
 	MatcherCount       int    `json:"matcherCount,omitempty"`
@@ -2358,6 +2359,10 @@ func buildSuiteExplainOutput(resolved workspace.ResolvedScenarioSuite, inputs []
 				explained.Collection = op.MongoDB.Collection
 				explained.CorrelationID = op.MongoDB.CorrelationID
 				explained.MatcherCount = len(op.MongoDB.Match)
+			case "postgresql.expect":
+				explained.ArgCount = len(op.Postgres.Args)
+				explained.CorrelationID = op.Postgres.CorrelationID
+				explained.MatcherCount = len(op.Postgres.Match)
 			}
 			scenario.Operations = append(scenario.Operations, explained)
 		}
@@ -2976,6 +2981,8 @@ func writeInputsExplanation(stdout io.Writer, inputs workspace.Inputs) {
 			fmt.Fprintf(stdout, "  - %s: GraphQL expect queryRef=%s variables=%d matchers=%d\n", op.ID, op.GraphQL.QueryRef, len(op.GraphQL.Variables), len(op.GraphQL.Match))
 		case "mongodb.expect":
 			fmt.Fprintf(stdout, "  - %s: MongoDB expect collection=%s correlationId=%s matchers=%d\n", op.ID, op.MongoDB.Collection, op.MongoDB.CorrelationID, len(op.MongoDB.Match))
+		case "postgresql.expect":
+			fmt.Fprintf(stdout, "  - %s: PostgreSQL expect args=%d correlationId=%s matchers=%d\n", op.ID, len(op.Postgres.Args), op.Postgres.CorrelationID, len(op.Postgres.Match))
 		default:
 			fmt.Fprintf(stdout, "  - %s: %s\n", op.ID, op.Type)
 		}

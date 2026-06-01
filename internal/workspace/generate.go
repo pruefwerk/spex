@@ -356,6 +356,24 @@ func buildPlan(in Inputs) generationPlan {
 			}
 			plan.Steps = append(plan.Steps, step)
 			ordinal++
+		case "postgresql.expect":
+			queryFile := DNSLabel(op.ID) + ".sql"
+			argsFile := DNSLabel(op.ID) + ".args.json"
+			matchersFile := DNSLabel(op.ID) + ".matchers.json"
+			plan.Variables[queryFile] = renderTemplate(op.Postgres.Query, in.RunID, op.Postgres.CorrelationID, plan.Params)
+			plan.Variables[argsFile] = renderStringSliceJSON(op.Postgres.Args, in.RunID, op.Postgres.CorrelationID, plan.Params)
+			plan.Matchers[matchersFile] = renderMatchersJSON(op.Postgres.Match, in.RunID, op.Postgres.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         postgresqlExpectJob(in, scenarioSlug, ordinal, op, queryFile, argsFile, matchersFile),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
 		}
 	}
 	return plan
@@ -885,6 +903,18 @@ func mongodbExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation,
 	})
 }
 
+func postgresqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, argsFile, matchersFile string) string {
+	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
+		"postgresql", "expect",
+		"--uri=" + in.Binding.Spec.PostgreSQL.URI,
+		"--query-file=/spex/variables/" + queryFile,
+		"--args-file=/spex/variables/" + argsFile,
+		"--matchers-file=/spex/matchers/" + matchersFile,
+		"--timeout=" + postgresqlTimeout(in, op),
+		"--poll-interval=" + defaultPollInterval(in),
+	})
+}
+
 func probeJob(in Inputs, scenarioSlug string, ordinal int, operationID, operationType string, args []string) string {
 	name := jobName(scenarioSlug, ordinal, operationID)
 	operationSlug := DNSLabel(operationID)
@@ -1075,6 +1105,18 @@ func renderStringMapJSON(source map[string]string, runID, correlationID string, 
 	return string(content) + "\n"
 }
 
+func renderStringSliceJSON(source []string, runID, correlationID string, params map[string]string) string {
+	out := make([]string, 0, len(source))
+	for _, value := range source {
+		out = append(out, renderTemplate(value, runID, correlationID, params))
+	}
+	encoded, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded) + "\n"
+}
+
 func renderMatchersJSON(source []Matcher, runID, correlationID string, params map[string]string) string {
 	type renderedMatcher struct {
 		Path         string `json:"path"`
@@ -1226,6 +1268,13 @@ func mongodbTimeout(in Inputs, op Operation) string {
 	return defaultTimeout(in)
 }
 
+func postgresqlTimeout(in Inputs, op Operation) string {
+	if op.Postgres != nil && op.Postgres.Timeout != "" {
+		return op.Postgres.Timeout
+	}
+	return defaultTimeout(in)
+}
+
 func configMapData(files map[string]string) string {
 	var names []string
 	for name := range files {
@@ -1290,6 +1339,11 @@ func secretEnv(in Inputs, args []string) string {
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
 			"SPEX_MONGODB_USERNAME": "username",
 			"SPEX_MONGODB_PASSWORD": "password",
+		})
+	case len(args) >= 2 && args[0] == "postgresql" && args[1] == "expect":
+		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.PostgreSQL.CredentialsRef], map[string]string{
+			"SPEX_POSTGRESQL_USERNAME": "username",
+			"SPEX_POSTGRESQL_PASSWORD": "password",
 		})
 	default:
 		return ""

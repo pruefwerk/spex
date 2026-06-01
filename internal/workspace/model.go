@@ -64,13 +64,14 @@ type GraphQLQuery struct {
 }
 
 type Operation struct {
-	ID       string              `yaml:"id"`
-	Type     string              `yaml:"type"`
-	After    string              `yaml:"after"`
-	MQTT     *MQTTPublish        `yaml:"mqtt"`
-	Redpanda *RedpandaContains   `yaml:"redpanda"`
-	GraphQL  *GraphQLExpectation `yaml:"graphql"`
-	MongoDB  *MongoDBExpectation `yaml:"mongodb"`
+	ID       string                 `yaml:"id"`
+	Type     string                 `yaml:"type"`
+	After    string                 `yaml:"after"`
+	MQTT     *MQTTPublish           `yaml:"mqtt"`
+	Redpanda *RedpandaContains      `yaml:"redpanda"`
+	GraphQL  *GraphQLExpectation    `yaml:"graphql"`
+	MongoDB  *MongoDBExpectation    `yaml:"mongodb"`
+	Postgres *PostgreSQLExpectation `yaml:"postgresql"`
 }
 
 type MQTTPublish struct {
@@ -96,6 +97,14 @@ type GraphQLExpectation struct {
 type MongoDBExpectation struct {
 	Collection    string    `yaml:"collection"`
 	Filter        string    `yaml:"filter"`
+	CorrelationID string    `yaml:"correlationId"`
+	Timeout       string    `yaml:"timeout"`
+	Match         []Matcher `yaml:"match"`
+}
+
+type PostgreSQLExpectation struct {
+	Query         string    `yaml:"query"`
+	Args          []string  `yaml:"args"`
 	CorrelationID string    `yaml:"correlationId"`
 	Timeout       string    `yaml:"timeout"`
 	Match         []Matcher `yaml:"match"`
@@ -127,6 +136,7 @@ type BindingSpec struct {
 	Redpanda           RedpandaBinding   `yaml:"redpanda"`
 	GraphQL            GraphQLBinding    `yaml:"graphql"`
 	MongoDB            MongoDBBinding    `yaml:"mongodb"`
+	PostgreSQL         PostgreSQLBinding `yaml:"postgresql"`
 }
 
 type RBAC struct {
@@ -174,6 +184,11 @@ type GraphQLBinding struct {
 type MongoDBBinding struct {
 	URI            string `yaml:"uri"`
 	Database       string `yaml:"database"`
+	CredentialsRef string `yaml:"credentialsRef"`
+}
+
+type PostgreSQLBinding struct {
+	URI            string `yaml:"uri"`
 	CredentialsRef string `yaml:"credentialsRef"`
 }
 
