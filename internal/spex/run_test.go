@@ -1128,7 +1128,7 @@ func TestReleaseVerifyFailsForManifestArtifactOrderMismatch(t *testing.T) {
 		t.Skip("test uses a POSIX shell script as fake release binary")
 	}
 	dir := writeFakeReleaseDir(t, "1.2.3", "abc123", "2026-05-31T00:00:00Z")
-	writeReleaseManifestWithArtifactOrder(t, dir, []string{"spex-probe", "spex", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"})
+	writeReleaseManifestWithArtifactOrder(t, dir, []string{"spex-probe", "spex", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"})
 
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"release", "verify", "--dist", dir}, &stdout, &stderr)
@@ -1196,7 +1196,7 @@ func TestReleaseVerifyFailsForChecksumOrderMismatch(t *testing.T) {
 		t.Skip("test uses a POSIX shell script as fake release binary")
 	}
 	dir := writeFakeReleaseDir(t, "1.2.3", "abc123", "2026-05-31T00:00:00Z")
-	writeReleaseChecksumsWithOrder(t, dir, []string{"spex-probe", "spex", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"})
+	writeReleaseChecksumsWithOrder(t, dir, []string{"spex-probe", "spex", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"})
 
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"release", "verify", "--dist", dir}, &stdout, &stderr)
@@ -1701,7 +1701,7 @@ func TestReleaseVerifyFailsForArchiveOrderMismatch(t *testing.T) {
 	}
 	dir := writeFakeReleaseDir(t, "1.2.3", "abc123", "2026-05-31T00:00:00Z")
 	archivePath := filepath.Join(dir, releaseArchiveNameForVersion("1.2.3"))
-	writeFakeReleaseArchiveWithOrder(t, dir, archivePath, []string{"spex-probe", "spex", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"})
+	writeFakeReleaseArchiveWithOrder(t, dir, archivePath, []string{"spex-probe", "spex", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"})
 
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"release", "verify", "--dist", dir, "--archive", archivePath}, &stdout, &stderr)
@@ -5215,13 +5215,14 @@ func writeFakeReleaseDirAt(t *testing.T, dir, version, commit, buildDate string)
 `, version, commit, buildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	binary := "#!/bin/sh\nif [ \"$1\" = \"version\" ] && [ \"$2\" = \"--format\" ] && [ \"$3\" = \"json\" ]; then\ncat <<'JSON'\n" + versionJSON + "JSON\nexit 0\nfi\nexit 2\n"
 	files := map[string]string{
-		"spex":            binary,
-		"spex-probe":      binary,
-		"spex-demo-stack": binary,
-		"LICENSE":         "Internal Business Source Available License 1.0\n",
-		"COMMERCIAL.md":   "# Commercial Licensing\n",
-		"CONTRIBUTING.md": "# Contributing\n",
-		"go-modules.txt":  modulePath + "\ngithub.com/eclipse/paho.mqtt.golang v1.5.1\n",
+		"spex":                   binary,
+		"spex-probe":             binary,
+		"spex-demo-stack":        binary,
+		"LICENSE":                "Internal Business Source Available License 1.0\n",
+		"COMMERCIAL.md":          "# Commercial Licensing\n",
+		"CONTRIBUTING.md":        "# Contributing\n",
+		"THIRD-PARTY-NOTICES.md": "# Third-Party Notices\n",
+		"go-modules.txt":         modulePath + "\ngithub.com/eclipse/paho.mqtt.golang v1.5.1\n",
 		"dependency-inventory.json": `{
   "apiVersion": "spex.dependencies.v0.1",
   "kind": "GoModuleInventory",

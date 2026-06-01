@@ -64,6 +64,7 @@ release: build
 	install -m 0644 LICENSE $(DISTDIR)/LICENSE
 	install -m 0644 COMMERCIAL.md $(DISTDIR)/COMMERCIAL.md
 	install -m 0644 CONTRIBUTING.md $(DISTDIR)/CONTRIBUTING.md
+	install -m 0644 THIRD-PARTY-NOTICES.md $(DISTDIR)/THIRD-PARTY-NOTICES.md
 	$(GO_TOOL) list -m all > $(DISTDIR)/go-modules.txt
 	{ printf '%s\n' 'spex'; $(GO_TOOL) version -m $(DISTDIR)/spex | sed '1d'; } > $(DISTDIR)/buildinfo.txt
 	{ \
@@ -95,6 +96,7 @@ release-check:
 	test -f $(RELEASE_CHECK_DISTDIR)/LICENSE
 	test -f $(RELEASE_CHECK_DISTDIR)/COMMERCIAL.md
 	test -f $(RELEASE_CHECK_DISTDIR)/CONTRIBUTING.md
+	test -f $(RELEASE_CHECK_DISTDIR)/THIRD-PARTY-NOTICES.md
 	test -f $(RELEASE_CHECK_DISTDIR)/dependency-inventory.json
 	test -f $(RELEASE_CHECK_DISTDIR)/SHA256SUMS
 	test -f $(RELEASE_CHECK_DISTDIR)/version.json

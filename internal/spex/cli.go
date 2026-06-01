@@ -825,7 +825,7 @@ func verifyReleaseTextArtifactsDoNotLeakPaths(distDir string) error {
 }
 
 func releaseTextArtifacts() []string {
-	return []string{"LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"}
+	return []string{"LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"}
 }
 
 func firstLocalPathLeak(content string) string {
@@ -1513,11 +1513,11 @@ func releaseArchiveName(manifest releaseManifest) string {
 }
 
 func releaseArtifacts() []string {
-	return []string{"spex", "spex-probe", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"}
+	return []string{"spex", "spex-probe", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"}
 }
 
 func releaseArchiveFiles() []string {
-	return []string{"spex", "spex-probe", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"}
+	return []string{"spex", "spex-probe", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"}
 }
 
 func releaseArtifactSet() map[string]bool {

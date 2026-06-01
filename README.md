@@ -6,20 +6,6 @@ It is built for Kubernetes-based integration testing where the test author shoul
 
 Status: production-candidate. Use it for controlled pilots and promotion pipelines that run the validation, security, artifact-scan, and live proof gates described in the production-readiness and live-proof docs.
 
-## License
-
-spex is source-available under the Internal Business Source Available License 1.0.
-
-The public license allows internal business use, including internal development, testing, CI/CD validation, QA, staging, proof-of-concept work, and internal production use, subject to the full terms in `LICENSE`.
-
-It does not allow commercial redistribution, resale, external hosted or managed offerings, embedding spex in a third-party product or service, making spex available to third parties, or AI training use without a separate commercial license.
-
-Generated scenarios, generated KUTTL workspaces, generated reports, and other output produced by spex may be used for permitted internal business operations, as long as the output does not redistribute, expose, or provide spex itself as an external offering.
-
-spex is provided as is. You are responsible for deciding whether it is suitable for your environment, validating generated workspaces before running them, and accepting the risk of any damage, data loss, outage, misconfiguration, or other consequence from using it. The full warranty disclaimer and liability limits are in `LICENSE`.
-
-See [LICENSE](LICENSE), [COMMERCIAL.md](COMMERCIAL.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## Commands
 
 Check the installed binary:
@@ -553,3 +539,17 @@ spec:
 The generated setup step creates or updates the Kubernetes Secret with `kubectl apply`; generated manifests and reports contain only Secret names, key names, env var names, and SSM parameter paths, not secret values. `ssmParameters` accepts either a raw SSM parameter name or the Helm-style `{{ ssm "path/to/key" }}` form.
 
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
+
+## License
+
+spex is source-available under the Internal Business Source Available License 1.0.
+
+The public license allows internal business use, including internal development, testing, CI/CD validation, QA, staging, proof-of-concept work, and internal production use, subject to the full terms in `LICENSE`.
+
+It does not allow commercial redistribution, resale, external hosted or managed offerings, embedding spex in a third-party product or service, making spex available to third parties, or AI training use without a separate commercial license.
+
+Generated scenarios, generated KUTTL workspaces, generated reports, and other output produced by spex may be used for permitted internal business operations, as long as the output does not redistribute, expose, or provide spex itself as an external offering.
+
+spex is provided as is. You are responsible for deciding whether it is suitable for your environment, validating generated workspaces before running them, and accepting the risk of any damage, data loss, outage, misconfiguration, or other consequence from using it. The full warranty disclaimer and liability limits are in `LICENSE`.
+
+See [LICENSE](LICENSE), [COMMERCIAL.md](COMMERCIAL.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
