@@ -1,0 +1,18 @@
+apiVersion: spex.integration.v0.1
+kind: IntegrationProfile
+spec:
+  kind:
+    start: true
+    clusterName: kind
+    config: local-kind.yaml
+    nodeCache: false
+  helmApps:
+    - name: my-service
+      chart: oci://registry.example.invalid/team/my-service
+      namespace: application
+      values:
+        - ${repoRoot}/integration/values/my-service.yaml
+      set:
+        image.tag: "1.2.3"
+      wait: true
+      timeout: 300s

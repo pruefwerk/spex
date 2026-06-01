@@ -1,0 +1,85 @@
+apiVersion: spex.catalog.v0.1
+kind: StepCatalog
+metadata:
+  name: telemetry-steps
+spec:
+  steps:
+    - kind: given
+      expression: tenant "{tenantId}"
+      output:
+        parameters:
+          tenantId:
+            type: string
+            default: "{tenantId}"
+    - kind: given
+      expression: device "{deviceId}"
+      output:
+        parameters:
+          deviceId:
+            type: string
+            default: "{deviceId}"
+    - kind: when
+      expression: device "{deviceId}" publishes energy reading {value:number} as "{correlationId}"
+      output:
+        payloadTemplates:
+          valid-energy-reading-{correlationId}:
+            contentType: application/json
+            body: |
+              {
+                "scenarioRunId": "${scenarioRunId}",
+                "correlationId": "${correlationId}",
+                "tenantId": "${param.tenantId}",
+                "deviceId": "{deviceId}",
+                "measurement": "energy.total",
+                "value": {value},
+                "unit": "kWh"
+              }
+        graphqlQueries:
+          latest-device-reading:
+            file: ../queries/latest-device-reading.graphql
+        operations:
+          - id: publish-{correlationId}
+            type: mqtt.publish
+            mqtt:
+              topic: telemetry/${param.tenantId}/{deviceId}/readings
+              payloadTemplateRef: valid-energy-reading-{correlationId}
+              correlationId: "{correlationId}"
+    - kind: then
+      expression: Redpanda contains reading "{correlationId}" with value {value:number}
+      output:
+        operations:
+          - id: assert-redpanda-{correlationId}
+            type: redpanda.contains
+            after: publish-{correlationId}
+            redpanda:
+              topicRef: normalized-readings
+              correlationId: "{correlationId}"
+              timeout: 60s
+              match:
+                - path: $.scenarioRunId
+                  equalsString: ${scenarioRunId}
+                - path: $.correlationId
+                  equalsString: "{correlationId}"
+                - path: $.value
+                  equalsNumber: "{value}"
+    - kind: then
+      expression: GraphQL returns reading "{correlationId}" for device "{deviceId}" with value {value:number}
+      output:
+        operations:
+          - id: assert-graphql-{correlationId}
+            type: graphql.expect
+            after: publish-{correlationId}
+            graphql:
+              queryRef: latest-device-reading
+              variables:
+                scenarioRunId: ${scenarioRunId}
+                correlationId: "{correlationId}"
+                deviceId: "{deviceId}"
+              timeout: 60s
+              match:
+                - path: $.data.latestDeviceReading.scenarioRunId
+                  equalsString: ${scenarioRunId}
+                - path: $.data.latestDeviceReading.correlationId
+                  equalsString: "{correlationId}"
+                - path: $.data.latestDeviceReading.value
+                  equalsNumber: "{value}"

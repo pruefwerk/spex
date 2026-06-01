@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pruefwerk/spex/schemas/flow-catalog.schema.json",
+  "title": "spex FlowCatalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "spex.catalog.v0.1" },
+    "kind": { "const": "FlowCatalog" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flows"],
+      "properties": {
+        "flows": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/flowDefinition" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" }
+      }
+    },
+    "flowDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expandsTo"],
+      "properties": {
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "enum": ["string", "number", "bool"] }
+        },
+        "expandsTo": { "$ref": "#/$defs/catalogExpansion" }
+      }
+    },
+    "catalogExpansion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["string", "number", "bool"] },
+              "default": { "type": "string" }
+            }
+          }
+        },
+        "payloadTemplates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["contentType", "body"],
+            "properties": {
+              "contentType": { "const": "application/json" },
+              "body": { "type": "string" }
+            }
+          }
+        },
+        "graphqlQueries": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file"],
+            "properties": {
+              "file": { "type": "string" }
+            }
+          }
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "object" }
+        }
+      }
+    }
+  }
+}

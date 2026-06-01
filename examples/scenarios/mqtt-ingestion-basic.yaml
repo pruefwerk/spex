@@ -1,0 +1,73 @@
+apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mqtt-ingestion-basic
+spec:
+  description: Valid MQTT telemetry reaches Redpanda and GraphQL.
+  parameters:
+    tenantId:
+      type: string
+      default: tenant-dev
+    deviceId:
+      type: string
+      default: device-dev-1
+  defaults:
+    timeout: 60s
+    pollInterval: 1s
+  correlation:
+    scenarioRunId: auto
+    strategy: payloadTemplate
+  payloadTemplates:
+    valid-energy-reading:
+      contentType: application/json
+      body: |
+        {
+          "scenarioRunId": "${scenarioRunId}",
+          "correlationId": "${correlationId}",
+          "tenantId": "${param.tenantId}",
+          "deviceId": "${param.deviceId}",
+          "measurement": "energy.total",
+          "value": 42.5,
+          "unit": "kWh"
+        }
+  graphqlQueries:
+    latest-device-reading:
+      file: examples/queries/latest-device-reading.graphql
+  operations:
+    - id: publish-reading-1
+      type: mqtt.publish
+      mqtt:
+        topic: telemetry/${param.tenantId}/${param.deviceId}/readings
+        payloadTemplateRef: valid-energy-reading
+        correlationId: reading-1
+    - id: assert-reading-1-in-redpanda
+      type: redpanda.contains
+      after: publish-reading-1
+      redpanda:
+        topicRef: normalized-readings
+        correlationId: reading-1
+        timeout: 60s
+        match:
+          - path: $.scenarioRunId
+            equalsString: ${scenarioRunId}
+          - path: $.correlationId
+            equalsString: reading-1
+          - path: $.value
+            equalsNumber: "42.5"
+    - id: assert-reading-1-in-graphql
+      type: graphql.expect
+      after: publish-reading-1
+      graphql:
+        queryRef: latest-device-reading
+        variables:
+          scenarioRunId: ${scenarioRunId}
+          correlationId: reading-1
+          deviceId: ${param.deviceId}
+        timeout: 60s
+        match:
+          - path: $.data.latestDeviceReading.scenarioRunId
+            equalsString: ${scenarioRunId}
+          - path: $.data.latestDeviceReading.correlationId
+            equalsString: reading-1
+          - path: $.data.latestDeviceReading.value
+            equalsNumber: "42.5"

@@ -1,0 +1,16 @@
+query LatestDeviceReading(
+  $scenarioRunId: String!,
+  $correlationId: String!,
+  $deviceId: String!
+) {
+  latestDeviceReading(
+    scenarioRunId: $scenarioRunId,
+    correlationId: $correlationId,
+    deviceId: $deviceId
+  ) {
+    scenarioRunId
+    correlationId
+    deviceId
+    value
+  }
+}

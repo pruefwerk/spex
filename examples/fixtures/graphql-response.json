@@ -1,0 +1,10 @@
+{
+  "data": {
+    "latestDeviceReading": {
+      "scenarioRunId": "run-fixed-test",
+      "correlationId": "reading-1",
+      "deviceId": "device-dev-1",
+      "value": 42.50
+    }
+  }
+}

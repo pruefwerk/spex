@@ -1,0 +1,191 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: streaming
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: application
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emqx
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emqx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: emqx
+    spec:
+      containers:
+        - name: emqx
+          image: emqx/emqx:5.10.1-patch.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mqtt
+              containerPort: 1883
+            - name: dashboard
+              containerPort: 18083
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx
+  namespace: platform
+spec:
+  selector:
+    app.kubernetes.io/name: emqx
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+    - name: dashboard
+      port: 18083
+      targetPort: dashboard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redpanda
+  namespace: streaming
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redpanda
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redpanda
+    spec:
+      containers:
+        - name: redpanda
+          image: redpandadata/redpanda@sha256:48345e234472429b87cb4737fe11938ee8009774f818c9b6d8456aa2784f9c29
+          args:
+            - redpanda
+            - start
+            - --mode
+            - dev-container
+            - --smp
+            - "1"
+            - --overprovisioned
+            - --kafka-addr
+            - PLAINTEXT://0.0.0.0:9092
+            - --advertise-kafka-addr
+            - PLAINTEXT://redpanda.streaming.svc.cluster.local:9092
+            - --rpc-addr
+            - 0.0.0.0:33145
+            - --advertise-rpc-addr
+            - redpanda.streaming.svc.cluster.local:33145
+            - --set
+            - redpanda.auto_create_topics_enabled=true
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: admin
+              containerPort: 9644
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: streaming
+spec:
+  selector:
+    app.kubernetes.io/name: redpanda
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka
+    - name: admin
+      port: 9644
+      targetPort: admin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spex-demo-ingestor
+  namespace: application
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spex-demo-ingestor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spex-demo-ingestor
+    spec:
+      containers:
+        - name: ingestor
+          image: spex-demo-stack:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - ingest
+          env:
+            - name: MQTT_BROKER_URL
+              value: tcp://emqx.platform.svc.cluster.local:1883
+            - name: MQTT_TOPIC_FILTER
+              value: telemetry/+/+/readings
+            - name: REDPANDA_BROKERS
+              value: redpanda.streaming.svc.cluster.local:9092
+            - name: REDPANDA_TOPIC
+              value: ingestion.normalized-readings
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphql-api
+  namespace: application
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: graphql-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: graphql-api
+    spec:
+      containers:
+        - name: graphql
+          image: spex-demo-stack:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - graphql
+          env:
+            - name: REDPANDA_BROKERS
+              value: redpanda.streaming.svc.cluster.local:9092
+            - name: REDPANDA_TOPIC
+              value: ingestion.normalized-readings
+            - name: GRAPHQL_ADDRESS
+              value: :8080
+            - name: GRAPHQL_REQUIRE_AUTH
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphql-api
+  namespace: application
+spec:
+  selector:
+    app.kubernetes.io/name: graphql-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

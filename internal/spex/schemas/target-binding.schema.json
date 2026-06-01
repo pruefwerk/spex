@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pruefwerk/spex/schemas/target-binding.schema.json",
+  "title": "spex TargetBinding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "spex.binding.v0.1" },
+    "kind": { "const": "TargetBinding" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "probe", "secrets", "mqtt", "redpanda", "graphql"],
+      "properties": {
+        "kubeContext": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "minLength": 1 },
+        "scenarioParameters": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "rbac": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": { "type": "boolean" }
+          }
+        },
+        "probe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image"],
+          "properties": {
+            "image": { "type": "string", "minLength": 1 },
+            "imagePullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+            "serviceAccountName": { "type": "string", "minLength": 1 }
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/secret" }
+        },
+        "mqtt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["brokerURL"],
+          "properties": {
+            "brokerURL": { "type": "string", "minLength": 1 },
+            "clientIdPrefix": { "type": "string", "minLength": 1 },
+            "credentialsRef": { "type": "string", "minLength": 1 }
+          }
+        },
+        "redpanda": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["brokers", "topics"],
+          "properties": {
+            "brokers": { "type": "string", "minLength": 1 },
+            "topics": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/redpandaTopic" }
+            }
+          }
+        },
+        "graphql": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["endpoint"],
+          "properties": {
+            "endpoint": { "type": "string", "minLength": 1 },
+            "credentialsRef": { "type": "string", "minLength": 1 },
+            "auth": { "$ref": "#/$defs/graphqlAuth" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" }
+      }
+    },
+    "secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "name", "keys"],
+      "properties": {
+        "type": { "enum": ["kubernetesSecret", "localEnvFile", "awsSsmParameter"] },
+        "name": { "type": "string", "minLength": 1 },
+        "envFile": { "type": "string", "minLength": 1 },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "ssmParameters": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "keys": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "redpandaTopic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "allowOffsetSnapshot"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "allowOffsetSnapshot": { "type": "boolean" },
+        "allowCompacted": { "type": "boolean" }
+      }
+    },
+    "graphqlAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["", "bearerToken", "keycloakClientCredentials"] },
+        "tokenURL": { "type": "string", "minLength": 1 },
+        "clientID": { "type": "string", "minLength": 1 },
+        "clientSecretRef": { "type": "string", "minLength": 1 },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

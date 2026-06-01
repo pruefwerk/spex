@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pruefwerk/spex/schemas/scenario.schema.json",
+  "title": "spex Scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "spex.scenario.v0.1" },
+    "kind": { "const": "Scenario" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/parameter" }
+        },
+        "defaults": { "$ref": "#/$defs/defaults" },
+        "correlation": { "$ref": "#/$defs/correlation" },
+        "payloadTemplates": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/payloadTemplate" }
+        },
+        "graphqlQueries": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/graphqlQuery" }
+        },
+        "use": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/flowUse" }
+        },
+        "stepInvocations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stepInvocation" }
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/operation" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "string" },
+        "default": { "type": "string" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout": { "type": "string" },
+        "pollInterval": { "type": "string" }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scenarioRunId": { "enum": ["auto"] },
+        "strategy": { "enum": ["payloadTemplate"] }
+      }
+    },
+    "payloadTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contentType", "body"],
+      "properties": {
+        "contentType": { "const": "application/json" },
+        "body": { "type": "string" }
+      }
+    },
+    "graphqlQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string" }
+      }
+    },
+    "flowUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flow", "id"],
+      "properties": {
+        "flow": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+        "with": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "stepInvocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "enum": ["given", "when", "then"] },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+        "type": { "enum": ["mqtt.publish", "redpanda.contains", "graphql.expect"] },
+        "after": { "type": "string", "minLength": 1 },
+        "mqtt": { "$ref": "#/$defs/mqttPublish" },
+        "redpanda": { "$ref": "#/$defs/redpandaContains" },
+        "graphql": { "$ref": "#/$defs/graphqlExpectation" }
+      }
+    },
+    "mqttPublish": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "payloadTemplateRef", "correlationId"],
+      "properties": {
+        "topic": { "type": "string", "minLength": 1 },
+        "payloadTemplateRef": { "type": "string", "minLength": 1 },
+        "correlationId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "redpandaContains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topicRef", "correlationId", "match"],
+      "properties": {
+        "topicRef": { "type": "string", "minLength": 1 },
+        "correlationId": { "type": "string", "minLength": 1 },
+        "timeout": { "type": "string" },
+        "match": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/matcher" }
+        }
+      }
+    },
+    "graphqlExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queryRef", "variables", "match"],
+      "properties": {
+        "queryRef": { "type": "string", "minLength": 1 },
+        "variables": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "timeout": { "type": "string" },
+        "match": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/matcher" }
+        }
+      }
+    },
+    "matcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^\\$(\\.[A-Za-z_][A-Za-z0-9_]*(\\[[0-9]+\\])*)*$" },
+        "equalsString": { "type": "string" },
+        "equalsNumber": { "type": "string" },
+        "equalsBool": { "type": "boolean" },
+        "equalsNull": { "type": "boolean" }
+      }
+    }
+  }
+}

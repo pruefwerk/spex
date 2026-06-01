@@ -1,0 +1,4 @@
+[
+  {"path":"$.data.latestDeviceReading.scenarioRunId","equalsString":"run-fixed-test"},
+  {"path":"$.data.latestDeviceReading.correlationId","equalsString":"reading-1"}
+]

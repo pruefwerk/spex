@@ -1,0 +1,26 @@
+apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mqtt-ingestion-steps
+spec:
+  description: Valid MQTT telemetry reaches Redpanda and GraphQL via declarative step invocations.
+  parameters:
+    tenantId:
+      type: string
+      default: tenant-dev
+    deviceId:
+      type: string
+      default: device-dev-1
+  defaults:
+    timeout: 60s
+    pollInterval: 1s
+  correlation:
+    scenarioRunId: auto
+    strategy: payloadTemplate
+  stepInvocations:
+    - kind: when
+      text: device "device-dev-1" publishes energy reading 42.5 as "reading-1"
+    - kind: then
+      text: Redpanda contains reading "reading-1" with value 42.5
+    - kind: then
+      text: GraphQL returns reading "reading-1" for device "device-dev-1" with value 42.5

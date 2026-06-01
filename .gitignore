@@ -1,0 +1,15 @@
+/artifacts/
+/dist/
+/generated/
+.direnv/
+.bin/
+.cache/
+.release-check/
+.tmp/
+.spex/
+reports/
+evidence/
+spec/
+docs/naming.md
+docs/publishing.md
+docs/release-process.md

@@ -1,0 +1,26 @@
+apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mqtt-ingestion-flow
+spec:
+  description: Valid MQTT telemetry reaches Redpanda and GraphQL via a reusable flow.
+  parameters:
+    tenantId:
+      type: string
+      default: tenant-dev
+    deviceId:
+      type: string
+      default: device-dev-1
+  defaults:
+    timeout: 60s
+    pollInterval: 1s
+  correlation:
+    scenarioRunId: auto
+    strategy: payloadTemplate
+  use:
+    - flow: mqttToRedpandaToGraphql
+      id: reading-1
+      with:
+        tenantId: tenant-dev
+        deviceId: device-dev-1
+        value: "42.5"

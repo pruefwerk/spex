@@ -1,0 +1,9 @@
+{
+  "scenarioRunId": "run-fixed-test",
+  "correlationId": "reading-1",
+  "tenantId": "tenant-dev",
+  "deviceId": "device-dev-1",
+  "measurement": "energy.total",
+  "value": 42.50,
+  "unit": "kWh"
+}

@@ -1,0 +1,42 @@
+apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  scenarioParameters:
+    tenantId: tenant-dev
+    deviceId: device-dev-1
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+    imagePullPolicy: IfNotPresent
+    serviceAccountName: spex-probe
+  secrets:
+    mqtt-credentials:
+      type: kubernetesSecret
+      name: mqtt-probe-credentials
+      keys:
+        username: username
+        password: password
+    graphql-token:
+      type: kubernetesSecret
+      name: graphql-probe-credentials
+      keys:
+        token: token
+  mqtt:
+    brokerURL: tcp://emqx.platform.svc.cluster.local:1883
+    clientIdPrefix: spex
+    credentialsRef: mqtt-credentials
+  redpanda:
+    brokers: redpanda.streaming.svc.cluster.local:9092
+    topics:
+      normalized-readings:
+        name: ingestion.normalized-readings
+        allowOffsetSnapshot: true
+        allowCompacted: false
+  graphql:
+    endpoint: http://graphql-api.application.svc.cluster.local/graphql
+    credentialsRef: graphql-token

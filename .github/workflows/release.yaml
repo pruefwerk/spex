@@ -1,0 +1,125 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing SemVer tag to release, for example v0.1.0-rc.1
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  GOVULNCHECK_VERSION: v1.1.4
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="${INPUT_TAG}"
+            git fetch --tags --force
+            git rev-parse -q --verify "refs/tags/${tag}" >/dev/null
+            git checkout --detach "refs/tags/${tag}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "release tag must be SemVer with v prefix, for example v0.1.0 or v0.1.0-rc.1" >&2
+            exit 2
+          fi
+          version="${tag#v}"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
+          echo "archive=spex_${version}_$(go env GOOS)_$(go env GOARCH).tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Install vulnerability scanner
+        run: make install-vulncheck
+
+      - name: Security gate
+        run: make security-check
+
+      - name: Production candidate gate
+        run: make production-candidate-check VERSION="${VERSION}" COMMIT="${GITHUB_SHA}" BUILD_DATE="${BUILD_DATE}" RELEASE_CHECK_DISTDIR=.release-check
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_DATE: ${{ steps.meta.outputs.build_date }}
+          SPEX_MQTT_PASSWORD: ci-secret-scan-password
+          SPEX_GRAPHQL_TOKEN: ci-secret-scan-token
+          SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET: ci-secret-scan-client-secret
+          SPEX_KEYCLOAK_ADMIN_PASSWORD: ci-secret-scan-admin-password
+
+      - name: Build release archive
+        run: make release-archive VERSION="${VERSION}" COMMIT="${GITHUB_SHA}" BUILD_DATE="${BUILD_DATE}" DISTDIR=dist
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_DATE: ${{ steps.meta.outputs.build_date }}
+
+      - name: Write release notes
+        run: |
+          cat > dist/release-notes.md <<EOF
+          # spex ${{ steps.meta.outputs.tag }}
+
+          Automated SemVer release for ${{ steps.meta.outputs.tag }}.
+
+          Validation:
+          - make security-check
+          - make production-candidate-check
+          - make release-archive
+
+          Release artifacts include the binary archive, checksums, release manifest, provenance, dependency inventory, module inventory, build info, and third-party license inventory.
+          EOF
+
+      - name: Upload release artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: spex-${{ steps.meta.outputs.version }}-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist -maxdepth 1 -type f ! -name release-notes.md | sort)
+          flags=(
+            --draft \
+            --verify-tag \
+            --title "spex $TAG" \
+            --notes-file dist/release-notes.md
+          )
+          if [[ "$TAG" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$TAG" "${flags[@]}" "${assets[@]}"

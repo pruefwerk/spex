@@ -1,0 +1,49 @@
+apiVersion: spex.integration.v0.1
+kind: IntegrationProfile
+spec:
+  kind:
+    start: true
+    clusterName: kind
+    config: local-kind.yaml
+    nodeCache: false
+    commands:
+      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot}
+        timeout: 300
+      - command: docker build -f ${repoRoot}/Dockerfile.demo-stack -t spex-demo-stack:dev ${repoRoot}
+        timeout: 300
+      - command: kind load docker-image ${probeImage} --name ${kindCluster}
+        timeout: 300
+      - command: kind load docker-image spex-demo-stack:dev --name ${kindCluster}
+        timeout: 300
+  setup:
+    commands:
+      - command: >
+          kubectl ${kubeContextArgs} create namespace ${namespace}
+          --dry-run=client -o yaml | kubectl ${kubeContextArgs} apply -f -
+        timeout: 60
+      - command: >
+          kubectl ${kubeContextArgs} apply -f
+          ${repoRoot}/examples/integration/manifests/local-kind-services.yaml
+        timeout: 120
+      - command: >
+          kubectl ${kubeContextArgs} -n platform rollout status deployment/emqx --timeout=300s;
+          kubectl ${kubeContextArgs} -n streaming rollout status deployment/redpanda --timeout=300s;
+          kubectl ${kubeContextArgs} -n application rollout status deployment/spex-demo-ingestor --timeout=300s;
+          kubectl ${kubeContextArgs} -n application rollout status deployment/graphql-api --timeout=300s
+        timeout: 300
+      - command: >
+          set -eu;
+          test -n "$SPEX_MQTT_USERNAME";
+          test -n "$SPEX_MQTT_PASSWORD";
+          kubectl ${kubeContextArgs} -n ${namespace} create secret generic mqtt-probe-credentials
+          --from-literal=username="$SPEX_MQTT_USERNAME"
+          --from-literal=password="$SPEX_MQTT_PASSWORD"
+          --dry-run=client -o yaml | kubectl ${kubeContextArgs} apply -f -
+        timeout: 60
+      - command: >
+          set -eu;
+          test -n "$SPEX_GRAPHQL_TOKEN";
+          kubectl ${kubeContextArgs} -n ${namespace} create secret generic graphql-probe-credentials
+          --from-literal=token="$SPEX_GRAPHQL_TOKEN"
+          --dry-run=client -o yaml | kubectl ${kubeContextArgs} apply -f -
+        timeout: 60

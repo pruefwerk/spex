@@ -1,0 +1,66 @@
+apiVersion: spex.catalog.v0.1
+kind: FlowCatalog
+metadata:
+  name: telemetry-flow
+spec:
+  flows:
+    mqttToRedpandaToGraphql:
+      parameters:
+        tenantId: string
+        deviceId: string
+        value: number
+      expandsTo:
+        payloadTemplates:
+          valid-energy-reading-{id}:
+            contentType: application/json
+            body: |
+              {
+                "scenarioRunId": "${scenarioRunId}",
+                "correlationId": "${correlationId}",
+                "tenantId": "{tenantId}",
+                "deviceId": "{deviceId}",
+                "measurement": "energy.total",
+                "value": {value},
+                "unit": "kWh"
+              }
+        graphqlQueries:
+          latest-device-reading:
+            file: ../queries/latest-device-reading.graphql
+        operations:
+          - id: publish-{id}
+            type: mqtt.publish
+            mqtt:
+              topic: telemetry/{tenantId}/{deviceId}/readings
+              payloadTemplateRef: valid-energy-reading-{id}
+              correlationId: "{id}"
+          - id: assert-redpanda-{id}
+            type: redpanda.contains
+            after: publish-{id}
+            redpanda:
+              topicRef: normalized-readings
+              correlationId: "{id}"
+              timeout: 60s
+              match:
+                - path: $.scenarioRunId
+                  equalsString: ${scenarioRunId}
+                - path: $.correlationId
+                  equalsString: "{id}"
+                - path: $.value
+                  equalsNumber: "{value}"
+          - id: assert-graphql-{id}
+            type: graphql.expect
+            after: publish-{id}
+            graphql:
+              queryRef: latest-device-reading
+              variables:
+                scenarioRunId: ${scenarioRunId}
+                correlationId: "{id}"
+                deviceId: "{deviceId}"
+              timeout: 60s
+              match:
+                - path: $.data.latestDeviceReading.scenarioRunId
+                  equalsString: ${scenarioRunId}
+                - path: $.data.latestDeviceReading.correlationId
+                  equalsString: "{id}"
+                - path: $.data.latestDeviceReading.value
+                  equalsNumber: "{value}"

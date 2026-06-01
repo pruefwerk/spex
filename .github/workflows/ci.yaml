@@ -1,0 +1,112 @@
+name: spex
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      live_proof:
+        description: Run live kind proof
+        required: false
+        default: "false"
+      keycloak:
+        description: Include Keycloak live proof
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+env:
+  GOVULNCHECK_VERSION: v1.1.4
+
+concurrency:
+  group: spex-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make install-vulncheck
+      - run: make security-check
+      - run: make production-candidate-check VERSION=ci COMMIT="${GITHUB_SHA}" BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" RELEASE_CHECK_DISTDIR=dist
+        env:
+          SPEX_MQTT_PASSWORD: ci-secret-scan-password
+          SPEX_GRAPHQL_TOKEN: ci-secret-scan-token
+          SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET: ci-secret-scan-client-secret
+          SPEX_KEYCLOAK_ADMIN_PASSWORD: ci-secret-scan-admin-password
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spex-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  live-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.live_proof == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install live proof tools
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          curl -fsSL -o /tmp/kubectl https://dl.k8s.io/release/v1.29.8/bin/linux/amd64/kubectl
+          sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+          curl -fsSL -o /tmp/helm.tar.gz https://get.helm.sh/helm-v3.19.1-linux-amd64.tar.gz
+          tar -xzf /tmp/helm.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          go install github.com/kudobuilder/kuttl/cmd/kubectl-kuttl@v0.25.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: make live-proof-kind
+        env:
+          SPEX_MQTT_USERNAME: tester
+          SPEX_MQTT_PASSWORD: tester-password
+          SPEX_GRAPHQL_TOKEN: local-dev-token
+      - run: make live-proof-keycloak
+        if: inputs.keycloak == 'true'
+        env:
+          SPEX_MQTT_USERNAME: tester
+          SPEX_MQTT_PASSWORD: tester-password
+          SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET: graphql-client-secret
+          SPEX_KEYCLOAK_ADMIN_PASSWORD: admin-password
+      - name: Scrub live kubeconfigs
+        if: always()
+        run: find generated -path '*-live/kubeconfig' -type f -delete
+      - name: Scan live artifacts for secret values
+        if: always()
+        run: go run ./cmd/spex doctor --skip-host-tools --scan-artifacts generated/mqtt-ingestion-basic-live --scan-artifacts generated/mqtt-ingestion-basic-keycloak-live --format json
+        env:
+          SPEX_MQTT_PASSWORD: tester-password
+          SPEX_GRAPHQL_TOKEN: local-dev-token
+          SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET: graphql-client-secret
+          SPEX_KEYCLOAK_ADMIN_PASSWORD: admin-password
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spex-live-proof
+          path: |
+            generated/mqtt-ingestion-basic-live/
+            generated/mqtt-ingestion-basic-keycloak-live/
+          if-no-files-found: warn
+          retention-days: 14

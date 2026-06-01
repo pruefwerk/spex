@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pruefwerk/spex/schemas/integration-profile.schema.json",
+  "title": "spex IntegrationProfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "spec"],
+  "properties": {
+    "apiVersion": { "const": "spex.integration.v0.1" },
+    "kind": { "const": "IntegrationProfile" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowFakes": { "type": "boolean" },
+        "extends": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "kind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": { "type": "boolean" },
+            "clusterName": { "type": "string", "minLength": 1 },
+            "config": { "type": "string", "minLength": 1 },
+            "nodeCache": { "type": "boolean" },
+            "containers": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "commands": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/kuttlCommand" }
+            }
+          }
+        },
+        "setup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "commands": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/kuttlCommand" }
+            }
+          }
+        },
+        "helmApps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/helmApp" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kuttlCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "timeout": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "helmApp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "chart"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "chart": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "minLength": 1 },
+        "values": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "set": {
+          "type": "object",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "wait": { "type": "boolean" },
+        "timeout": { "type": "string" }
+      }
+    }
+  }
+}

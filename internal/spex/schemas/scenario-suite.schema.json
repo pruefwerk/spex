@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pruefwerk/spex/schemas/scenario-suite.schema.json",
+  "title": "spex ScenarioSuite",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "spex.suite.v0.1" },
+    "kind": { "const": "ScenarioSuite" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bindingRef", "scenarios"],
+      "properties": {
+        "bindingRef": { "type": "string", "minLength": 1 },
+        "integrationProfileRef": { "type": "string", "minLength": 1 },
+        "catalogRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "scenarios": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "$ref": "#/$defs/scenarioRef" }
+            ]
+          }
+        },
+        "workspaceDir": { "type": "string" },
+        "failFast": { "type": "boolean" },
+        "reports": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "outputDir": { "type": "string" },
+            "format": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["yaml", "json", "junit"] }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "scenarioRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bindingRef": { "type": "string", "minLength": 1 },
+        "integrationProfileRef": { "type": "string", "minLength": 1 },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
