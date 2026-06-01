@@ -1503,6 +1503,37 @@ func validateScenario(s Scenario, scenarioPath string) error {
 			if err := validateGraphQLCorrelation("operation "+op.ID+" graphql", op.GraphQL); err != nil {
 				return err
 			}
+		case "mongodb.expect":
+			if err := validateOperationBlocks(op, "mongodb"); err != nil {
+				return err
+			}
+			if op.MongoDB == nil {
+				return fmt.Errorf("operation %q missing mongodb block", op.ID)
+			}
+			if strings.TrimSpace(op.MongoDB.Collection) == "" {
+				return fmt.Errorf("operation %q mongodb.collection is required", op.ID)
+			}
+			if strings.ContainsAny(op.MongoDB.Collection, "\x00\r\n\t") {
+				return fmt.Errorf("operation %q mongodb.collection must not contain control characters", op.ID)
+			}
+			if strings.TrimSpace(op.MongoDB.Filter) == "" {
+				return fmt.Errorf("operation %q mongodb.filter is required", op.ID)
+			}
+			if err := validatePayloadTemplateJSON("operation "+op.ID+" mongodb.filter", op.MongoDB.Filter); err != nil {
+				return err
+			}
+			if err := validateOptionalTimeout("operation "+op.ID+" mongodb.timeout", op.MongoDB.Timeout); err != nil {
+				return err
+			}
+			if err := validateMatchers("operation "+op.ID+" mongodb.match", op.MongoDB.Match); err != nil {
+				return err
+			}
+			if err := validateCorrelationID("operation "+op.ID+" mongodb.correlationId", op.MongoDB.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateCorrelationMatchers("operation "+op.ID+" mongodb.match", op.MongoDB.CorrelationID, op.MongoDB.Match); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("operation %q uses unsupported type %q", op.ID, op.Type)
 		}
@@ -1536,6 +1567,9 @@ func validateOperationBlocks(op Operation, expected string) error {
 	}
 	if expected != "graphql" && op.GraphQL != nil {
 		return fmt.Errorf("operation %q of type %q must not contain graphql block", op.ID, op.Type)
+	}
+	if expected != "mongodb" && op.MongoDB != nil {
+		return fmt.Errorf("operation %q of type %q must not contain mongodb block", op.ID, op.Type)
 	}
 	return nil
 }
@@ -1814,6 +1848,17 @@ func validateScenarioTemplates(s Scenario) error {
 					}
 				}
 			}
+		case "mongodb.expect":
+			if op.MongoDB != nil {
+				if err := validateTemplateString("operation "+op.ID+" mongodb.filter", op.MongoDB.Filter, params); err != nil {
+					return err
+				}
+				for i, matcher := range op.MongoDB.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" mongodb.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
 	return nil
@@ -2067,6 +2112,15 @@ func validateBinding(b TargetBinding) error {
 	if err := validateURLNoCredentials("spec.graphql.endpoint", b.Spec.GraphQL.Endpoint, []string{"http", "https"}); err != nil {
 		return err
 	}
+	if err := validateURLNoCredentials("spec.mongodb.uri", b.Spec.MongoDB.URI, []string{"mongodb", "mongodb+srv"}); err != nil {
+		return err
+	}
+	if b.Spec.MongoDB.Database != "" && strings.ContainsAny(b.Spec.MongoDB.Database, " \t\r\n\x00/\\.") {
+		return fmt.Errorf("spec.mongodb.database must not contain whitespace, control characters, slash, backslash, or dot")
+	}
+	if err := validateSecretRef(b, "spec.mongodb.credentialsRef", b.Spec.MongoDB.CredentialsRef, []string{"username", "password"}); err != nil {
+		return err
+	}
 	if err := validateRedpandaBrokers("spec.redpanda.brokers", b.Spec.Redpanda.Brokers); err != nil {
 		return err
 	}
@@ -2157,6 +2211,14 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 			}
 			if topic.AllowCompacted {
 				return fmt.Errorf("binding_validation_failure: operation %q redpanda topicRef %q uses compacted topics, unsupported in this release", op.ID, topicRef)
+			}
+		}
+		if op.Type == "mongodb.expect" {
+			if b.Spec.MongoDB.URI == "" {
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri is required because operation %q uses mongodb.expect", op.ID)
+			}
+			if b.Spec.MongoDB.Database == "" {
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.database is required because operation %q uses mongodb.expect", op.ID)
 			}
 		}
 	}
