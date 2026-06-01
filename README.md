@@ -540,7 +540,9 @@ The generated setup step creates or updates the Kubernetes Secret with `kubectl 
 
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
 
-PostgreSQL assertions use `postgresql.expect` operations. The scenario supplies a parameterized SQL query, string arguments, a correlation ID, and matchers. The binding supplies `spec.postgresql.uri` and optionally `spec.postgresql.credentialsRef` with `username` and `password` keys. The URI must not embed credentials.
+MongoDB assertions use `mongodb.expect` operations. The scenario supplies a collection, a JSON filter, a correlation ID, and matchers. The binding supplies `spec.mongodb.uri`, `spec.mongodb.database`, and optionally `spec.mongodb.credentialsRef` with `username` and `password` keys. Filters and matchers support the same `${scenarioRunId}`, `${correlationId}`, and `${param.<name>}` template values used by the other assertion operations.
+
+PostgreSQL assertions use `postgresql.expect` operations. The scenario supplies a SQL query, optional string arguments, a correlation ID, and matchers. The binding supplies `spec.postgresql.uri` and optionally `spec.postgresql.credentialsRef` with `username` and `password` keys. Queries, arguments, and matchers support `${scenarioRunId}`, `${correlationId}`, and `${param.<name>}` template values.
 
 ## License
 

@@ -340,6 +340,22 @@ func buildPlan(in Inputs) generationPlan {
 			}
 			plan.Steps = append(plan.Steps, step)
 			ordinal++
+		case "mongodb.expect":
+			filterFile := DNSLabel(op.ID) + ".filter.json"
+			matchersFile := DNSLabel(op.ID) + ".matchers.json"
+			plan.Variables[filterFile] = renderJSONTemplate(op.MongoDB.Filter, in.RunID, op.MongoDB.CorrelationID, plan.Params)
+			plan.Matchers[matchersFile] = renderMatchersJSON(op.MongoDB.Match, in.RunID, op.MongoDB.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         mongodbExpectJob(in, scenarioSlug, ordinal, op, filterFile, matchersFile),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
 		case "postgresql.expect":
 			queryFile := DNSLabel(op.ID) + ".sql"
 			argsFile := DNSLabel(op.ID) + ".args.json"
@@ -874,6 +890,19 @@ func graphqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation,
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
 }
 
+func mongodbExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, filterFile, matchersFile string) string {
+	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
+		"mongodb", "expect",
+		"--uri=" + in.Binding.Spec.MongoDB.URI,
+		"--database=" + in.Binding.Spec.MongoDB.Database,
+		"--collection=" + op.MongoDB.Collection,
+		"--filter-file=/spex/variables/" + filterFile,
+		"--matchers-file=/spex/matchers/" + matchersFile,
+		"--timeout=" + mongodbTimeout(in, op),
+		"--poll-interval=" + defaultPollInterval(in),
+	})
+}
+
 func postgresqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, argsFile, matchersFile string) string {
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
 		"postgresql", "expect",
@@ -1232,6 +1261,13 @@ func graphqlTimeout(in Inputs, op Operation) string {
 	return defaultTimeout(in)
 }
 
+func mongodbTimeout(in Inputs, op Operation) string {
+	if op.MongoDB != nil && op.MongoDB.Timeout != "" {
+		return op.MongoDB.Timeout
+	}
+	return defaultTimeout(in)
+}
+
 func postgresqlTimeout(in Inputs, op Operation) string {
 	if op.Postgres != nil && op.Postgres.Timeout != "" {
 		return op.Postgres.Timeout
@@ -1298,6 +1334,11 @@ func secretEnv(in Inputs, args []string) string {
 		}
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.CredentialsRef], map[string]string{
 			"SPEX_GRAPHQL_TOKEN": "token",
+		})
+	case len(args) >= 2 && args[0] == "mongodb" && args[1] == "expect":
+		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
+			"SPEX_MONGODB_USERNAME": "username",
+			"SPEX_MONGODB_PASSWORD": "password",
 		})
 	case len(args) >= 2 && args[0] == "postgresql" && args[1] == "expect":
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.PostgreSQL.CredentialsRef], map[string]string{
