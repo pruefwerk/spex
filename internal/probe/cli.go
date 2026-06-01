@@ -12,7 +12,7 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|mongodb|mqtt|postgresql|redpanda> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|mongodb|mqtt|postgresql|rabbitmq|redpanda> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
@@ -23,6 +23,10 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runMQTTPublish(args[2:], stdout)
 	case "postgresql expect":
 		return runPostgreSQLExpect(args[2:], stdout)
+	case "rabbitmq publish":
+		return runRabbitMQPublish(args[2:], stdout)
+	case "rabbitmq expect":
+		return runRabbitMQExpect(args[2:], stdout)
 	case "redpanda snapshot-offsets":
 		return runRedpandaSnapshotOffsets(args[2:], stdout)
 	case "redpanda contains":
@@ -158,6 +162,108 @@ func runPostgreSQLExpect(args []string, stdout io.Writer) error {
 		return emitFailure(stdout, "postgresql.expect", err)
 	}
 	return emit(stdout, "postgresql.expect", "passed", "")
+}
+
+func runRabbitMQPublish(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("rabbitmq publish", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	payloadFile := fs.String("payload-file", "", "payload JSON file")
+	uri := fs.String("uri", "", "RabbitMQ URI")
+	exchange := fs.String("exchange", "", "RabbitMQ exchange")
+	routingKey := fs.String("routing-key", "", "RabbitMQ routing key")
+	timeoutValue := fs.String("timeout", "30s", "timeout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "rabbitmq publish"); err != nil {
+		return err
+	}
+	if *payloadFile == "" || *uri == "" || *routingKey == "" {
+		return fmt.Errorf("rabbitmq publish requires --uri, --routing-key, and --payload-file")
+	}
+	payload, err := os.ReadFile(*payloadFile)
+	if err != nil {
+		return err
+	}
+	timeout, err := time.ParseDuration(*timeoutValue)
+	if err != nil {
+		return fmt.Errorf("invalid --timeout: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	username, password := rabbitMQCredentialsFromEnv()
+	if err := publishRabbitMQ(rabbitMQPublishRequest{
+		URI:        *uri,
+		Exchange:   *exchange,
+		RoutingKey: *routingKey,
+		Username:   username,
+		Password:   password,
+		Payload:    payload,
+		Timeout:    timeout,
+	}); err != nil {
+		return emitFailure(stdout, "rabbitmq.publish", err)
+	}
+	return emit(stdout, "rabbitmq.publish", "passed", "")
+}
+
+func runRabbitMQExpect(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("rabbitmq expect", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	uri := fs.String("uri", "", "RabbitMQ URI")
+	queue := fs.String("queue", "", "RabbitMQ queue")
+	matchersFile := fs.String("matchers-file", "", "matchers JSON file")
+	fixtureMessageFile := fs.String("fixture-message-file", "", "fixture message JSON file")
+	timeoutValue := fs.String("timeout", "30s", "timeout")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "rabbitmq expect"); err != nil {
+		return err
+	}
+	if *matchersFile == "" {
+		return fmt.Errorf("rabbitmq expect requires --matchers-file")
+	}
+	if _, err := os.Stat(*matchersFile); err != nil {
+		return err
+	}
+	if *fixtureMessageFile != "" {
+		if err := EvaluateMatchersFile(*matchersFile, *fixtureMessageFile); err != nil {
+			return emitFailure(stdout, "rabbitmq.expect", err)
+		}
+		return emit(stdout, "rabbitmq.expect", "passed", "")
+	}
+	if *uri == "" || *queue == "" {
+		return fmt.Errorf("rabbitmq expect requires --uri and --queue unless --fixture-message-file is used")
+	}
+	timeout, err := time.ParseDuration(*timeoutValue)
+	if err != nil {
+		return fmt.Errorf("invalid --timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	username, password := rabbitMQCredentialsFromEnv()
+	if err := expectRabbitMQ(rabbitMQExpectRequest{
+		URI:          *uri,
+		Queue:        *queue,
+		Username:     username,
+		Password:     password,
+		MatchersFile: *matchersFile,
+		Timeout:      timeout,
+		PollInterval: pollInterval,
+	}); err != nil {
+		return emitFailure(stdout, "rabbitmq.expect", err)
+	}
+	return emit(stdout, "rabbitmq.expect", "passed", "")
 }
 
 func rejectProbePositionalArgs(fs *flag.FlagSet, command string) error {
@@ -449,6 +555,13 @@ func probeFailureClass(operation string, err error) string {
 			return "postgresql_match_timeout"
 		}
 		return "postgresql_expect_failed"
+	case "rabbitmq.publish":
+		return "rabbitmq_publish_failed"
+	case "rabbitmq.expect":
+		if strings.Contains(message, "rabbitmq expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") || strings.Contains(message, "context deadline exceeded") {
+			return "rabbitmq_match_timeout"
+		}
+		return "rabbitmq_expect_failed"
 	case "redpanda.snapshotOffsets":
 		return "redpanda_offset_snapshot_failed"
 	case "redpanda.contains":

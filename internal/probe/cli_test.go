@@ -96,6 +96,8 @@ func TestMQTTPublishReportsPublisherFailure(t *testing.T) {
 func TestProbeRejectsUnexpectedPositionalArgs(t *testing.T) {
 	tests := [][]string{
 		{"mqtt", "publish", "extra"},
+		{"rabbitmq", "publish", "extra"},
+		{"rabbitmq", "expect", "extra"},
 		{"redpanda", "snapshot-offsets", "extra"},
 		{"redpanda", "contains", "extra"},
 		{"graphql", "expect", "extra"},
@@ -264,6 +266,64 @@ func TestGraphQLExpectEvaluatesFixtureResponse(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"status":"passed"`) {
 		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
+func TestRabbitMQExpectEvaluatesFixtureMessage(t *testing.T) {
+	dir := t.TempDir()
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.correlationId","equalsString":"reading-1"},{"path":"$.value","equalsNumber":"42.5"}]`)
+	message := writeTestFile(t, dir, "message.json", `{"correlationId":"reading-1","value":42.50}`)
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"rabbitmq", "expect",
+		"--matchers-file", matchers,
+		"--fixture-message-file", message,
+	}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"operation":"rabbitmq.expect"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
+func TestRabbitMQExpectRejectsFixtureMismatch(t *testing.T) {
+	dir := t.TempDir()
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.correlationId","equalsString":"reading-1"}]`)
+	message := writeTestFile(t, dir, "message.json", `{"correlationId":"wrong"}`)
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"rabbitmq", "expect",
+		"--matchers-file", matchers,
+		"--fixture-message-file", message,
+	}, &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "matcher") {
+		t.Fatalf("expected matcher failure, got %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"status":"failed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"failureClass":"rabbitmq_expect_failed"`) {
+		t.Fatalf("failure class missing from output: %s", stdout.String())
+	}
+}
+
+func TestRabbitMQExpectRequiresLiveConnectionArgs(t *testing.T) {
+	dir := t.TempDir()
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.correlationId","equalsString":"reading-1"}]`)
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"rabbitmq", "expect",
+		"--matchers-file", matchers,
+	}, &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "requires --uri and --queue") {
+		t.Fatalf("expected RabbitMQ live arg validation error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
 	}
 }
 

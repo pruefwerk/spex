@@ -72,6 +72,7 @@ type Operation struct {
 	GraphQL  *GraphQLExpectation    `yaml:"graphql"`
 	MongoDB  *MongoDBExpectation    `yaml:"mongodb"`
 	Postgres *PostgreSQLExpectation `yaml:"postgresql"`
+	RabbitMQ *RabbitMQOperation     `yaml:"rabbitmq"`
 }
 
 type MQTTPublish struct {
@@ -110,6 +111,16 @@ type PostgreSQLExpectation struct {
 	Match         []Matcher `yaml:"match"`
 }
 
+type RabbitMQOperation struct {
+	Exchange           string    `yaml:"exchange"`
+	RoutingKey         string    `yaml:"routingKey"`
+	Queue              string    `yaml:"queue"`
+	PayloadTemplateRef string    `yaml:"payloadTemplateRef"`
+	CorrelationID      string    `yaml:"correlationId"`
+	Timeout            string    `yaml:"timeout"`
+	Match              []Matcher `yaml:"match"`
+}
+
 type Matcher struct {
 	Path         string `yaml:"path"`
 	EqualsString string `yaml:"equalsString"`
@@ -137,6 +148,7 @@ type BindingSpec struct {
 	GraphQL            GraphQLBinding    `yaml:"graphql"`
 	MongoDB            MongoDBBinding    `yaml:"mongodb"`
 	PostgreSQL         PostgreSQLBinding `yaml:"postgresql"`
+	RabbitMQ           RabbitMQBinding   `yaml:"rabbitmq"`
 }
 
 type RBAC struct {
@@ -189,6 +201,11 @@ type MongoDBBinding struct {
 }
 
 type PostgreSQLBinding struct {
+	URI            string `yaml:"uri"`
+	CredentialsRef string `yaml:"credentialsRef"`
+}
+
+type RabbitMQBinding struct {
 	URI            string `yaml:"uri"`
 	CredentialsRef string `yaml:"credentialsRef"`
 }

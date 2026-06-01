@@ -1455,6 +1455,51 @@ func validateScenario(s Scenario, scenarioPath string) error {
 			if err := validateMQTTPayloadCorrelation(op.ID, template.Body); err != nil {
 				return err
 			}
+		case "rabbitmq.publish":
+			if err := validateOperationBlocks(op, "rabbitmq"); err != nil {
+				return err
+			}
+			if op.RabbitMQ == nil {
+				return fmt.Errorf("operation %q missing rabbitmq block", op.ID)
+			}
+			if strings.TrimSpace(op.RabbitMQ.RoutingKey) == "" {
+				return fmt.Errorf("operation %q rabbitmq.routingKey is required", op.ID)
+			}
+			if op.RabbitMQ.PayloadTemplateRef == "" {
+				return fmt.Errorf("operation %q rabbitmq.payloadTemplateRef is required", op.ID)
+			}
+			template, ok := s.Spec.PayloadTemplates[op.RabbitMQ.PayloadTemplateRef]
+			if !ok {
+				return fmt.Errorf("operation %q references unknown payload template %q", op.ID, op.RabbitMQ.PayloadTemplateRef)
+			}
+			if err := validateCorrelationID("operation "+op.ID+" rabbitmq.correlationId", op.RabbitMQ.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateMQTTPayloadCorrelation(op.ID, template.Body); err != nil {
+				return err
+			}
+		case "rabbitmq.expect":
+			if err := validateOperationBlocks(op, "rabbitmq"); err != nil {
+				return err
+			}
+			if op.RabbitMQ == nil {
+				return fmt.Errorf("operation %q missing rabbitmq block", op.ID)
+			}
+			if strings.TrimSpace(op.RabbitMQ.Queue) == "" {
+				return fmt.Errorf("operation %q rabbitmq.queue is required", op.ID)
+			}
+			if err := validateOptionalTimeout("operation "+op.ID+" rabbitmq.timeout", op.RabbitMQ.Timeout); err != nil {
+				return err
+			}
+			if err := validateMatchers("operation "+op.ID+" rabbitmq.match", op.RabbitMQ.Match); err != nil {
+				return err
+			}
+			if err := validateCorrelationID("operation "+op.ID+" rabbitmq.correlationId", op.RabbitMQ.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateCorrelationMatchers("operation "+op.ID+" rabbitmq.match", op.RabbitMQ.CorrelationID, op.RabbitMQ.Match); err != nil {
+				return err
+			}
 		case "redpanda.contains":
 			if err := validateOperationBlocks(op, "redpanda"); err != nil {
 				return err
@@ -1598,6 +1643,9 @@ func validateOperationBlocks(op Operation, expected string) error {
 	}
 	if expected != "postgresql" && op.Postgres != nil {
 		return fmt.Errorf("operation %q of type %q must not contain postgresql block", op.ID, op.Type)
+	}
+	if expected != "rabbitmq" && op.RabbitMQ != nil {
+		return fmt.Errorf("operation %q of type %q must not contain rabbitmq block", op.ID, op.Type)
 	}
 	return nil
 }
@@ -1903,6 +1951,26 @@ func validateScenarioTemplates(s Scenario) error {
 					}
 				}
 			}
+		case "rabbitmq.publish":
+			if op.RabbitMQ != nil {
+				if err := validateTemplateString("operation "+op.ID+" rabbitmq.exchange", op.RabbitMQ.Exchange, params); err != nil {
+					return err
+				}
+				if err := validateTemplateString("operation "+op.ID+" rabbitmq.routingKey", op.RabbitMQ.RoutingKey, params); err != nil {
+					return err
+				}
+			}
+		case "rabbitmq.expect":
+			if op.RabbitMQ != nil {
+				if err := validateTemplateString("operation "+op.ID+" rabbitmq.queue", op.RabbitMQ.Queue, params); err != nil {
+					return err
+				}
+				for i, matcher := range op.RabbitMQ.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" rabbitmq.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
 	return nil
@@ -2153,6 +2221,12 @@ func validateBinding(b TargetBinding) error {
 	if err := validateURLNoCredentials("spec.mqtt.brokerURL", b.Spec.MQTT.BrokerURL, []string{"tcp", "ssl", "ws", "wss", "mqtt", "mqtts"}); err != nil {
 		return err
 	}
+	if err := validateURLNoCredentials("spec.rabbitmq.uri", b.Spec.RabbitMQ.URI, []string{"amqp", "amqps"}); err != nil {
+		return err
+	}
+	if err := validateSecretRef(b, "spec.rabbitmq.credentialsRef", b.Spec.RabbitMQ.CredentialsRef, []string{"username", "password"}); err != nil {
+		return err
+	}
 	if err := validateURLNoCredentials("spec.graphql.endpoint", b.Spec.GraphQL.Endpoint, []string{"http", "https"}); err != nil {
 		return err
 	}
@@ -2285,6 +2359,11 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 		if op.Type == "postgresql.expect" {
 			if b.Spec.PostgreSQL.URI == "" {
 				return fmt.Errorf("binding_validation_failure: spec.postgresql.uri is required because operation %q uses postgresql.expect", op.ID)
+			}
+		}
+		if op.Type == "rabbitmq.publish" || op.Type == "rabbitmq.expect" {
+			if b.Spec.RabbitMQ.URI == "" {
+				return fmt.Errorf("binding_validation_failure: spec.rabbitmq.uri is required because operation %q uses %s", op.ID, op.Type)
 			}
 		}
 	}

@@ -546,6 +546,8 @@ MongoDB Atlas is supported as a pre-existing external target. Set `spec.mongodb.
 
 PostgreSQL assertions use `postgresql.expect` operations. The scenario supplies a SQL query, optional string arguments, a correlation ID, and matchers. The binding supplies `spec.postgresql.uri` and optionally `spec.postgresql.credentialsRef` with `username` and `password` keys. Queries, arguments, and matchers support `${scenarioRunId}`, `${correlationId}`, and `${param.<name>}` template values.
 
+RabbitMQ test benches connect through bindings and Secrets. RabbitMQ expectations should target dedicated test queues because matching consumes inspected messages.
+
 ## License
 
 spex is source-available under the Internal Business Source Available License 1.0.

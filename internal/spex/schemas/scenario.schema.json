@@ -128,13 +128,14 @@
       "required": ["id", "type"],
       "properties": {
         "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
-        "type": { "enum": ["mqtt.publish", "redpanda.contains", "graphql.expect", "mongodb.expect", "postgresql.expect"] },
+        "type": { "enum": ["mqtt.publish", "redpanda.contains", "graphql.expect", "mongodb.expect", "postgresql.expect", "rabbitmq.publish", "rabbitmq.expect"] },
         "after": { "type": "string", "minLength": 1 },
         "mqtt": { "$ref": "#/$defs/mqttPublish" },
         "redpanda": { "$ref": "#/$defs/redpandaContains" },
         "graphql": { "$ref": "#/$defs/graphqlExpectation" },
         "mongodb": { "$ref": "#/$defs/mongodbExpectation" },
-        "postgresql": { "$ref": "#/$defs/postgresqlExpectation" }
+        "postgresql": { "$ref": "#/$defs/postgresqlExpectation" },
+        "rabbitmq": { "$ref": "#/$defs/rabbitmqOperation" }
       }
     },
     "mqttPublish": {
@@ -206,6 +207,23 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "correlationId": { "type": "string", "minLength": 1 },
+        "timeout": { "type": "string" },
+        "match": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/matcher" }
+        }
+      }
+    },
+    "rabbitmqOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exchange": { "type": "string" },
+        "routingKey": { "type": "string", "minLength": 1 },
+        "queue": { "type": "string", "minLength": 1 },
+        "payloadTemplateRef": { "type": "string", "minLength": 1 },
         "correlationId": { "type": "string", "minLength": 1 },
         "timeout": { "type": "string" },
         "match": {

@@ -51,6 +51,15 @@
             "credentialsRef": { "type": "string", "minLength": 1 }
           }
         },
+        "rabbitmq": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "minLength": 1 },
+            "credentialsRef": { "type": "string", "minLength": 1 }
+          }
+        },
         "redpanda": {
           "type": "object",
           "additionalProperties": false,
