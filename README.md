@@ -540,6 +540,8 @@ The generated setup step creates or updates the Kubernetes Secret with `kubectl 
 
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
 
+PostgreSQL assertions use `postgresql.expect` operations. The scenario supplies a parameterized SQL query, string arguments, a correlation ID, and matchers. The binding supplies `spec.postgresql.uri` and optionally `spec.postgresql.credentialsRef` with `username` and `password` keys. The URI must not embed credentials.
+
 ## License
 
 spex is source-available under the Internal Business Source Available License 1.0.

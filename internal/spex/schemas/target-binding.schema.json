@@ -72,6 +72,15 @@
             "credentialsRef": { "type": "string", "minLength": 1 },
             "auth": { "$ref": "#/$defs/graphqlAuth" }
           }
+        },
+        "postgresql": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "minLength": 1 },
+            "credentialsRef": { "type": "string", "minLength": 1 }
+          }
         }
       }
     }

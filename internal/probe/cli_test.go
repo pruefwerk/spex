@@ -339,6 +339,71 @@ func TestGraphQLExpectPostsQueryVariablesAndToken(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLExpectEvaluatesFixtureRow(t *testing.T) {
+	dir := t.TempDir()
+	query := filepath.Join(dir, "query.sql")
+	args := filepath.Join(dir, "args.json")
+	matchers := filepath.Join(dir, "matchers.json")
+	row := filepath.Join(dir, "row.json")
+	if err := os.WriteFile(query, []byte("select scenario_run_id, correlation_id, value from readings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(args, []byte(`["run-1","reading-1"]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(matchers, []byte(`[
+{"path":"$.scenario_run_id","equalsString":"run-1"},
+{"path":"$.correlation_id","equalsString":"reading-1"},
+{"path":"$.value","equalsNumber":"42.5"}
+]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(row, []byte(`{"scenario_run_id":"run-1","correlation_id":"reading-1","value":42.50}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"postgresql", "expect",
+		"--query-file", query,
+		"--args-file", args,
+		"--matchers-file", matchers,
+		"--fixture-row-file", row,
+	}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("postgresql fixture expect failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"operation":"postgresql.expect"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
+func TestPostgreSQLExpectRequiresURIWithoutFixture(t *testing.T) {
+	dir := t.TempDir()
+	query := filepath.Join(dir, "query.sql")
+	args := filepath.Join(dir, "args.json")
+	matchers := filepath.Join(dir, "matchers.json")
+	if err := os.WriteFile(query, []byte("select 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(args, []byte(`[]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(matchers, []byte(`[{"path":"$","equalsNull":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Run([]string{
+		"postgresql", "expect",
+		"--query-file", query,
+		"--args-file", args,
+		"--matchers-file", matchers,
+	}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "postgresql expect requires --uri") {
+		t.Fatalf("expected missing URI error, got %v", err)
+	}
+}
+
 func TestGraphQLExpectRejectsLiveResponseErrors(t *testing.T) {
 	dir := t.TempDir()
 	query := writeTestFile(t, dir, "query.graphql", `query { value }`)
