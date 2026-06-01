@@ -540,6 +540,8 @@ The generated setup step creates or updates the Kubernetes Secret with `kubectl 
 
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
 
+MongoDB assertions use `mongodb.expect` operations. The scenario supplies a collection, a JSON filter, a correlation ID, and matchers. The binding supplies `spec.mongodb.uri`, `spec.mongodb.database`, and optionally `spec.mongodb.credentialsRef` with `username` and `password` keys. Filters and matchers support the same `${scenarioRunId}`, `${correlationId}`, and `${param.<name>}` template values used by the other assertion operations.
+
 ## License
 
 spex is source-available under the Internal Business Source Available License 1.0.

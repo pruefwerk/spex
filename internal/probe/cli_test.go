@@ -339,6 +339,61 @@ func TestGraphQLExpectPostsQueryVariablesAndToken(t *testing.T) {
 	}
 }
 
+func TestMongoDBExpectEvaluatesFixtureDocument(t *testing.T) {
+	dir := t.TempDir()
+	filter := filepath.Join(dir, "filter.json")
+	matchers := filepath.Join(dir, "matchers.json")
+	document := filepath.Join(dir, "document.json")
+	if err := os.WriteFile(filter, []byte(`{"scenarioRunId":"run-1","correlationId":"reading-1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(matchers, []byte(`[
+{"path":"$.scenarioRunId","equalsString":"run-1"},
+{"path":"$.correlationId","equalsString":"reading-1"},
+{"path":"$.value","equalsNumber":"42.5"}
+]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(document, []byte(`{"scenarioRunId":"run-1","correlationId":"reading-1","value":42.50}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"mongodb", "expect",
+		"--filter-file", filter,
+		"--matchers-file", matchers,
+		"--fixture-document-file", document,
+	}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("mongodb fixture expect failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"operation":"mongodb.expect"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
+func TestMongoDBExpectRequiresConnectionFieldsWithoutFixture(t *testing.T) {
+	dir := t.TempDir()
+	filter := filepath.Join(dir, "filter.json")
+	matchers := filepath.Join(dir, "matchers.json")
+	if err := os.WriteFile(filter, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(matchers, []byte(`[{"path":"$","equalsNull":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Run([]string{
+		"mongodb", "expect",
+		"--filter-file", filter,
+		"--matchers-file", matchers,
+	}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "mongodb expect requires --uri, --database, and --collection") {
+		t.Fatalf("expected missing connection fields error, got %v", err)
+	}
+}
+
 func TestGraphQLExpectRejectsLiveResponseErrors(t *testing.T) {
 	dir := t.TempDir()
 	query := writeTestFile(t, dir, "query.graphql", `query { value }`)
