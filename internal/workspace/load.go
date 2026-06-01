@@ -2115,11 +2115,19 @@ func validateBinding(b TargetBinding) error {
 	if err := validateURLNoCredentials("spec.mongodb.uri", b.Spec.MongoDB.URI, []string{"mongodb", "mongodb+srv"}); err != nil {
 		return err
 	}
+	switch b.Spec.MongoDB.Deployment {
+	case "", "selfManaged", "atlas":
+	default:
+		return fmt.Errorf("spec.mongodb.deployment must be selfManaged or atlas")
+	}
 	if b.Spec.MongoDB.Database != "" && strings.ContainsAny(b.Spec.MongoDB.Database, " \t\r\n\x00/\\.") {
 		return fmt.Errorf("spec.mongodb.database must not contain whitespace, control characters, slash, backslash, or dot")
 	}
 	if err := validateSecretRef(b, "spec.mongodb.credentialsRef", b.Spec.MongoDB.CredentialsRef, []string{"username", "password"}); err != nil {
 		return err
+	}
+	if b.Spec.MongoDB.Deployment == "atlas" && b.Spec.MongoDB.CredentialsRef == "" {
+		return fmt.Errorf("spec.mongodb.credentialsRef is required when spec.mongodb.deployment is atlas")
 	}
 	if err := validateRedpandaBrokers("spec.redpanda.brokers", b.Spec.Redpanda.Brokers); err != nil {
 		return err
@@ -2219,6 +2227,9 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 			}
 			if b.Spec.MongoDB.Database == "" {
 				return fmt.Errorf("binding_validation_failure: spec.mongodb.database is required because operation %q uses mongodb.expect", op.ID)
+			}
+			if b.Spec.MongoDB.Deployment == "atlas" && !strings.HasPrefix(b.Spec.MongoDB.URI, "mongodb+srv://") {
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri should use mongodb+srv:// because operation %q uses an Atlas deployment", op.ID)
 			}
 		}
 	}
