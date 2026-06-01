@@ -12,13 +12,17 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|mqtt|rabbitmq|redpanda> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|mongodb|mqtt|postgresql|rabbitmq|redpanda> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
 		return runGraphQLExpect(args[2:], stdout)
+	case "mongodb expect":
+		return runMongoDBExpect(args[2:], stdout)
 	case "mqtt publish":
 		return runMQTTPublish(args[2:], stdout)
+	case "postgresql expect":
+		return runPostgreSQLExpect(args[2:], stdout)
 	case "rabbitmq publish":
 		return runRabbitMQPublish(args[2:], stdout)
 	case "rabbitmq expect":
@@ -30,6 +34,134 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown probe command %q %q", args[0], args[1])
 	}
+}
+
+func runMongoDBExpect(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("mongodb expect", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	uri := fs.String("uri", "", "MongoDB URI")
+	database := fs.String("database", "", "MongoDB database")
+	collection := fs.String("collection", "", "MongoDB collection")
+	filterFile := fs.String("filter-file", "", "MongoDB filter JSON file")
+	matchersFile := fs.String("matchers-file", "", "matchers JSON file")
+	fixtureDocumentFile := fs.String("fixture-document-file", "", "fixture document JSON file")
+	timeoutValue := fs.String("timeout", "30s", "timeout")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "mongodb expect"); err != nil {
+		return err
+	}
+	if *filterFile == "" || *matchersFile == "" {
+		return fmt.Errorf("mongodb expect requires --filter-file and --matchers-file")
+	}
+	for _, path := range []string{*filterFile, *matchersFile} {
+		if _, err := os.Stat(path); err != nil {
+			return err
+		}
+	}
+	if *fixtureDocumentFile != "" {
+		if err := EvaluateMatchersFile(*matchersFile, *fixtureDocumentFile); err != nil {
+			return emitFailure(stdout, "mongodb.expect", err)
+		}
+		return emit(stdout, "mongodb.expect", "passed", "")
+	}
+	if *uri == "" || *database == "" || *collection == "" {
+		return fmt.Errorf("mongodb expect requires --uri, --database, and --collection unless --fixture-document-file is used")
+	}
+	timeout, err := time.ParseDuration(*timeoutValue)
+	if err != nil {
+		return fmt.Errorf("invalid --timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	username, password := mongoDBCredentialsFromEnv()
+	if err := expectMongoDB(mongoDBExpectRequest{
+		URI:          *uri,
+		Database:     *database,
+		Collection:   *collection,
+		Username:     username,
+		Password:     password,
+		FilterFile:   *filterFile,
+		MatchersFile: *matchersFile,
+		Timeout:      timeout,
+		PollInterval: pollInterval,
+	}); err != nil {
+		return emitFailure(stdout, "mongodb.expect", err)
+	}
+	return emit(stdout, "mongodb.expect", "passed", "")
+}
+
+func runPostgreSQLExpect(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("postgresql expect", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	uri := fs.String("uri", "", "PostgreSQL URI")
+	queryFile := fs.String("query-file", "", "SQL query file")
+	argsFile := fs.String("args-file", "", "SQL args JSON file")
+	matchersFile := fs.String("matchers-file", "", "matchers JSON file")
+	fixtureRowFile := fs.String("fixture-row-file", "", "fixture row JSON file")
+	timeoutValue := fs.String("timeout", "30s", "timeout")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "postgresql expect"); err != nil {
+		return err
+	}
+	for _, path := range []string{*queryFile, *argsFile, *matchersFile} {
+		if path == "" {
+			return fmt.Errorf("postgresql expect requires --query-file, --args-file, and --matchers-file")
+		}
+		if _, err := os.Stat(path); err != nil {
+			return err
+		}
+	}
+	if *fixtureRowFile != "" {
+		if err := EvaluateMatchersFile(*matchersFile, *fixtureRowFile); err != nil {
+			return emitFailure(stdout, "postgresql.expect", err)
+		}
+		return emit(stdout, "postgresql.expect", "passed", "")
+	}
+	if *uri == "" {
+		return fmt.Errorf("postgresql expect requires --uri unless --fixture-row-file is used")
+	}
+	timeout, err := time.ParseDuration(*timeoutValue)
+	if err != nil {
+		return fmt.Errorf("invalid --timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	username, password := postgreSQLCredentialsFromEnv()
+	if err := expectPostgreSQL(postgreSQLExpectRequest{
+		URI:          *uri,
+		Username:     username,
+		Password:     password,
+		QueryFile:    *queryFile,
+		ArgsFile:     *argsFile,
+		MatchersFile: *matchersFile,
+		Timeout:      timeout,
+		PollInterval: pollInterval,
+	}); err != nil {
+		return emitFailure(stdout, "postgresql.expect", err)
+	}
+	return emit(stdout, "postgresql.expect", "passed", "")
 }
 
 func runRabbitMQPublish(args []string, stdout io.Writer) error {
@@ -413,6 +545,16 @@ func probeFailureClass(operation string, err error) string {
 	switch operation {
 	case "mqtt.publish":
 		return "mqtt_publish_failed"
+	case "mongodb.expect":
+		if strings.Contains(message, "mongodb expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") || strings.Contains(message, "context deadline exceeded") {
+			return "mongodb_match_timeout"
+		}
+		return "mongodb_expect_failed"
+	case "postgresql.expect":
+		if strings.Contains(message, "postgresql expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") || strings.Contains(message, "context deadline exceeded") {
+			return "postgresql_match_timeout"
+		}
+		return "postgresql_expect_failed"
 	case "rabbitmq.publish":
 		return "rabbitmq_publish_failed"
 	case "rabbitmq.expect":

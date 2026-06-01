@@ -64,13 +64,15 @@ type GraphQLQuery struct {
 }
 
 type Operation struct {
-	ID       string              `yaml:"id"`
-	Type     string              `yaml:"type"`
-	After    string              `yaml:"after"`
-	MQTT     *MQTTPublish        `yaml:"mqtt"`
-	Redpanda *RedpandaContains   `yaml:"redpanda"`
-	GraphQL  *GraphQLExpectation `yaml:"graphql"`
-	RabbitMQ *RabbitMQOperation  `yaml:"rabbitmq"`
+	ID       string                 `yaml:"id"`
+	Type     string                 `yaml:"type"`
+	After    string                 `yaml:"after"`
+	MQTT     *MQTTPublish           `yaml:"mqtt"`
+	Redpanda *RedpandaContains      `yaml:"redpanda"`
+	GraphQL  *GraphQLExpectation    `yaml:"graphql"`
+	MongoDB  *MongoDBExpectation    `yaml:"mongodb"`
+	Postgres *PostgreSQLExpectation `yaml:"postgresql"`
+	RabbitMQ *RabbitMQOperation     `yaml:"rabbitmq"`
 }
 
 type MQTTPublish struct {
@@ -91,6 +93,22 @@ type GraphQLExpectation struct {
 	Variables map[string]string `yaml:"variables"`
 	Timeout   string            `yaml:"timeout"`
 	Match     []Matcher         `yaml:"match"`
+}
+
+type MongoDBExpectation struct {
+	Collection    string    `yaml:"collection"`
+	Filter        string    `yaml:"filter"`
+	CorrelationID string    `yaml:"correlationId"`
+	Timeout       string    `yaml:"timeout"`
+	Match         []Matcher `yaml:"match"`
+}
+
+type PostgreSQLExpectation struct {
+	Query         string    `yaml:"query"`
+	Args          []string  `yaml:"args"`
+	CorrelationID string    `yaml:"correlationId"`
+	Timeout       string    `yaml:"timeout"`
+	Match         []Matcher `yaml:"match"`
 }
 
 type RabbitMQOperation struct {
@@ -128,6 +146,8 @@ type BindingSpec struct {
 	MQTT               MQTTBinding       `yaml:"mqtt"`
 	Redpanda           RedpandaBinding   `yaml:"redpanda"`
 	GraphQL            GraphQLBinding    `yaml:"graphql"`
+	MongoDB            MongoDBBinding    `yaml:"mongodb"`
+	PostgreSQL         PostgreSQLBinding `yaml:"postgresql"`
 	RabbitMQ           RabbitMQBinding   `yaml:"rabbitmq"`
 }
 
@@ -171,6 +191,18 @@ type GraphQLBinding struct {
 	Endpoint       string      `yaml:"endpoint"`
 	CredentialsRef string      `yaml:"credentialsRef"`
 	Auth           GraphQLAuth `yaml:"auth"`
+}
+
+type MongoDBBinding struct {
+	Deployment     string `yaml:"deployment"`
+	URI            string `yaml:"uri"`
+	Database       string `yaml:"database"`
+	CredentialsRef string `yaml:"credentialsRef"`
+}
+
+type PostgreSQLBinding struct {
+	URI            string `yaml:"uri"`
+	CredentialsRef string `yaml:"credentialsRef"`
 }
 
 type RabbitMQBinding struct {

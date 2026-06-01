@@ -1548,6 +1548,62 @@ func validateScenario(s Scenario, scenarioPath string) error {
 			if err := validateGraphQLCorrelation("operation "+op.ID+" graphql", op.GraphQL); err != nil {
 				return err
 			}
+		case "mongodb.expect":
+			if err := validateOperationBlocks(op, "mongodb"); err != nil {
+				return err
+			}
+			if op.MongoDB == nil {
+				return fmt.Errorf("operation %q missing mongodb block", op.ID)
+			}
+			if strings.TrimSpace(op.MongoDB.Collection) == "" {
+				return fmt.Errorf("operation %q mongodb.collection is required", op.ID)
+			}
+			if strings.ContainsAny(op.MongoDB.Collection, "\x00\r\n\t") {
+				return fmt.Errorf("operation %q mongodb.collection must not contain control characters", op.ID)
+			}
+			if strings.TrimSpace(op.MongoDB.Filter) == "" {
+				return fmt.Errorf("operation %q mongodb.filter is required", op.ID)
+			}
+			if err := validatePayloadTemplateJSON("operation "+op.ID+" mongodb.filter", op.MongoDB.Filter); err != nil {
+				return err
+			}
+			if err := validateOptionalTimeout("operation "+op.ID+" mongodb.timeout", op.MongoDB.Timeout); err != nil {
+				return err
+			}
+			if err := validateMatchers("operation "+op.ID+" mongodb.match", op.MongoDB.Match); err != nil {
+				return err
+			}
+			if err := validateCorrelationID("operation "+op.ID+" mongodb.correlationId", op.MongoDB.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateCorrelationMatchers("operation "+op.ID+" mongodb.match", op.MongoDB.CorrelationID, op.MongoDB.Match); err != nil {
+				return err
+			}
+		case "postgresql.expect":
+			if err := validateOperationBlocks(op, "postgresql"); err != nil {
+				return err
+			}
+			if op.Postgres == nil {
+				return fmt.Errorf("operation %q missing postgresql block", op.ID)
+			}
+			if strings.TrimSpace(op.Postgres.Query) == "" {
+				return fmt.Errorf("operation %q postgresql.query is required", op.ID)
+			}
+			if strings.TrimSpace(op.Postgres.CorrelationID) == "" {
+				return fmt.Errorf("operation %q postgresql.correlationId is required", op.ID)
+			}
+			if err := validateOptionalTimeout("operation "+op.ID+" postgresql.timeout", op.Postgres.Timeout); err != nil {
+				return err
+			}
+			if err := validateMatchers("operation "+op.ID+" postgresql.match", op.Postgres.Match); err != nil {
+				return err
+			}
+			if err := validateCorrelationID("operation "+op.ID+" postgresql.correlationId", op.Postgres.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateCorrelationMatchers("operation "+op.ID+" postgresql.match", op.Postgres.CorrelationID, op.Postgres.Match); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("operation %q uses unsupported type %q", op.ID, op.Type)
 		}
@@ -1581,6 +1637,12 @@ func validateOperationBlocks(op Operation, expected string) error {
 	}
 	if expected != "graphql" && op.GraphQL != nil {
 		return fmt.Errorf("operation %q of type %q must not contain graphql block", op.ID, op.Type)
+	}
+	if expected != "mongodb" && op.MongoDB != nil {
+		return fmt.Errorf("operation %q of type %q must not contain mongodb block", op.ID, op.Type)
+	}
+	if expected != "postgresql" && op.Postgres != nil {
+		return fmt.Errorf("operation %q of type %q must not contain postgresql block", op.ID, op.Type)
 	}
 	if expected != "rabbitmq" && op.RabbitMQ != nil {
 		return fmt.Errorf("operation %q of type %q must not contain rabbitmq block", op.ID, op.Type)
@@ -1841,26 +1903,6 @@ func validateScenarioTemplates(s Scenario) error {
 					return err
 				}
 			}
-		case "rabbitmq.publish":
-			if op.RabbitMQ != nil {
-				if err := validateTemplateString("operation "+op.ID+" rabbitmq.exchange", op.RabbitMQ.Exchange, params); err != nil {
-					return err
-				}
-				if err := validateTemplateString("operation "+op.ID+" rabbitmq.routingKey", op.RabbitMQ.RoutingKey, params); err != nil {
-					return err
-				}
-			}
-		case "rabbitmq.expect":
-			if op.RabbitMQ != nil {
-				if err := validateTemplateString("operation "+op.ID+" rabbitmq.queue", op.RabbitMQ.Queue, params); err != nil {
-					return err
-				}
-				for i, matcher := range op.RabbitMQ.Match {
-					if err := validateMatcherTemplate("operation "+op.ID+" rabbitmq.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
-						return err
-					}
-				}
-			}
 		case "redpanda.contains":
 			if op.Redpanda != nil {
 				for i, matcher := range op.Redpanda.Match {
@@ -1878,6 +1920,53 @@ func validateScenarioTemplates(s Scenario) error {
 				}
 				for i, matcher := range op.GraphQL.Match {
 					if err := validateMatcherTemplate("operation "+op.ID+" graphql.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
+		case "mongodb.expect":
+			if op.MongoDB != nil {
+				if err := validateTemplateString("operation "+op.ID+" mongodb.filter", op.MongoDB.Filter, params); err != nil {
+					return err
+				}
+				for i, matcher := range op.MongoDB.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" mongodb.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
+		case "postgresql.expect":
+			if op.Postgres != nil {
+				if err := validateTemplateString("operation "+op.ID+" postgresql.query", op.Postgres.Query, params); err != nil {
+					return err
+				}
+				for i, arg := range op.Postgres.Args {
+					if err := validateTemplateString("operation "+op.ID+" postgresql.args["+fmt.Sprint(i)+"]", arg, params); err != nil {
+						return err
+					}
+				}
+				for i, matcher := range op.Postgres.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" postgresql.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
+		case "rabbitmq.publish":
+			if op.RabbitMQ != nil {
+				if err := validateTemplateString("operation "+op.ID+" rabbitmq.exchange", op.RabbitMQ.Exchange, params); err != nil {
+					return err
+				}
+				if err := validateTemplateString("operation "+op.ID+" rabbitmq.routingKey", op.RabbitMQ.RoutingKey, params); err != nil {
+					return err
+				}
+			}
+		case "rabbitmq.expect":
+			if op.RabbitMQ != nil {
+				if err := validateTemplateString("operation "+op.ID+" rabbitmq.queue", op.RabbitMQ.Queue, params); err != nil {
+					return err
+				}
+				for i, matcher := range op.RabbitMQ.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" rabbitmq.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
 						return err
 					}
 				}
@@ -2141,6 +2230,29 @@ func validateBinding(b TargetBinding) error {
 	if err := validateURLNoCredentials("spec.graphql.endpoint", b.Spec.GraphQL.Endpoint, []string{"http", "https"}); err != nil {
 		return err
 	}
+	if err := validateURLNoCredentials("spec.mongodb.uri", b.Spec.MongoDB.URI, []string{"mongodb", "mongodb+srv"}); err != nil {
+		return err
+	}
+	switch b.Spec.MongoDB.Deployment {
+	case "", "selfManaged", "atlas":
+	default:
+		return fmt.Errorf("spec.mongodb.deployment must be selfManaged or atlas")
+	}
+	if b.Spec.MongoDB.Database != "" && strings.ContainsAny(b.Spec.MongoDB.Database, " \t\r\n\x00/\\.") {
+		return fmt.Errorf("spec.mongodb.database must not contain whitespace, control characters, slash, backslash, or dot")
+	}
+	if err := validateSecretRef(b, "spec.mongodb.credentialsRef", b.Spec.MongoDB.CredentialsRef, []string{"username", "password"}); err != nil {
+		return err
+	}
+	if b.Spec.MongoDB.Deployment == "atlas" && b.Spec.MongoDB.CredentialsRef == "" {
+		return fmt.Errorf("spec.mongodb.credentialsRef is required when spec.mongodb.deployment is atlas")
+	}
+	if err := validateURLNoCredentials("spec.postgresql.uri", b.Spec.PostgreSQL.URI, []string{"postgres", "postgresql"}); err != nil {
+		return err
+	}
+	if err := validateSecretRef(b, "spec.postgresql.credentialsRef", b.Spec.PostgreSQL.CredentialsRef, []string{"username", "password"}); err != nil {
+		return err
+	}
 	if err := validateRedpandaBrokers("spec.redpanda.brokers", b.Spec.Redpanda.Brokers); err != nil {
 		return err
 	}
@@ -2209,11 +2321,6 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 				return err
 			}
 		}
-		if op.Type == "rabbitmq.publish" || op.Type == "rabbitmq.expect" {
-			if b.Spec.RabbitMQ.URI == "" {
-				return fmt.Errorf("binding_validation_failure: spec.rabbitmq.uri is required because operation %q uses %s", op.ID, op.Type)
-			}
-		}
 		if op.Type == "graphql.expect" {
 			if b.Spec.GraphQL.Endpoint == "" {
 				return fmt.Errorf("binding_validation_failure: spec.graphql.endpoint is required because operation %q uses graphql.expect", op.ID)
@@ -2236,6 +2343,27 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 			}
 			if topic.AllowCompacted {
 				return fmt.Errorf("binding_validation_failure: operation %q redpanda topicRef %q uses compacted topics, unsupported in this release", op.ID, topicRef)
+			}
+		}
+		if op.Type == "mongodb.expect" {
+			if b.Spec.MongoDB.URI == "" {
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri is required because operation %q uses mongodb.expect", op.ID)
+			}
+			if b.Spec.MongoDB.Database == "" {
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.database is required because operation %q uses mongodb.expect", op.ID)
+			}
+			if b.Spec.MongoDB.Deployment == "atlas" && !strings.HasPrefix(b.Spec.MongoDB.URI, "mongodb+srv://") {
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri should use mongodb+srv:// because operation %q uses an Atlas deployment", op.ID)
+			}
+		}
+		if op.Type == "postgresql.expect" {
+			if b.Spec.PostgreSQL.URI == "" {
+				return fmt.Errorf("binding_validation_failure: spec.postgresql.uri is required because operation %q uses postgresql.expect", op.ID)
+			}
+		}
+		if op.Type == "rabbitmq.publish" || op.Type == "rabbitmq.expect" {
+			if b.Spec.RabbitMQ.URI == "" {
+				return fmt.Errorf("binding_validation_failure: spec.rabbitmq.uri is required because operation %q uses %s", op.ID, op.Type)
 			}
 		}
 	}
