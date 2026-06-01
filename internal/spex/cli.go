@@ -2300,6 +2300,9 @@ type suiteExplainOperation struct {
 	ID                 string `json:"id"`
 	Type               string `json:"type"`
 	After              string `json:"after,omitempty"`
+	Exchange           string `json:"exchange,omitempty"`
+	RoutingKey         string `json:"routingKey,omitempty"`
+	Queue              string `json:"queue,omitempty"`
 	Topic              string `json:"topic,omitempty"`
 	TopicRef           string `json:"topicRef,omitempty"`
 	PayloadTemplateRef string `json:"payloadTemplateRef,omitempty"`
@@ -2345,6 +2348,15 @@ func buildSuiteExplainOutput(resolved workspace.ResolvedScenarioSuite, inputs []
 				explained.Topic = op.MQTT.Topic
 				explained.PayloadTemplateRef = op.MQTT.PayloadTemplateRef
 				explained.CorrelationID = op.MQTT.CorrelationID
+			case "rabbitmq.publish":
+				explained.Exchange = op.RabbitMQ.Exchange
+				explained.RoutingKey = op.RabbitMQ.RoutingKey
+				explained.PayloadTemplateRef = op.RabbitMQ.PayloadTemplateRef
+				explained.CorrelationID = op.RabbitMQ.CorrelationID
+			case "rabbitmq.expect":
+				explained.Queue = op.RabbitMQ.Queue
+				explained.CorrelationID = op.RabbitMQ.CorrelationID
+				explained.MatcherCount = len(op.RabbitMQ.Match)
 			case "redpanda.contains":
 				explained.TopicRef = op.Redpanda.TopicRef
 				explained.CorrelationID = op.Redpanda.CorrelationID
@@ -2965,6 +2977,10 @@ func writeInputsExplanation(stdout io.Writer, inputs workspace.Inputs) {
 		switch op.Type {
 		case "mqtt.publish":
 			fmt.Fprintf(stdout, "  - %s: MQTT publish topic=%s payloadTemplate=%s correlationId=%s\n", op.ID, op.MQTT.Topic, op.MQTT.PayloadTemplateRef, op.MQTT.CorrelationID)
+		case "rabbitmq.publish":
+			fmt.Fprintf(stdout, "  - %s: RabbitMQ publish exchange=%s routingKey=%s payloadTemplate=%s correlationId=%s\n", op.ID, op.RabbitMQ.Exchange, op.RabbitMQ.RoutingKey, op.RabbitMQ.PayloadTemplateRef, op.RabbitMQ.CorrelationID)
+		case "rabbitmq.expect":
+			fmt.Fprintf(stdout, "  - %s: RabbitMQ expect queue=%s correlationId=%s matchers=%d\n", op.ID, op.RabbitMQ.Queue, op.RabbitMQ.CorrelationID, len(op.RabbitMQ.Match))
 		case "redpanda.contains":
 			fmt.Fprintf(stdout, "  - %s: Redpanda contains topicRef=%s correlationId=%s matchers=%d\n", op.ID, op.Redpanda.TopicRef, op.Redpanda.CorrelationID, len(op.Redpanda.Match))
 		case "graphql.expect":

@@ -540,6 +540,8 @@ The generated setup step creates or updates the Kubernetes Secret with `kubectl 
 
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
 
+RabbitMQ test benches connect through bindings and Secrets. RabbitMQ expectations should target dedicated test queues because matching consumes inspected messages.
+
 ## License
 
 spex is source-available under the Internal Business Source Available License 1.0.

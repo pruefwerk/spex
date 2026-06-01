@@ -305,6 +305,35 @@ func buildPlan(in Inputs) generationPlan {
 			}
 			plan.Steps = append(plan.Steps, step)
 			ordinal++
+		case "rabbitmq.publish":
+			payloadFile := DNSLabel(op.ID) + ".json"
+			template := in.Scenario.Spec.PayloadTemplates[op.RabbitMQ.PayloadTemplateRef]
+			plan.Payloads[payloadFile] = renderJSONTemplate(template.Body, in.RunID, op.RabbitMQ.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         rabbitmqPublishJob(in, scenarioSlug, ordinal, op, payloadFile, plan.Params),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
+		case "rabbitmq.expect":
+			matchersFile := DNSLabel(op.ID) + ".matchers.json"
+			plan.Matchers[matchersFile] = renderMatchersJSON(op.RabbitMQ.Match, in.RunID, op.RabbitMQ.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         rabbitmqExpectJob(in, scenarioSlug, ordinal, op, matchersFile, plan.Params),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
 		case "redpanda.contains":
 			matchersFile := DNSLabel(op.ID) + ".matchers.json"
 			plan.Matchers[matchersFile] = renderMatchersJSON(op.Redpanda.Match, in.RunID, op.Redpanda.CorrelationID, plan.Params)
@@ -818,6 +847,31 @@ func mqttClientID(in Inputs, scenarioSlug string, ordinal int, operationID strin
 	return DNSLabel(prefix + "-" + scenarioSlug + "-" + in.RunID + "-" + twoDigitOrdinal(ordinal) + "-" + operationID)
 }
 
+func rabbitmqPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
+	exchange := renderTemplate(op.RabbitMQ.Exchange, in.RunID, op.RabbitMQ.CorrelationID, params)
+	routingKey := renderTemplate(op.RabbitMQ.RoutingKey, in.RunID, op.RabbitMQ.CorrelationID, params)
+	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
+		"rabbitmq", "publish",
+		"--uri=" + in.Binding.Spec.RabbitMQ.URI,
+		"--exchange=" + exchange,
+		"--routing-key=" + routingKey,
+		"--payload-file=/spex/payloads/" + payloadFile,
+		"--timeout=" + rabbitmqTimeout(in, op),
+	})
+}
+
+func rabbitmqExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string, params map[string]string) string {
+	queue := renderTemplate(op.RabbitMQ.Queue, in.RunID, op.RabbitMQ.CorrelationID, params)
+	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
+		"rabbitmq", "expect",
+		"--uri=" + in.Binding.Spec.RabbitMQ.URI,
+		"--queue=" + queue,
+		"--matchers-file=/spex/matchers/" + matchersFile,
+		"--timeout=" + rabbitmqTimeout(in, op),
+		"--poll-interval=" + defaultPollInterval(in),
+	})
+}
+
 func redpandaContainsJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string) string {
 	topic := redpandaTopicName(in, op.Redpanda.TopicRef)
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
@@ -1190,6 +1244,13 @@ func graphqlTimeout(in Inputs, op Operation) string {
 	return defaultTimeout(in)
 }
 
+func rabbitmqTimeout(in Inputs, op Operation) string {
+	if op.RabbitMQ != nil && op.RabbitMQ.Timeout != "" {
+		return op.RabbitMQ.Timeout
+	}
+	return defaultTimeout(in)
+}
+
 func configMapData(files map[string]string) string {
 	var names []string
 	for name := range files {
@@ -1240,6 +1301,11 @@ func secretEnv(in Inputs, args []string) string {
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
 			"SPEX_MQTT_USERNAME": "username",
 			"SPEX_MQTT_PASSWORD": "password",
+		})
+	case len(args) >= 2 && args[0] == "rabbitmq" && (args[1] == "publish" || args[1] == "expect"):
+		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.RabbitMQ.CredentialsRef], map[string]string{
+			"SPEX_RABBITMQ_USERNAME": "username",
+			"SPEX_RABBITMQ_PASSWORD": "password",
 		})
 	case len(args) >= 2 && args[0] == "graphql" && args[1] == "expect":
 		if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {

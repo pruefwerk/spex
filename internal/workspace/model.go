@@ -70,6 +70,7 @@ type Operation struct {
 	MQTT     *MQTTPublish        `yaml:"mqtt"`
 	Redpanda *RedpandaContains   `yaml:"redpanda"`
 	GraphQL  *GraphQLExpectation `yaml:"graphql"`
+	RabbitMQ *RabbitMQOperation  `yaml:"rabbitmq"`
 }
 
 type MQTTPublish struct {
@@ -90,6 +91,16 @@ type GraphQLExpectation struct {
 	Variables map[string]string `yaml:"variables"`
 	Timeout   string            `yaml:"timeout"`
 	Match     []Matcher         `yaml:"match"`
+}
+
+type RabbitMQOperation struct {
+	Exchange           string    `yaml:"exchange"`
+	RoutingKey         string    `yaml:"routingKey"`
+	Queue              string    `yaml:"queue"`
+	PayloadTemplateRef string    `yaml:"payloadTemplateRef"`
+	CorrelationID      string    `yaml:"correlationId"`
+	Timeout            string    `yaml:"timeout"`
+	Match              []Matcher `yaml:"match"`
 }
 
 type Matcher struct {
@@ -117,6 +128,7 @@ type BindingSpec struct {
 	MQTT               MQTTBinding       `yaml:"mqtt"`
 	Redpanda           RedpandaBinding   `yaml:"redpanda"`
 	GraphQL            GraphQLBinding    `yaml:"graphql"`
+	RabbitMQ           RabbitMQBinding   `yaml:"rabbitmq"`
 }
 
 type RBAC struct {
@@ -159,6 +171,11 @@ type GraphQLBinding struct {
 	Endpoint       string      `yaml:"endpoint"`
 	CredentialsRef string      `yaml:"credentialsRef"`
 	Auth           GraphQLAuth `yaml:"auth"`
+}
+
+type RabbitMQBinding struct {
+	URI            string `yaml:"uri"`
+	CredentialsRef string `yaml:"credentialsRef"`
 }
 
 type GraphQLAuth struct {
