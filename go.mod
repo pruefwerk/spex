@@ -1,6 +1,6 @@
 module github.com/pruefwerk/spex
 
-go 1.25.10
+go 1.25.11
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
