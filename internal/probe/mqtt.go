@@ -78,7 +78,7 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 
 	subscriber := mqtt.NewClient(mqttClientOptions(req.BrokerURL, req.ClientID+"-sub", req.Username, req.Password, req.Timeout))
 	connect := subscriber.Connect()
-	if !connect.WaitTimeout(req.Timeout) {
+	if !connect.WaitTimeout(mqttRemainingTimeout(ctx)) {
 		return fmt.Errorf("mqtt subscriber connect timed out")
 	}
 	if err := connect.Error(); err != nil {
@@ -94,7 +94,7 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 		case <-ctx.Done():
 		}
 	})
-	if !subscribe.WaitTimeout(req.Timeout) {
+	if !subscribe.WaitTimeout(mqttRemainingTimeout(ctx)) {
 		return fmt.Errorf("mqtt subscribe timed out")
 	}
 	if err := subscribe.Error(); err != nil {
@@ -103,7 +103,7 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 
 	publisher := mqtt.NewClient(mqttClientOptions(req.BrokerURL, req.ClientID+"-pub", req.Username, req.Password, req.Timeout))
 	connect = publisher.Connect()
-	if !connect.WaitTimeout(req.Timeout) {
+	if !connect.WaitTimeout(mqttRemainingTimeout(ctx)) {
 		return fmt.Errorf("mqtt publisher connect timed out")
 	}
 	if err := connect.Error(); err != nil {
@@ -112,7 +112,7 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 	defer publisher.Disconnect(250)
 
 	publish := publisher.Publish(req.Topic, req.QoS, false, req.Payload)
-	if !publish.WaitTimeout(req.Timeout) {
+	if !publish.WaitTimeout(mqttRemainingTimeout(ctx)) {
 		return fmt.Errorf("mqtt publish timed out")
 	}
 	if err := publish.Error(); err != nil {
@@ -120,9 +120,11 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 	}
 
 	var lastErr error
+	received := 0
 	for {
 		select {
 		case payload := <-messages:
+			received++
 			if err := EvaluateMatchersBytes(req.MatchersFile, payload); err == nil {
 				return nil
 			} else {
@@ -130,11 +132,23 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 			}
 		case <-ctx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("mqtt roundtrip expectation timed out: %w", lastErr)
+				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q after receiving %d message(s): %w", req.Topic, received, lastErr)
 			}
-			return fmt.Errorf("mqtt roundtrip expectation timed out")
+			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q without receiving messages", req.Topic)
 		}
 	}
+}
+
+func mqttRemainingTimeout(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return time.Nanosecond
+	}
+	return remaining
 }
 
 func mqttClientOptions(brokerURL, clientID, username, password string, timeout time.Duration) *mqtt.ClientOptions {
