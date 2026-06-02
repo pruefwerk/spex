@@ -21,6 +21,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runMongoDBExpect(args[2:], stdout)
 	case "mqtt publish":
 		return runMQTTPublish(args[2:], stdout)
+	case "mqtt roundtrip":
+		return runMQTTRoundTrip(args[2:], stdout)
 	case "postgresql expect":
 		return runPostgreSQLExpect(args[2:], stdout)
 	case "rabbitmq publish":
@@ -324,6 +326,64 @@ func runMQTTPublish(args []string, stdout io.Writer) error {
 	return emit(stdout, "mqtt.publish", "passed", "")
 }
 
+func runMQTTRoundTrip(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("mqtt roundtrip", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	payloadFile := fs.String("payload-file", "", "payload JSON file")
+	matchersFile := fs.String("matchers-file", "", "matchers JSON file")
+	brokerURL := fs.String("broker-url", "", "MQTT broker URL")
+	topic := fs.String("topic", "", "MQTT topic")
+	clientID := fs.String("client-id", "spex-probe", "MQTT client ID")
+	qos := fs.Int("qos", 1, "MQTT QoS")
+	timeoutValue := fs.String("timeout", "30s", "timeout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "mqtt roundtrip"); err != nil {
+		return err
+	}
+	if *brokerURL == "" {
+		*brokerURL = os.Getenv("SPEX_MQTT_BROKER_URL")
+	}
+	if *payloadFile == "" || *matchersFile == "" || *brokerURL == "" || *topic == "" {
+		return fmt.Errorf("mqtt roundtrip requires --broker-url, --topic, --payload-file, and --matchers-file")
+	}
+	for _, path := range []string{*payloadFile, *matchersFile} {
+		if _, err := os.Stat(path); err != nil {
+			return err
+		}
+	}
+	timeout, err := time.ParseDuration(*timeoutValue)
+	if err != nil {
+		return fmt.Errorf("invalid --timeout: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if *qos < 0 || *qos > 2 {
+		return fmt.Errorf("--qos must be 0, 1, or 2")
+	}
+	payload, err := os.ReadFile(*payloadFile)
+	if err != nil {
+		return err
+	}
+	username, password := mqttCredentialsFromEnv()
+	if err := roundTripMQTT(mqttRoundTripRequest{
+		BrokerURL:    *brokerURL,
+		Topic:        *topic,
+		ClientID:     *clientID,
+		Username:     username,
+		Password:     password,
+		Payload:      payload,
+		MatchersFile: *matchersFile,
+		Timeout:      timeout,
+		QoS:          byte(*qos),
+	}); err != nil {
+		return emitFailure(stdout, "mqtt.roundtrip", err)
+	}
+	return emit(stdout, "mqtt.roundtrip", "passed", "")
+}
+
 func runRedpandaSnapshotOffsets(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("redpanda snapshot-offsets", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -548,6 +608,11 @@ func probeFailureClass(operation string, err error) string {
 	switch operation {
 	case "mqtt.publish":
 		return "mqtt_publish_failed"
+	case "mqtt.roundtrip":
+		if strings.Contains(message, "mqtt roundtrip expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") {
+			return "mqtt_match_timeout"
+		}
+		return "mqtt_roundtrip_failed"
 	case "mongodb.expect":
 		if strings.Contains(message, "mongodb expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") || strings.Contains(message, "context deadline exceeded") {
 			return "mongodb_match_timeout"

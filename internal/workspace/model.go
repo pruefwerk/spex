@@ -77,9 +77,11 @@ type Operation struct {
 }
 
 type MQTTPublish struct {
-	Topic              string `yaml:"topic"`
-	PayloadTemplateRef string `yaml:"payloadTemplateRef"`
-	CorrelationID      string `yaml:"correlationId"`
+	Topic              string    `yaml:"topic"`
+	PayloadTemplateRef string    `yaml:"payloadTemplateRef"`
+	CorrelationID      string    `yaml:"correlationId"`
+	Timeout            string    `yaml:"timeout"`
+	Match              []Matcher `yaml:"match"`
 }
 
 type RedpandaContains struct {

@@ -309,6 +309,23 @@ func buildPlan(in Inputs) generationPlan {
 			}
 			plan.Steps = append(plan.Steps, step)
 			ordinal++
+		case "mqtt.roundtrip":
+			payloadFile := DNSLabel(op.ID) + ".json"
+			matchersFile := DNSLabel(op.ID) + ".matchers.json"
+			template := in.Scenario.Spec.PayloadTemplates[op.MQTT.PayloadTemplateRef]
+			plan.Payloads[payloadFile] = renderJSONTemplate(template.Body, in.RunID, op.MQTT.CorrelationID, plan.Params)
+			plan.Matchers[matchersFile] = renderMatchersJSON(op.MQTT.Match, in.RunID, op.MQTT.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         mqttRoundTripJob(in, scenarioSlug, ordinal, op, payloadFile, matchersFile, plan.Params),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
 		case "rabbitmq.publish":
 			payloadFile := DNSLabel(op.ID) + ".json"
 			template := in.Scenario.Spec.PayloadTemplates[op.RabbitMQ.PayloadTemplateRef]
@@ -921,6 +938,23 @@ func mqttPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, p
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
 }
 
+func mqttRoundTripJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile, matchersFile string, params map[string]string) string {
+	topic := renderTemplate(op.MQTT.Topic, in.RunID, op.MQTT.CorrelationID, params)
+	args := []string{
+		"mqtt", "roundtrip",
+		"--topic=" + topic,
+		"--client-id=" + mqttClientID(in, scenarioSlug, ordinal, op.ID),
+		"--qos=1",
+		"--payload-file=/spex/payloads/" + payloadFile,
+		"--matchers-file=/spex/matchers/" + matchersFile,
+		"--timeout=" + mqttTimeout(in, op),
+	}
+	if !isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+		args = append([]string{"mqtt", "roundtrip", "--broker-url=" + in.Binding.Spec.MQTT.BrokerURL}, args[2:]...)
+	}
+	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
+}
+
 func mqttClientID(in Inputs, scenarioSlug string, ordinal int, operationID string) string {
 	prefix := in.Binding.Spec.MQTT.ClientIDPrefix
 	if prefix == "" {
@@ -1347,6 +1381,13 @@ func defaultPollInterval(in Inputs) string {
 		return in.Scenario.Spec.Defaults.PollInterval
 	}
 	return "1s"
+}
+
+func mqttTimeout(in Inputs, op Operation) string {
+	if op.MQTT != nil && op.MQTT.Timeout != "" {
+		return op.MQTT.Timeout
+	}
+	return defaultTimeout(in)
 }
 
 func redpandaTimeout(in Inputs, op Operation) string {

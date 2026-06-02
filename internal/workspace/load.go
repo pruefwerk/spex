@@ -905,6 +905,8 @@ func renderCatalogOperation(op Operation, values map[string]string) Operation {
 		mqtt.Topic = renderCatalogTemplate(mqtt.Topic, values)
 		mqtt.PayloadTemplateRef = renderCatalogTemplate(mqtt.PayloadTemplateRef, values)
 		mqtt.CorrelationID = renderCatalogTemplate(mqtt.CorrelationID, values)
+		mqtt.Timeout = renderCatalogTemplate(mqtt.Timeout, values)
+		mqtt.Match = renderCatalogMatchers(mqtt.Match, values)
 		op.MQTT = &mqtt
 	}
 	if op.Redpanda != nil {
@@ -1461,6 +1463,44 @@ func validateScenario(s Scenario, scenarioPath string) error {
 			if err := validateMQTTPayloadCorrelation(op.ID, template.Body); err != nil {
 				return err
 			}
+		case "mqtt.roundtrip":
+			if err := validateOperationBlocks(op, "mqtt"); err != nil {
+				return err
+			}
+			if op.MQTT == nil {
+				return fmt.Errorf("operation %q missing mqtt block", op.ID)
+			}
+			if strings.TrimSpace(op.MQTT.Topic) == "" {
+				return fmt.Errorf("operation %q mqtt.topic is required", op.ID)
+			}
+			if err := validateMQTTTopicTemplate("operation "+op.ID+" mqtt.topic", op.MQTT.Topic); err != nil {
+				return err
+			}
+			if op.MQTT.PayloadTemplateRef == "" {
+				return fmt.Errorf("operation %q mqtt.payloadTemplateRef is required", op.ID)
+			}
+			template, ok := s.Spec.PayloadTemplates[op.MQTT.PayloadTemplateRef]
+			if !ok {
+				return fmt.Errorf("operation %q references unknown payload template %q", op.ID, op.MQTT.PayloadTemplateRef)
+			}
+			if err := validateOptionalTimeout("operation "+op.ID+" mqtt.timeout", op.MQTT.Timeout); err != nil {
+				return err
+			}
+			if err := validateMatchers("operation "+op.ID+" mqtt.match", op.MQTT.Match); err != nil {
+				return err
+			}
+			if strings.TrimSpace(op.MQTT.CorrelationID) == "" {
+				return fmt.Errorf("operation %q mqtt.correlationId is required", op.ID)
+			}
+			if err := validateCorrelationID("operation "+op.ID+" mqtt.correlationId", op.MQTT.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateMQTTPayloadCorrelation(op.ID, template.Body); err != nil {
+				return err
+			}
+			if err := validateCorrelationMatchers("operation "+op.ID+" mqtt.match", op.MQTT.CorrelationID, op.MQTT.Match); err != nil {
+				return err
+			}
 		case "rabbitmq.publish":
 			if err := validateOperationBlocks(op, "rabbitmq"); err != nil {
 				return err
@@ -1909,6 +1949,17 @@ func validateScenarioTemplates(s Scenario) error {
 					return err
 				}
 			}
+		case "mqtt.roundtrip":
+			if op.MQTT != nil {
+				if err := validateTemplateString("operation "+op.ID+" mqtt.topic", op.MQTT.Topic, params); err != nil {
+					return err
+				}
+				for i, matcher := range op.MQTT.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" mqtt.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
 		case "redpanda.contains":
 			if op.Redpanda != nil {
 				for i, matcher := range op.Redpanda.Match {
@@ -2321,9 +2372,9 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 		return err
 	}
 	for _, op := range s.Spec.Operations {
-		if op.Type == "mqtt.publish" {
+		if op.Type == "mqtt.publish" || op.Type == "mqtt.roundtrip" {
 			if b.Spec.MQTT.BrokerURL == "" {
-				return fmt.Errorf("binding_validation_failure: spec.mqtt.brokerURL is required because operation %q uses mqtt.publish", op.ID)
+				return fmt.Errorf("binding_validation_failure: spec.mqtt.brokerURL is required because operation %q uses %s", op.ID, op.Type)
 			}
 			if err := validateMQTTTopicParameterValues("operation "+op.ID+" mqtt.topic", op.MQTT.Topic, resolved); err != nil {
 				return err

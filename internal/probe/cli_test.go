@@ -814,13 +814,50 @@ func jsonResponse(body string) *http.Response {
 	}
 }
 
+func TestMQTTRoundTripStub(t *testing.T) {
+	dir := t.TempDir()
+	payload := writeTestFile(t, dir, "payload.json", `{"ok":true}`)
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.ok","equalsBool":true}]`)
+	fake := &fakeMQTTPublisher{}
+	withMQTTPublisher(t, fake)
+	t.Setenv("SPEX_MQTT_USERNAME", "user")
+	t.Setenv("SPEX_MQTT_PASSWORD", "pass")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"mqtt", "roundtrip", "--broker-url", "tcp://broker:1883", "--topic", "migration/smoke", "--payload-file", payload, "--matchers-file", matchers, "--client-id", "client-1"}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"operation":"mqtt.roundtrip"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+	if fake.roundTrip.BrokerURL != "tcp://broker:1883" || fake.roundTrip.Topic != "migration/smoke" || fake.roundTrip.ClientID != "client-1" {
+		t.Fatalf("unexpected request: %#v", fake.roundTrip)
+	}
+	if fake.roundTrip.MatchersFile != matchers {
+		t.Fatalf("matchers not propagated: %#v", fake.roundTrip)
+	}
+	if fake.roundTrip.Username != "user" || fake.roundTrip.Password != "pass" {
+		t.Fatalf("credentials not propagated: %#v", fake.roundTrip)
+	}
+	if string(fake.roundTrip.Payload) != `{"ok":true}` {
+		t.Fatalf("payload not propagated: %s", string(fake.roundTrip.Payload))
+	}
+}
+
 type fakeMQTTPublisher struct {
-	request mqttPublishRequest
-	err     error
+	request   mqttPublishRequest
+	roundTrip mqttRoundTripRequest
+	err       error
 }
 
 func (f *fakeMQTTPublisher) Publish(req mqttPublishRequest) error {
 	f.request = req
+	return f.err
+}
+
+func (f *fakeMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
+	f.roundTrip = req
 	return f.err
 }
 
