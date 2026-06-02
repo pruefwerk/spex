@@ -100,6 +100,7 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 	if err := subscribe.Error(); err != nil {
 		return fmt.Errorf("mqtt subscribe: %w", err)
 	}
+	subscribeResult := mqttSubscribeResult(req.Topic, subscribe)
 
 	publisher := mqtt.NewClient(mqttClientOptions(req.BrokerURL, req.ClientID+"-pub", req.Username, req.Password, req.Timeout))
 	connect = publisher.Connect()
@@ -132,11 +133,29 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 			}
 		case <-ctx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q after receiving %d message(s): %w", req.Topic, received, lastErr)
+				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q after receiving %d message(s); subscription %s: %w", req.Topic, received, subscribeResult, lastErr)
 			}
-			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q without receiving messages", req.Topic)
+			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q without receiving messages; subscription %s", req.Topic, subscribeResult)
 		}
 	}
+}
+
+func mqttSubscribeResult(topic string, token mqtt.Token) string {
+	subscribeToken, ok := token.(*mqtt.SubscribeToken)
+	if !ok {
+		return "acknowledged with unknown grant"
+	}
+	result := subscribeToken.Result()
+	if qos, ok := result[topic]; ok {
+		if qos == 0x80 {
+			return "rejected by broker"
+		}
+		return fmt.Sprintf("accepted with granted qos %d", qos)
+	}
+	if len(result) == 0 {
+		return "acknowledged with no grant result"
+	}
+	return fmt.Sprintf("acknowledged with grants %v", result)
 }
 
 func mqttRemainingTimeout(ctx context.Context) time.Duration {
