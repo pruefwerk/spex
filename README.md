@@ -557,7 +557,7 @@ spec:
         password: password
 ```
 
-The generated setup step creates or updates the Kubernetes Secret with `kubectl apply`; generated manifests and reports contain only Secret names, key names, env var names, and SSM parameter paths, not secret values. `ssmParameters` accepts either a raw SSM parameter name or the Helm-style `{{ ssm "path/to/key" }}` form.
+The generated setup step creates a labeled Kubernetes Secret and fails if a Secret with the same name already exists; generated manifests and reports contain only Secret names, key names, env var names, and SSM parameter paths, not secret values. `ssmParameters` accepts either a raw SSM parameter name or the Helm-style `{{ ssm "path/to/key" }}` form.
 
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
 

@@ -569,7 +569,7 @@ func secretMaterializationCommands(in Inputs, ctx integrationRenderContext) []KU
 		case "localEnvFile":
 			commands = append(commands, KUTTLCommand{Command: localEnvSecretCommand(in, ctx, id, secret), Timeout: 60})
 		case "awsSsmParameter":
-			commands = append(commands, KUTTLCommand{Command: ssmSecretCommand(in, ctx, secret), Timeout: 120})
+			commands = append(commands, KUTTLCommand{Command: ssmSecretCommand(in, ctx, id, secret), Timeout: 120})
 		}
 	}
 	return commands
@@ -585,7 +585,7 @@ func localEnvSecretCommand(in Inputs, ctx integrationRenderContext, id string, s
 	b.WriteString("set -a\n")
 	b.WriteString(". " + shellQuote(filepath.ToSlash(envFile)) + "\n")
 	b.WriteString("set +a\n")
-	writeSecretCreatePipeline(&b, in, ctx, secret, func(logicalKey string) string {
+	writeSecretCreatePipeline(&b, in, ctx, id, secret, func(logicalKey string) string {
 		envName := secret.Env[logicalKey]
 		if envName == "" {
 			envName = defaultSecretEnvName(id, logicalKey)
@@ -595,7 +595,7 @@ func localEnvSecretCommand(in Inputs, ctx integrationRenderContext, id string, s
 	return b.String()
 }
 
-func ssmSecretCommand(in Inputs, ctx integrationRenderContext, secret Secret) string {
+func ssmSecretCommand(in Inputs, ctx integrationRenderContext, id string, secret Secret) string {
 	var b strings.Builder
 	b.WriteString("set -eu\n")
 	var logicalKeys []string
@@ -607,7 +607,7 @@ func ssmSecretCommand(in Inputs, ctx integrationRenderContext, secret Secret) st
 		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
 		b.WriteString(fmt.Sprintf("%s=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", varName, shellQuote(ssmParameterName(secret.SSMParameters[logicalKey]))))
 	}
-	writeSecretCreatePipeline(&b, in, ctx, secret, func(logicalKey string) string {
+	writeSecretCreatePipeline(&b, in, ctx, id, secret, func(logicalKey string) string {
 		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
 		return fmt.Sprintf(`"${%s}"`, varName)
 	})
@@ -621,7 +621,7 @@ func ssmParameterName(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func writeSecretCreatePipeline(b *strings.Builder, in Inputs, ctx integrationRenderContext, secret Secret, valueExpr func(string) string) {
+func writeSecretCreatePipeline(b *strings.Builder, in Inputs, ctx integrationRenderContext, id string, secret Secret, valueExpr func(string) string) {
 	args := []string{"-n", in.Namespace, "create", "secret", "generic", secret.Name, "--dry-run=client", "-o", "yaml"}
 	args = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), args...)
 	b.WriteString("kubectl " + shellCommand(args...) + " \\\n")
@@ -633,9 +633,11 @@ func writeSecretCreatePipeline(b *strings.Builder, in Inputs, ctx integrationRen
 	for _, logicalKey := range logicalKeys {
 		b.WriteString("  --from-literal=" + shellQuote(secret.Keys[logicalKey]) + "=" + valueExpr(logicalKey) + " \\\n")
 	}
-	applyArgs := []string{"apply", "-f", "-"}
-	applyArgs = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), applyArgs...)
-	b.WriteString("  | kubectl " + shellCommand(applyArgs...) + "\n")
+	labelArgs := []string{"label", "--local", "-f", "-", "-o", "yaml", "spex/owned=true", "spex/secret-id=" + id, "spex/run-id=" + in.RunID}
+	b.WriteString("  | kubectl " + shellCommand(labelArgs...) + " \\\n")
+	createArgs := []string{"create", "-f", "-"}
+	createArgs = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), createArgs...)
+	b.WriteString("  | kubectl " + shellCommand(createArgs...) + "\n")
 }
 
 func helmAppCommands(in Inputs) []KUTTLCommand {

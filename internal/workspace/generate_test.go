@@ -192,7 +192,8 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 		"kubectl '--context' 'local-dev' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
 		"--from-literal='username'=\"${SPEX_MQTT_USERNAME}\"",
 		"--from-literal='password'=\"${SPEX_MQTT_PASSWORD}\"",
-		"| kubectl '--context' 'local-dev' 'apply' '-f' '-'",
+		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/secret-id=mqtt-credentials' 'spex/run-id=run-fixed-test'",
+		"| kubectl '--context' 'local-dev' 'create' '-f' '-'",
 	} {
 		if !strings.Contains(string(setup), want) {
 			t.Fatalf("secret materialization step missing %q:\n%s", want, string(setup))
@@ -480,7 +481,8 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecretWithKINDKubeconfig(t *te
 	for _, want := range []string{
 		". " + shellQuote(filepath.ToSlash(filepath.Join(dir, ".secrets", "kind.env"))),
 		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
-		"| kubectl '--kubeconfig' '../../kubeconfig' 'apply' '-f' '-'",
+		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/secret-id=mqtt-credentials'",
+		"| kubectl '--kubeconfig' '../../kubeconfig' 'create' '-f' '-'",
 	} {
 		if !strings.Contains(string(setup), want) {
 			t.Fatalf("secret materialization step missing %q:\n%s", want, string(setup))
