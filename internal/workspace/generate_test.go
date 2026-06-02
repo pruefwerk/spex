@@ -337,8 +337,13 @@ spec:
     commands:
       - command: kubectl ${kubeContextArgs} create namespace spex-test --dry-run=client -o yaml
         timeout: 60
-      - command: helm upgrade --install redpanda ./charts/redpanda --namespace spex-test --create-namespace --wait
-        timeout: 300
+  helmApps:
+    - name: redpanda
+      chart: redpanda
+      repo: https://charts.redpanda.com
+      namespace: spex-test
+      wait: true
+      timeout: 300s
 `
 	if err := os.WriteFile(profilePath, []byte(profile), 0o644); err != nil {
 		t.Fatal(err)
@@ -386,7 +391,8 @@ spec:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(setup), "helm upgrade --install redpanda ./charts/redpanda") {
+	if !strings.Contains(string(setup), "'helm' 'upgrade' '--install' 'redpanda' 'redpanda'") ||
+		!strings.Contains(string(setup), "'--repo' 'https://charts.redpanda.com'") {
 		t.Fatalf("setup step missing Helm command:\n%s", string(setup))
 	}
 	if !strings.Contains(string(setup), "kubectl --kubeconfig ../../kubeconfig create namespace spex-test") {

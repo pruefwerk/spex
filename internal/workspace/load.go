@@ -1682,7 +1682,7 @@ func validateIntegrationProfile(p IntegrationProfile) error {
 		if err := validateOptionalDuration(fmt.Sprintf("spec.helmApps[%d].timeout", i), app.Timeout); err != nil {
 			return err
 		}
-		values := append([]string{app.Chart}, app.Values...)
+		values := append([]string{app.Chart, app.Repo}, app.Values...)
 		for j, value := range values {
 			if err := validateIntegrationPlaceholders(fmt.Sprintf("spec.helmApps[%d] value %d", i, j), value); err != nil {
 				return err

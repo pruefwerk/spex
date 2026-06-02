@@ -389,7 +389,8 @@ spec:
     - base-kind.yaml
   helmApps:
     - name: my-service
-      chart: oci://registry.example.com/team/my-service
+      chart: my-service
+      repo: https://charts.example.com/team
 ```
 
 Parent `kind` commands, setup commands, containers, and Helm apps are appended before the child profile, while scalar child fields override parent scalar fields.
@@ -434,7 +435,8 @@ kind: IntegrationProfile
 spec:
   helmApps:
     - name: my-service
-      chart: oci://registry/team/my-service
+      chart: my-service
+      repo: https://charts.example.com/team
       namespace: application
       values:
         - ${repoRoot}/integration/values/my-service.yaml
@@ -443,6 +445,8 @@ spec:
       wait: true
       timeout: 300s
 ```
+
+For OCI archives or local chart directories, omit `repo` and put the full chart reference in `chart`.
 
 The generator renders these as validated `helm upgrade --install` setup commands in the generated KUTTL workspace.
 

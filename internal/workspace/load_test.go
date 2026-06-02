@@ -690,7 +690,8 @@ kind: IntegrationProfile
 spec:
   helmApps:
     - name: my-service
-      chart: oci://registry.example.invalid/team/my-service
+      chart: my-service
+      repo: https://charts.example.invalid
       namespace: application
       values:
         - ${repoRoot}/integration/values/my-service.yaml
@@ -709,6 +710,9 @@ spec:
 	}
 	if len(profile.Spec.HelmApps) != 1 {
 		t.Fatalf("helm app count = %d", len(profile.Spec.HelmApps))
+	}
+	if profile.Spec.HelmApps[0].Repo != "https://charts.example.invalid" {
+		t.Fatalf("helm app repo = %q", profile.Spec.HelmApps[0].Repo)
 	}
 }
 

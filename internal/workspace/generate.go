@@ -649,6 +649,9 @@ func helmAppCommands(in Inputs) []KUTTLCommand {
 		}
 		args := []string{"helm", "upgrade", "--install", app.Name, app.Chart, "--namespace", namespace, "--create-namespace"}
 		args = append(args, kubectlContextArgs(in, "${kubeconfig}")...)
+		if app.Repo != "" {
+			args = append(args, "--repo", app.Repo)
+		}
 		for _, values := range app.Values {
 			args = append(args, "--values", values)
 		}

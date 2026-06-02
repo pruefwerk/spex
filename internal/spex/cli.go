@@ -3365,7 +3365,8 @@ spec:
     - platform-targets/integration/local-kind.yaml@v1.2.3
   helmApps:
     - name: my-service
-      chart: oci://registry.example.com/charts/my-service
+      chart: my-service
+      repo: https://charts.example.com/team
       namespace: platform
       values:
         - integration/values/my-service.yaml
@@ -3375,6 +3376,8 @@ spec:
       wait: true
       timeout: 5m
 ~~~
+
+For OCI archives or local chart directories, omit repo and put the full chart reference in chart.
 
 ## Schemas
 

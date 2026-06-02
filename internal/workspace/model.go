@@ -253,6 +253,7 @@ type KUTTLCommand struct {
 type HelmApp struct {
 	Name      string            `yaml:"name"`
 	Chart     string            `yaml:"chart"`
+	Repo      string            `yaml:"repo"`
 	Namespace string            `yaml:"namespace"`
 	Values    []string          `yaml:"values"`
 	Set       map[string]string `yaml:"set"`
