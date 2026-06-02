@@ -202,6 +202,20 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "02-static-configmaps.yaml")); err != nil {
 		t.Fatal(err)
 	}
+	cleanup, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "00-rerun-cleanup.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"'get' 'secret' 'mqtt-probe-credentials'",
+		`'go-template={{ index .metadata.labels "spex/owned" }}'`,
+		`if [ "${SPEX_LEGACY_SECRET_0_OWNED}" = "true" ]; then`,
+		"'delete' 'secret' 'mqtt-probe-credentials'",
+	} {
+		if !strings.Contains(string(cleanup), want) {
+			t.Fatalf("cleanup step missing legacy secret cleanup %q:\n%s", want, string(cleanup))
+		}
+	}
 }
 
 func TestGenerateWorkspaceMaterializesSSMMQTTBrokerURL(t *testing.T) {

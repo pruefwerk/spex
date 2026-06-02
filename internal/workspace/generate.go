@@ -599,6 +599,32 @@ func secretMaterializationCommands(in Inputs, ctx integrationRenderContext) []KU
 	return commands
 }
 
+func materializedSecretNames(in Inputs) []string {
+	seen := map[string]struct{}{}
+	var names []string
+	for _, secret := range in.Binding.Spec.Secrets {
+		if secret.Type != "localEnvFile" && secret.Type != "awsSsmParameter" {
+			continue
+		}
+		if secret.Name == "" {
+			continue
+		}
+		if _, ok := seen[secret.Name]; ok {
+			continue
+		}
+		seen[secret.Name] = struct{}{}
+		names = append(names, secret.Name)
+	}
+	if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+		name := mqttBrokerURLSecretName(in.Binding)
+		if _, ok := seen[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func ssmMQTTBrokerURLCommand(in Inputs, ctx integrationRenderContext) string {
 	secret := Secret{
 		Name: mqttBrokerURLSecretName(in.Binding),
@@ -841,7 +867,22 @@ func cleanupStep(in Inputs, scenarioSlug string, ctx integrationRenderContext) s
 	jobDelete := shellCommand(append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "job", "-l", selector, "--ignore-not-found=true")...)
 	configMapDelete := shellCommand(append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "configmap", "-l", selector+",spex/runtime=true", "--ignore-not-found=true")...)
 	secretDelete := shellCommand(append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "secret", "-l", selector+",spex/runtime=true", "--ignore-not-found=true")...)
-	return fmt.Sprintf("apiVersion: kuttl.dev/v1beta1\nkind: TestStep\ncommands:\n  - script: |\n      %s\n      %s\n      %s\n", jobDelete, configMapDelete, secretDelete)
+	legacySecretDelete := legacyMaterializedSecretCleanupScript(in, contextArgs)
+	return fmt.Sprintf("apiVersion: kuttl.dev/v1beta1\nkind: TestStep\ncommands:\n  - script: |\n      %s\n      %s\n      %s\n%s", jobDelete, configMapDelete, secretDelete, legacySecretDelete)
+}
+
+func legacyMaterializedSecretCleanupScript(in Inputs, contextArgs []string) string {
+	var b strings.Builder
+	for i, name := range materializedSecretNames(in) {
+		varName := fmt.Sprintf("SPEX_LEGACY_SECRET_%d_OWNED", i)
+		getArgs := append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "get", "secret", name, "-o", `go-template={{ index .metadata.labels "spex/owned" }}`)
+		deleteArgs := append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "secret", name, "--ignore-not-found=true")
+		b.WriteString(fmt.Sprintf("      %s=$(%s 2>/dev/null || true)\n", varName, shellCommand(getArgs...)))
+		b.WriteString(fmt.Sprintf("      if [ \"${%s}\" = \"true\" ]; then\n", varName))
+		b.WriteString("        " + shellCommand(deleteArgs...) + "\n")
+		b.WriteString("      fi\n")
+	}
+	return b.String()
 }
 
 func kubectlContextArgs(in Inputs, kubeconfig string) []string {
