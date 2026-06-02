@@ -70,11 +70,11 @@ func Generate(out string, in Inputs) error {
 		"kuttl-test.yaml":     kuttlTest(in, integrationRenderContext{WorkspaceDir: workspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir}),
 		"execution-plan.yaml": executionPlan(plan),
 		"step-map.yaml":       stepMap(in, plan),
-		filepath.Join("kuttl", plan.ScenarioSlug, "00-rerun-cleanup.yaml"):                                           cleanupStep(in, plan.ScenarioSlug, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir}),
+		filepath.Join("kuttl", plan.ScenarioSlug, "00-rerun-cleanup.yaml"):                                           cleanupStep(in, plan.ScenarioSlug, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir, ScenarioSlug: plan.ScenarioSlug}),
 		filepath.Join("kuttl", plan.ScenarioSlug, fmt.Sprintf("%02d-static-configmaps.yaml", staticStepOrdinal(in))): staticConfigMaps(in, plan),
 	}
 	if integrationSetupEnabled(in) {
-		files[filepath.Join("kuttl", plan.ScenarioSlug, "01-integration-setup.yaml")] = integrationSetupStep(in, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir})
+		files[filepath.Join("kuttl", plan.ScenarioSlug, "01-integration-setup.yaml")] = integrationSetupStep(in, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir, ScenarioSlug: plan.ScenarioSlug})
 	}
 	if in.Integration != nil && in.Integration.Spec.KIND.Config != "" {
 		content, err := readRegularInputFile(in.Integration.Spec.KIND.Config, maxYAMLInputFileSize)
@@ -480,6 +480,7 @@ type integrationRenderContext struct {
 	WorkspaceDir          string
 	RepoRoot              string
 	IntegrationProfileDir string
+	ScenarioSlug          string
 }
 
 func kuttlTest(in Inputs, ctx integrationRenderContext) string {
@@ -687,7 +688,7 @@ func writeSecretCreatePipelineWithLabels(b *strings.Builder, in Inputs, ctx inte
 	for _, logicalKey := range logicalKeys {
 		b.WriteString("  --from-literal=" + shellQuote(secret.Keys[logicalKey]) + "=" + valueExpr(logicalKey) + " \\\n")
 	}
-	labelArgs := []string{"label", "--local", "-f", "-", "-o", "yaml", "spex/owned=true", "spex/secret-id=" + id, "spex/run-id=" + in.RunID}
+	labelArgs := []string{"label", "--local", "-f", "-", "-o", "yaml", "spex/owned=true", "spex/scenario=" + ctx.ScenarioSlug, "spex/runtime=true", "spex/secret-id=" + id, "spex/run-id=" + in.RunID}
 	labelArgs = append(labelArgs, extraLabels...)
 	b.WriteString("  | kubectl " + shellCommand(labelArgs...) + " \\\n")
 	createArgs := []string{"create", "-f", "-"}
@@ -839,7 +840,8 @@ func cleanupStep(in Inputs, scenarioSlug string, ctx integrationRenderContext) s
 	selector := "spex/owned=true,spex/scenario=" + scenarioSlug
 	jobDelete := shellCommand(append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "job", "-l", selector, "--ignore-not-found=true")...)
 	configMapDelete := shellCommand(append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "configmap", "-l", selector+",spex/runtime=true", "--ignore-not-found=true")...)
-	return fmt.Sprintf("apiVersion: kuttl.dev/v1beta1\nkind: TestStep\ncommands:\n  - script: |\n      %s\n      %s\n", jobDelete, configMapDelete)
+	secretDelete := shellCommand(append(append([]string{"kubectl"}, contextArgs...), "-n", in.Namespace, "delete", "secret", "-l", selector+",spex/runtime=true", "--ignore-not-found=true")...)
+	return fmt.Sprintf("apiVersion: kuttl.dev/v1beta1\nkind: TestStep\ncommands:\n  - script: |\n      %s\n      %s\n      %s\n", jobDelete, configMapDelete, secretDelete)
 }
 
 func kubectlContextArgs(in Inputs, kubeconfig string) []string {

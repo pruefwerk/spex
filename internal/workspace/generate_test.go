@@ -192,7 +192,7 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
 		"--from-literal='username'=\"${SPEX_MQTT_USERNAME}\"",
 		"--from-literal='password'=\"${SPEX_MQTT_PASSWORD}\"",
-		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/secret-id=mqtt-credentials' 'spex/run-id=run-fixed-test'",
+		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/scenario=mqtt-ingestion-basic' 'spex/runtime=true' 'spex/secret-id=mqtt-credentials' 'spex/run-id=run-fixed-test'",
 		"| kubectl '--kubeconfig' '../../kubeconfig' 'create' '-f' '-'",
 	} {
 		if !strings.Contains(string(setup), want) {
@@ -526,7 +526,7 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecretWithKINDKubeconfig(t *te
 	for _, want := range []string{
 		". " + shellQuote(filepath.ToSlash(filepath.Join(dir, ".secrets", "kind.env"))),
 		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
-		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/secret-id=mqtt-credentials'",
+		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/scenario=mqtt-ingestion-basic' 'spex/runtime=true' 'spex/secret-id=mqtt-credentials'",
 		"| kubectl '--kubeconfig' '../../kubeconfig' 'create' '-f' '-'",
 	} {
 		if !strings.Contains(string(setup), want) {
@@ -688,6 +688,7 @@ func TestGenerateQuotesCleanupShellArguments(t *testing.T) {
 		"'-l' 'spex/owned=true,spex/scenario=mqtt-ingestion-basic'",
 		"'delete' 'configmap'",
 		"'-l' 'spex/owned=true,spex/scenario=mqtt-ingestion-basic,spex/runtime=true'",
+		"'delete' 'secret'",
 		"'--ignore-not-found=true'",
 	} {
 		if !strings.Contains(string(content), want) {
