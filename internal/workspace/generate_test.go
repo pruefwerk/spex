@@ -263,6 +263,53 @@ func TestGenerateWorkspaceMaterializesSSMMQTTBrokerURL(t *testing.T) {
 	}
 }
 
+func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLForRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "kubernetesSecret", `'{{ ssm "/dev/emqx/emqx_endpoint" }}'`)
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	inputs.Scenario.Spec.Operations = []Operation{
+		{
+			ID:   "assert-reading-1-mqtt",
+			Type: "mqtt.roundtrip",
+			MQTT: &MQTTPublish{
+				Topic:              "telemetry/${param.deviceId}/readings",
+				PayloadTemplateRef: "valid-energy-reading",
+				CorrelationID:      "reading-1",
+				Timeout:            "30s",
+				Match: []Matcher{
+					{Path: "$.correlationId", EqualsString: "reading-1"},
+				},
+			},
+		},
+	}
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "03-op-assert-reading-1-mqtt.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`name: "SPEX_MQTT_BROKER_URL"`,
+		`name: "mqtt-probe-credentials-broker-url"`,
+		`key: "brokerURL"`,
+		`"mqtt"`,
+		`"roundtrip"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("roundtrip broker URL env missing %q:\n%s", want, string(job))
+		}
+	}
+	if strings.Contains(string(job), "--broker-url=") {
+		t.Fatalf("roundtrip job should not render an SSM broker URL as a literal arg:\n%s", string(job))
+	}
+}
+
 func TestGenerateEscapesRenderedJSONPayloadValues(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")

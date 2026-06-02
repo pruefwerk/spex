@@ -1514,7 +1514,7 @@ func shellQuote(value string) string {
 
 func secretEnv(in Inputs, args []string) string {
 	switch {
-	case len(args) >= 2 && args[0] == "mqtt" && args[1] == "publish":
+	case len(args) >= 2 && args[0] == "mqtt" && (args[1] == "publish" || args[1] == "roundtrip"):
 		env := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
 			"SPEX_MQTT_USERNAME": "username",
 			"SPEX_MQTT_PASSWORD": "password",
