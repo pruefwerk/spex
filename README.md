@@ -6,6 +6,18 @@ It is built for Kubernetes-based integration testing where the test author shoul
 
 Status: production-candidate. Use it for controlled pilots and promotion pipelines that run the validation, security, artifact-scan, and live proof gates described in the production-readiness and live-proof docs.
 
+![spex architecture](assets/spex_architecture.png)
+
+This diagram shows how spex turns acceptance-test intent into a repeatable Kubernetes proof run.
+
+Test authors describe the scenario once, using YAML, Gherkin features, GraphQL queries, suite configuration, and optional shared catalogs. Platform and test-infrastructure owners keep the environment-specific pieces separate: target bindings, integration profiles, secrets, and runtime settings.
+
+spex connects both sides. It validates the suite, explains what will run, resolves the required references, and compiles an inspectable KUTTL workspace. From that workspace, spex generates the probe jobs and assertions that exercise the target system through MQTT, Redpanda, GraphQL, and optional Keycloak authentication.
+
+Teams can stop after compilation and review the generated workspace, or they can run the suite against kind or another Kubernetes target. During a live proof run, spex executes the generated probes, observes the system under test, collects results, and cleans up runtime resources.
+
+The output is not just a pass/fail signal. spex produces scenario reports, KUTTL artifacts, logs, and optional resource-usage evidence so CI pipelines and reviewers can inspect what happened after the run.
+
 ## Commands
 
 Check the installed binary:
@@ -371,6 +383,7 @@ Integration profile command strings support these placeholders:
 
 ```text
 ${repoRoot}
+${integrationProfileDir}
 ${workspaceDir}
 ${namespace}
 ${kubeContext}
@@ -378,6 +391,8 @@ ${probeImage}
 ${probeImagePullPolicy}
 ${kindCluster}
 ```
+
+Use `${repoRoot}` for files owned by the scenario repository and `${integrationProfileDir}` for files shipped next to the integration profile, such as reusable Helm charts in a shared integration catalog repository.
 
 For KUTTL-managed `startKIND` runs, keep `${kindCluster}` aligned with the cluster KUTTL creates. The example uses `kind`, so the generated kube context is `kind-kind`.
 

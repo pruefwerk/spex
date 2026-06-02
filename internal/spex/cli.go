@@ -789,6 +789,14 @@ func sameCleanAbsPath(left, right string) bool {
 	return leftAbs == rightAbs
 }
 
+func absolutePathOrOriginal(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
+}
+
 func verifyReleaseArtifactMode(distDir, name string) error {
 	info, err := os.Lstat(filepath.Join(distDir, name))
 	if err != nil {
@@ -1599,6 +1607,7 @@ func runValidate(args []string, stdout io.Writer) error {
 			return fmt.Errorf("integration profile: %w", err)
 		}
 		inputs.Integration = &profile
+		inputs.IntegrationProfilePath = absolutePathOrOriginal(*integrationProfilePath)
 	}
 	if *kubeContext != "" {
 		inputs.KubeContext = *kubeContext
@@ -1651,6 +1660,7 @@ func runCompile(args []string, stdout io.Writer) error {
 			return fmt.Errorf("integration profile: %w", err)
 		}
 		inputs.Integration = &profile
+		inputs.IntegrationProfilePath = absolutePathOrOriginal(*integrationProfilePath)
 	}
 	if *kubeContext != "" {
 		inputs.KubeContext = *kubeContext
@@ -2440,6 +2450,7 @@ func loadSuiteInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags)
 					return nil, fmt.Errorf("integration profile: %w", err)
 				}
 				inputs.Integration = &profile
+				inputs.IntegrationProfilePath = scenarioRef.IntegrationProfilePath
 			}
 			inputs.CatalogPaths = resolved.CatalogPaths
 			applySuiteOverrides(&inputs, flags, ordinal)

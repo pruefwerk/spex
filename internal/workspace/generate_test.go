@@ -335,7 +335,7 @@ spec:
         timeout: 300
   setup:
     commands:
-      - command: kubectl ${kubeContextArgs} create namespace spex-test --dry-run=client -o yaml
+      - command: kubectl ${kubeContextArgs} create namespace spex-test --dry-run=client -o yaml && test -d ${integrationProfileDir}
         timeout: 60
   helmApps:
     - name: redpanda
@@ -357,6 +357,7 @@ spec:
 		t.Fatal(err)
 	}
 	inputs.Integration = &integration
+	inputs.IntegrationProfilePath = profilePath
 	inputs.RunID = "run-fixed-test"
 	out := filepath.Join(dir, "out")
 	if err := Generate(out, inputs); err != nil {
@@ -398,6 +399,9 @@ spec:
 	if !strings.Contains(string(setup), "kubectl --kubeconfig ../../kubeconfig create namespace spex-test") {
 		t.Fatalf("setup step did not render portable kubeconfig path:\n%s", string(setup))
 	}
+	if !strings.Contains(string(setup), "test -d "+filepath.ToSlash(inputDir)) {
+		t.Fatalf("setup step did not render integrationProfileDir:\n%s", string(setup))
+	}
 	if strings.Contains(string(setup), out) {
 		t.Fatalf("setup step leaked absolute workspace path %q:\n%s", out, string(setup))
 	}
@@ -435,6 +439,51 @@ spec:
 	} {
 		if _, err := os.Stat(filepath.Join(out, rel)); err != nil {
 			t.Fatalf("missing shifted integration file %s: %v", rel, err)
+		}
+	}
+}
+
+func TestGenerateWorkspaceMaterializesLocalEnvFileSecretWithKINDKubeconfig(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
+	content, err := os.ReadFile(bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = []byte(strings.Replace(string(content), `      keys:
+        username: username
+        password: password`, `      envFile: ../.secrets/kind.env
+      env:
+        username: SPEX_MQTT_USERNAME
+        password: SPEX_MQTT_PASSWORD
+      keys:
+        username: username
+        password: password`, 1))
+	if err := os.WriteFile(bindingPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.Integration = &IntegrationProfile{Spec: IntegrationProfileSpec{
+		KIND: KINDIntegration{Start: true, ClusterName: "local-dev"},
+	}}
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	setup, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "01-integration-setup.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		". " + shellQuote(filepath.ToSlash(filepath.Join(dir, ".secrets", "kind.env"))),
+		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
+		"| kubectl '--kubeconfig' '../../kubeconfig' 'apply' '-f' '-'",
+	} {
+		if !strings.Contains(string(setup), want) {
+			t.Fatalf("secret materialization step missing %q:\n%s", want, string(setup))
 		}
 	}
 }

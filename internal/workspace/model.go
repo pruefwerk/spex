@@ -1,18 +1,19 @@
 package workspace
 
 type Inputs struct {
-	ScenarioPath string
-	BindingPath  string
-	ScenarioName string
-	Namespace    string
-	KubeContext  string
-	RunID        string
-	StartKIND    bool
-	RepoRoot     string
-	CatalogPaths []string
-	Integration  *IntegrationProfile
-	Scenario     Scenario
-	Binding      TargetBinding
+	ScenarioPath           string
+	BindingPath            string
+	ScenarioName           string
+	Namespace              string
+	KubeContext            string
+	RunID                  string
+	StartKIND              bool
+	RepoRoot               string
+	IntegrationProfilePath string
+	CatalogPaths           []string
+	Integration            *IntegrationProfile
+	Scenario               Scenario
+	Binding                TargetBinding
 }
 
 type Scenario struct {

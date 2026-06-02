@@ -44,6 +44,10 @@ func Generate(out string, in Inputs) error {
 	if in.RepoRoot != "" {
 		repoRoot = in.RepoRoot
 	}
+	integrationProfileDir := repoRoot
+	if in.IntegrationProfilePath != "" {
+		integrationProfileDir = filepath.Dir(in.IntegrationProfilePath)
+	}
 	plan := buildPlan(in)
 	dirs := []string{
 		filepath.Join(out, "kuttl", plan.ScenarioSlug),
@@ -63,14 +67,14 @@ func Generate(out string, in Inputs) error {
 
 	files := map[string]string{
 		"README.generated.md": generatedReadme(in),
-		"kuttl-test.yaml":     kuttlTest(in, integrationRenderContext{WorkspaceDir: workspaceDir, RepoRoot: repoRoot}),
+		"kuttl-test.yaml":     kuttlTest(in, integrationRenderContext{WorkspaceDir: workspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir}),
 		"execution-plan.yaml": executionPlan(plan),
 		"step-map.yaml":       stepMap(in, plan),
-		filepath.Join("kuttl", plan.ScenarioSlug, "00-rerun-cleanup.yaml"):                                           cleanupStep(in, plan.ScenarioSlug, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot}),
+		filepath.Join("kuttl", plan.ScenarioSlug, "00-rerun-cleanup.yaml"):                                           cleanupStep(in, plan.ScenarioSlug, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir}),
 		filepath.Join("kuttl", plan.ScenarioSlug, fmt.Sprintf("%02d-static-configmaps.yaml", staticStepOrdinal(in))): staticConfigMaps(in, plan),
 	}
 	if integrationSetupEnabled(in) {
-		files[filepath.Join("kuttl", plan.ScenarioSlug, "01-integration-setup.yaml")] = integrationSetupStep(in, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot})
+		files[filepath.Join("kuttl", plan.ScenarioSlug, "01-integration-setup.yaml")] = integrationSetupStep(in, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir})
 	}
 	if in.Integration != nil && in.Integration.Spec.KIND.Config != "" {
 		content, err := readRegularInputFile(in.Integration.Spec.KIND.Config, maxYAMLInputFileSize)
@@ -456,8 +460,9 @@ func firstProbeOrdinal(in Inputs) int {
 }
 
 type integrationRenderContext struct {
-	WorkspaceDir string
-	RepoRoot     string
+	WorkspaceDir          string
+	RepoRoot              string
+	IntegrationProfileDir string
 }
 
 func kuttlTest(in Inputs, ctx integrationRenderContext) string {
@@ -536,7 +541,7 @@ func integrationSetupStep(in Inputs, ctx integrationRenderContext) string {
 		writeKUTTLCommands(&b, in, ctx, in.Integration.Spec.Setup.Commands)
 		writeKUTTLCommands(&b, in, ctx, helmAppCommands(in))
 	}
-	writeKUTTLCommands(&b, in, ctx, secretMaterializationCommands(in))
+	writeKUTTLCommands(&b, in, ctx, secretMaterializationCommands(in, ctx))
 	return b.String()
 }
 
@@ -549,7 +554,7 @@ func hasMaterializedSecrets(in Inputs) bool {
 	return false
 }
 
-func secretMaterializationCommands(in Inputs) []KUTTLCommand {
+func secretMaterializationCommands(in Inputs, ctx integrationRenderContext) []KUTTLCommand {
 	var ids []string
 	for id, secret := range in.Binding.Spec.Secrets {
 		if secret.Type == "localEnvFile" || secret.Type == "awsSsmParameter" {
@@ -562,15 +567,15 @@ func secretMaterializationCommands(in Inputs) []KUTTLCommand {
 		secret := in.Binding.Spec.Secrets[id]
 		switch secret.Type {
 		case "localEnvFile":
-			commands = append(commands, KUTTLCommand{Command: localEnvSecretCommand(in, id, secret), Timeout: 60})
+			commands = append(commands, KUTTLCommand{Command: localEnvSecretCommand(in, ctx, id, secret), Timeout: 60})
 		case "awsSsmParameter":
-			commands = append(commands, KUTTLCommand{Command: ssmSecretCommand(in, secret), Timeout: 120})
+			commands = append(commands, KUTTLCommand{Command: ssmSecretCommand(in, ctx, secret), Timeout: 120})
 		}
 	}
 	return commands
 }
 
-func localEnvSecretCommand(in Inputs, id string, secret Secret) string {
+func localEnvSecretCommand(in Inputs, ctx integrationRenderContext, id string, secret Secret) string {
 	envFile := secret.EnvFile
 	if !filepath.IsAbs(envFile) && in.BindingPath != "" {
 		envFile = filepath.Join(filepath.Dir(in.BindingPath), envFile)
@@ -580,7 +585,7 @@ func localEnvSecretCommand(in Inputs, id string, secret Secret) string {
 	b.WriteString("set -a\n")
 	b.WriteString(". " + shellQuote(filepath.ToSlash(envFile)) + "\n")
 	b.WriteString("set +a\n")
-	writeSecretCreatePipeline(&b, in, secret, func(logicalKey string) string {
+	writeSecretCreatePipeline(&b, in, ctx, secret, func(logicalKey string) string {
 		envName := secret.Env[logicalKey]
 		if envName == "" {
 			envName = defaultSecretEnvName(id, logicalKey)
@@ -590,7 +595,7 @@ func localEnvSecretCommand(in Inputs, id string, secret Secret) string {
 	return b.String()
 }
 
-func ssmSecretCommand(in Inputs, secret Secret) string {
+func ssmSecretCommand(in Inputs, ctx integrationRenderContext, secret Secret) string {
 	var b strings.Builder
 	b.WriteString("set -eu\n")
 	var logicalKeys []string
@@ -602,7 +607,7 @@ func ssmSecretCommand(in Inputs, secret Secret) string {
 		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
 		b.WriteString(fmt.Sprintf("%s=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", varName, shellQuote(ssmParameterName(secret.SSMParameters[logicalKey]))))
 	}
-	writeSecretCreatePipeline(&b, in, secret, func(logicalKey string) string {
+	writeSecretCreatePipeline(&b, in, ctx, secret, func(logicalKey string) string {
 		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
 		return fmt.Sprintf(`"${%s}"`, varName)
 	})
@@ -616,11 +621,9 @@ func ssmParameterName(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func writeSecretCreatePipeline(b *strings.Builder, in Inputs, secret Secret, valueExpr func(string) string) {
+func writeSecretCreatePipeline(b *strings.Builder, in Inputs, ctx integrationRenderContext, secret Secret, valueExpr func(string) string) {
 	args := []string{"-n", in.Namespace, "create", "secret", "generic", secret.Name, "--dry-run=client", "-o", "yaml"}
-	if in.KubeContext != "" {
-		args = append([]string{"--context", in.KubeContext}, args...)
-	}
+	args = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), args...)
 	b.WriteString("kubectl " + shellCommand(args...) + " \\\n")
 	var logicalKeys []string
 	for logicalKey := range secret.Keys {
@@ -631,9 +634,7 @@ func writeSecretCreatePipeline(b *strings.Builder, in Inputs, secret Secret, val
 		b.WriteString("  --from-literal=" + shellQuote(secret.Keys[logicalKey]) + "=" + valueExpr(logicalKey) + " \\\n")
 	}
 	applyArgs := []string{"apply", "-f", "-"}
-	if in.KubeContext != "" {
-		applyArgs = append([]string{"--context", in.KubeContext}, applyArgs...)
-	}
+	applyArgs = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), applyArgs...)
 	b.WriteString("  | kubectl " + shellCommand(applyArgs...) + "\n")
 }
 
@@ -708,15 +709,16 @@ func renderIntegrationValue(in Inputs, ctx integrationRenderContext, value strin
 		probeImagePullPolicy = "IfNotPresent"
 	}
 	replacements := map[string]string{
-		"${workspaceDir}":         filepath.ToSlash(ctx.WorkspaceDir),
-		"${kubeconfig}":           filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig")),
-		"${repoRoot}":             filepath.ToSlash(ctx.RepoRoot),
-		"${namespace}":            in.Namespace,
-		"${probeImage}":           probeImage,
-		"${probeImagePullPolicy}": probeImagePullPolicy,
-		"${kubeContext}":          in.KubeContext,
-		"${kubeContextArgs}":      strings.Join(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), " "),
-		"${kindCluster}":          kindClusterName(in),
+		"${workspaceDir}":          filepath.ToSlash(ctx.WorkspaceDir),
+		"${kubeconfig}":            filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig")),
+		"${repoRoot}":              filepath.ToSlash(ctx.RepoRoot),
+		"${integrationProfileDir}": filepath.ToSlash(ctx.IntegrationProfileDir),
+		"${namespace}":             in.Namespace,
+		"${probeImage}":            probeImage,
+		"${probeImagePullPolicy}":  probeImagePullPolicy,
+		"${kubeContext}":           in.KubeContext,
+		"${kubeContextArgs}":       strings.Join(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), " "),
+		"${kindCluster}":           kindClusterName(in),
 	}
 	out := value
 	for placeholder, replacement := range replacements {

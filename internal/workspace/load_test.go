@@ -203,6 +203,56 @@ spec:
 	}
 }
 
+func TestLoadScenarioSuiteResolvesLocalRefsToAbsolutePaths(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
+	profilePath := filepath.Join(dir, "kind-profile.yaml")
+	if err := os.WriteFile(profilePath, []byte(`apiVersion: spex.integration.v0.1
+kind: IntegrationProfile
+spec: {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	suitePath := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suitePath, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: local-suite
+spec:
+  bindingRef: binding.yaml
+  integrationProfileRef: kind-profile.yaml
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(dir)
+	resolved, err := LoadScenarioSuite("suite.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for field, path := range map[string]string{
+		"suite":              resolved.Path,
+		"binding":            resolved.BindingPath,
+		"integrationProfile": resolved.IntegrationProfilePath,
+		"scenario":           resolved.ScenarioPaths[0],
+	} {
+		if !filepath.IsAbs(path) {
+			t.Fatalf("%s path is not absolute: %q", field, path)
+		}
+	}
+	if resolved.BindingPath != bindingPath {
+		t.Fatalf("binding path = %q, want %q", resolved.BindingPath, bindingPath)
+	}
+	if resolved.ScenarioPaths[0] != scenarioPath {
+		t.Fatalf("scenario path = %q, want %q", resolved.ScenarioPaths[0], scenarioPath)
+	}
+	if resolved.IntegrationProfilePath != profilePath {
+		t.Fatalf("integration profile path = %q, want %q", resolved.IntegrationProfilePath, profilePath)
+	}
+}
+
 func TestLoadInputsRejectsCredentialsInURLs(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://user:pass@emqx.platform.svc.cluster.local:1883")
@@ -662,7 +712,7 @@ spec:
     containers:
       - ${probeImage}
     commands:
-      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot}
+      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot} && test -d ${integrationProfileDir}
         timeout: 300
   setup:
     commands:
@@ -695,6 +745,7 @@ spec:
       namespace: application
       values:
         - ${repoRoot}/integration/values/my-service.yaml
+        - ${integrationProfileDir}/values/my-service.yaml
       set:
         image.tag: "1.2.3"
       wait: true

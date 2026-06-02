@@ -46,15 +46,16 @@ var catalogVariablePattern = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)(?::(
 var ssmReferencePattern = regexp.MustCompile(`^\s*\{\{\s*ssm\s+"([^"]+)"\s*\}\}\s*$`)
 
 var integrationPlaceholders = map[string]struct{}{
-	"repoRoot":             {},
-	"workspaceDir":         {},
-	"kubeconfig":           {},
-	"namespace":            {},
-	"kubeContext":          {},
-	"kubeContextArgs":      {},
-	"probeImage":           {},
-	"probeImagePullPolicy": {},
-	"kindCluster":          {},
+	"repoRoot":              {},
+	"integrationProfileDir": {},
+	"workspaceDir":          {},
+	"kubeconfig":            {},
+	"namespace":             {},
+	"kubeContext":           {},
+	"kubeContextArgs":       {},
+	"probeImage":            {},
+	"probeImagePullPolicy":  {},
+	"kindCluster":           {},
 }
 
 func LoadInputs(scenarioPath, bindingPath string) (Inputs, error) {
@@ -590,6 +591,11 @@ func mergeIntegrationProfiles(parent, child IntegrationProfile) IntegrationProfi
 }
 
 func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
+	absSuitePath, err := filepath.Abs(suitePath)
+	if err != nil {
+		return ResolvedScenarioSuite{}, err
+	}
+	suitePath = absSuitePath
 	suite, err := loadYAML[ScenarioSuite](suitePath)
 	if err != nil {
 		return ResolvedScenarioSuite{}, err
