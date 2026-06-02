@@ -824,7 +824,7 @@ func TestMQTTRoundTripStub(t *testing.T) {
 	t.Setenv("SPEX_MQTT_PASSWORD", "pass")
 
 	var stdout bytes.Buffer
-	err := Run([]string{"mqtt", "roundtrip", "--broker-url", "tcp://broker:1883", "--topic", "migration/smoke", "--payload-file", payload, "--matchers-file", matchers, "--client-id", "client-1"}, &stdout, &bytes.Buffer{})
+	err := Run([]string{"mqtt", "roundtrip", "--broker-url", "tcp://broker:1883", "--topic", "migration/smoke", "--payload-file", payload, "--matchers-file", matchers, "--client-id", "client-1", "--client-mode", "shared"}, &stdout, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -834,6 +834,9 @@ func TestMQTTRoundTripStub(t *testing.T) {
 	if fake.roundTrip.BrokerURL != "tcp://broker:1883" || fake.roundTrip.Topic != "migration/smoke" || fake.roundTrip.ClientID != "client-1" {
 		t.Fatalf("unexpected request: %#v", fake.roundTrip)
 	}
+	if fake.roundTrip.ClientMode != "shared" {
+		t.Fatalf("client mode not propagated: %#v", fake.roundTrip)
+	}
 	if fake.roundTrip.MatchersFile != matchers {
 		t.Fatalf("matchers not propagated: %#v", fake.roundTrip)
 	}
@@ -842,6 +845,18 @@ func TestMQTTRoundTripStub(t *testing.T) {
 	}
 	if string(fake.roundTrip.Payload) != `{"ok":true}` {
 		t.Fatalf("payload not propagated: %s", string(fake.roundTrip.Payload))
+	}
+}
+
+func TestMQTTRoundTripRejectsInvalidClientMode(t *testing.T) {
+	dir := t.TempDir()
+	payload := writeTestFile(t, dir, "payload.json", `{"ok":true}`)
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.ok","equalsBool":true}]`)
+
+	var stdout bytes.Buffer
+	err := Run([]string{"mqtt", "roundtrip", "--broker-url", "tcp://broker:1883", "--topic", "migration/smoke", "--payload-file", payload, "--matchers-file", matchers, "--client-mode", "bad"}, &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--client-mode must be separate or shared") {
+		t.Fatalf("expected client mode validation error, got %v", err)
 	}
 }
 

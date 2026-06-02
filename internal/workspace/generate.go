@@ -992,6 +992,9 @@ func mqttRoundTripJob(in Inputs, scenarioSlug string, ordinal int, op Operation,
 		"--matchers-file=/spex/matchers/" + matchersFile,
 		"--timeout=" + mqttTimeout(in, op),
 	}
+	if op.MQTT.ClientMode != "" {
+		args = append(args, "--client-mode="+op.MQTT.ClientMode)
+	}
 	if !isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
 		args = append([]string{"mqtt", "roundtrip", "--broker-url=" + in.Binding.Spec.MQTT.BrokerURL}, args[2:]...)
 	}

@@ -1486,6 +1486,9 @@ func validateScenario(s Scenario, scenarioPath string) error {
 			if err := validateOptionalTimeout("operation "+op.ID+" mqtt.timeout", op.MQTT.Timeout); err != nil {
 				return err
 			}
+			if err := validateMQTTRoundTripClientMode("operation "+op.ID+" mqtt.clientMode", op.MQTT.ClientMode); err != nil {
+				return err
+			}
 			if err := validateMatchers("operation "+op.ID+" mqtt.match", op.MQTT.Match); err != nil {
 				return err
 			}
@@ -2124,6 +2127,15 @@ func validateOptionalTimeout(field, value string) error {
 		return fmt.Errorf("%s must be at least 1s", field)
 	}
 	return nil
+}
+
+func validateMQTTRoundTripClientMode(field, value string) error {
+	switch value {
+	case "", "separate", "shared":
+		return nil
+	default:
+		return fmt.Errorf("%s must be separate or shared", field)
+	}
 }
 
 func resolveScenarioFile(scenarioPath, ref string) string {

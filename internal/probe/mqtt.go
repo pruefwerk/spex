@@ -24,6 +24,7 @@ type mqttRoundTripRequest struct {
 	BrokerURL    string
 	Topic        string
 	ClientID     string
+	ClientMode   string
 	Username     string
 	Password     string
 	Payload      []byte
@@ -73,6 +74,16 @@ func (pahoMQTTPublisher) Publish(req mqttPublishRequest) error {
 }
 
 func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
+	if req.ClientMode == "" {
+		req.ClientMode = "separate"
+	}
+	if req.ClientMode == "shared" {
+		return roundTripMQTTShared(req)
+	}
+	return roundTripMQTTSeparate(req)
+}
+
+func roundTripMQTTSeparate(req mqttRoundTripRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
 	defer cancel()
 
@@ -133,9 +144,67 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 			}
 		case <-ctx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q after receiving %d message(s); subscription %s: %w", req.Topic, received, subscribeResult, lastErr)
+				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using separate clients after receiving %d message(s); subscription %s: %w", req.Topic, received, subscribeResult, lastErr)
 			}
-			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q without receiving messages; subscription %s", req.Topic, subscribeResult)
+			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using separate clients without receiving messages; subscription %s", req.Topic, subscribeResult)
+		}
+	}
+}
+
+func roundTripMQTTShared(req mqttRoundTripRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
+	defer cancel()
+
+	client := mqtt.NewClient(mqttClientOptions(req.BrokerURL, req.ClientID+"-shared", req.Username, req.Password, req.Timeout))
+	connect := client.Connect()
+	if !connect.WaitTimeout(mqttRemainingTimeout(ctx)) {
+		return fmt.Errorf("mqtt shared client connect timed out")
+	}
+	if err := connect.Error(); err != nil {
+		return fmt.Errorf("mqtt shared client connect: %w", err)
+	}
+	defer client.Disconnect(250)
+
+	messages := make(chan []byte, 16)
+	subscribe := client.Subscribe(req.Topic, req.QoS, func(_ mqtt.Client, message mqtt.Message) {
+		payload := append([]byte(nil), message.Payload()...)
+		select {
+		case messages <- payload:
+		case <-ctx.Done():
+		}
+	})
+	if !subscribe.WaitTimeout(mqttRemainingTimeout(ctx)) {
+		return fmt.Errorf("mqtt shared client subscribe timed out")
+	}
+	if err := subscribe.Error(); err != nil {
+		return fmt.Errorf("mqtt shared client subscribe: %w", err)
+	}
+	subscribeResult := mqttSubscribeResult(req.Topic, subscribe)
+
+	publish := client.Publish(req.Topic, req.QoS, false, req.Payload)
+	if !publish.WaitTimeout(mqttRemainingTimeout(ctx)) {
+		return fmt.Errorf("mqtt shared client publish timed out")
+	}
+	if err := publish.Error(); err != nil {
+		return fmt.Errorf("mqtt shared client publish: %w", err)
+	}
+
+	var lastErr error
+	received := 0
+	for {
+		select {
+		case payload := <-messages:
+			received++
+			if err := EvaluateMatchersBytes(req.MatchersFile, payload); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
+		case <-ctx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using shared client after receiving %d message(s); subscription %s: %w", req.Topic, received, subscribeResult, lastErr)
+			}
+			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using shared client without receiving messages; subscription %s", req.Topic, subscribeResult)
 		}
 	}
 }

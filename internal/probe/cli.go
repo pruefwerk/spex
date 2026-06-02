@@ -334,6 +334,7 @@ func runMQTTRoundTrip(args []string, stdout io.Writer) error {
 	brokerURL := fs.String("broker-url", "", "MQTT broker URL")
 	topic := fs.String("topic", "", "MQTT topic")
 	clientID := fs.String("client-id", "spex-probe", "MQTT client ID")
+	clientMode := fs.String("client-mode", "separate", "MQTT roundtrip client mode: separate or shared")
 	qos := fs.Int("qos", 1, "MQTT QoS")
 	timeoutValue := fs.String("timeout", "30s", "timeout")
 	if err := fs.Parse(args); err != nil {
@@ -363,6 +364,9 @@ func runMQTTRoundTrip(args []string, stdout io.Writer) error {
 	if *qos < 0 || *qos > 2 {
 		return fmt.Errorf("--qos must be 0, 1, or 2")
 	}
+	if *clientMode != "separate" && *clientMode != "shared" {
+		return fmt.Errorf("--client-mode must be separate or shared")
+	}
 	payload, err := os.ReadFile(*payloadFile)
 	if err != nil {
 		return err
@@ -372,6 +376,7 @@ func runMQTTRoundTrip(args []string, stdout io.Writer) error {
 		BrokerURL:    *brokerURL,
 		Topic:        *topic,
 		ClientID:     *clientID,
+		ClientMode:   *clientMode,
 		Username:     username,
 		Password:     password,
 		Payload:      payload,

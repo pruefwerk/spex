@@ -280,6 +280,7 @@ func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLForRoundTrip(t *testing.T) {
 				PayloadTemplateRef: "valid-energy-reading",
 				CorrelationID:      "reading-1",
 				Timeout:            "30s",
+				ClientMode:         "shared",
 				Match: []Matcher{
 					{Path: "$.correlationId", EqualsString: "reading-1"},
 				},
@@ -300,6 +301,7 @@ func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLForRoundTrip(t *testing.T) {
 		`key: "brokerURL"`,
 		`"mqtt"`,
 		`"roundtrip"`,
+		`"--client-mode=shared"`,
 	} {
 		if !strings.Contains(string(job), want) {
 			t.Fatalf("roundtrip broker URL env missing %q:\n%s", want, string(job))

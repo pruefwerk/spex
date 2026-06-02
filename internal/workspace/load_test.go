@@ -1919,6 +1919,36 @@ func TestLoadInputsRejectsMissingMQTTOperationFields(t *testing.T) {
 	}
 }
 
+func TestLoadInputsRejectsInvalidMQTTRoundTripClientMode(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")
+	content, err := os.ReadFile(scenarioPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = []byte(strings.Replace(string(content), `      type: mqtt.publish
+      mqtt:
+        topic: telemetry/${param.deviceId}/readings
+        payloadTemplateRef: valid-energy-reading
+        correlationId: reading-1`, `      type: mqtt.roundtrip
+      mqtt:
+        topic: telemetry/${param.deviceId}/readings
+        payloadTemplateRef: valid-energy-reading
+        correlationId: reading-1
+        clientMode: bad
+        match:
+          - path: $.correlationId
+            equalsString: reading-1`, 1))
+	if err := os.WriteFile(scenarioPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = LoadInputs(scenarioPath, bindingPath)
+	if err == nil || !strings.Contains(err.Error(), "mqtt.clientMode must be separate or shared") {
+		t.Fatalf("expected clientMode validation error, got %v", err)
+	}
+}
+
 func TestLoadInputsRejectsMQTTPayloadWithoutCorrelationMarkers(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

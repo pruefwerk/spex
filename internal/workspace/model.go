@@ -81,6 +81,7 @@ type MQTTPublish struct {
 	PayloadTemplateRef string    `yaml:"payloadTemplateRef"`
 	CorrelationID      string    `yaml:"correlationId"`
 	Timeout            string    `yaml:"timeout"`
+	ClientMode         string    `yaml:"clientMode"`
 	Match              []Matcher `yaml:"match"`
 }
 
