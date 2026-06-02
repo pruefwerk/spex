@@ -50,19 +50,7 @@ func roundTripMQTT(req mqttRoundTripRequest) error {
 }
 
 func (pahoMQTTPublisher) Publish(req mqttPublishRequest) error {
-	options := mqtt.NewClientOptions()
-	options.AddBroker(req.BrokerURL)
-	options.SetClientID(req.ClientID)
-	options.SetConnectTimeout(req.Timeout)
-	options.SetWriteTimeout(req.Timeout)
-	options.SetAutoReconnect(false)
-	options.SetCleanSession(true)
-	if req.Username != "" {
-		options.SetUsername(req.Username)
-	}
-	if req.Password != "" {
-		options.SetPassword(req.Password)
-	}
+	options := mqttClientOptions(req.BrokerURL, req.ClientID, req.Username, req.Password, req.Timeout)
 
 	client := mqtt.NewClient(options)
 	connect := client.Connect()
@@ -88,32 +76,18 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
 	defer cancel()
 
-	options := mqtt.NewClientOptions()
-	options.AddBroker(req.BrokerURL)
-	options.SetClientID(req.ClientID)
-	options.SetConnectTimeout(req.Timeout)
-	options.SetWriteTimeout(req.Timeout)
-	options.SetAutoReconnect(false)
-	options.SetCleanSession(true)
-	if req.Username != "" {
-		options.SetUsername(req.Username)
-	}
-	if req.Password != "" {
-		options.SetPassword(req.Password)
-	}
-
-	client := mqtt.NewClient(options)
-	connect := client.Connect()
+	subscriber := mqtt.NewClient(mqttClientOptions(req.BrokerURL, req.ClientID+"-sub", req.Username, req.Password, req.Timeout))
+	connect := subscriber.Connect()
 	if !connect.WaitTimeout(req.Timeout) {
-		return fmt.Errorf("mqtt connect timed out")
+		return fmt.Errorf("mqtt subscriber connect timed out")
 	}
 	if err := connect.Error(); err != nil {
-		return fmt.Errorf("mqtt connect: %w", err)
+		return fmt.Errorf("mqtt subscriber connect: %w", err)
 	}
-	defer client.Disconnect(250)
+	defer subscriber.Disconnect(250)
 
 	messages := make(chan []byte, 16)
-	subscribe := client.Subscribe(req.Topic, req.QoS, func(_ mqtt.Client, message mqtt.Message) {
+	subscribe := subscriber.Subscribe(req.Topic, req.QoS, func(_ mqtt.Client, message mqtt.Message) {
 		payload := append([]byte(nil), message.Payload()...)
 		select {
 		case messages <- payload:
@@ -127,7 +101,17 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 		return fmt.Errorf("mqtt subscribe: %w", err)
 	}
 
-	publish := client.Publish(req.Topic, req.QoS, false, req.Payload)
+	publisher := mqtt.NewClient(mqttClientOptions(req.BrokerURL, req.ClientID+"-pub", req.Username, req.Password, req.Timeout))
+	connect = publisher.Connect()
+	if !connect.WaitTimeout(req.Timeout) {
+		return fmt.Errorf("mqtt publisher connect timed out")
+	}
+	if err := connect.Error(); err != nil {
+		return fmt.Errorf("mqtt publisher connect: %w", err)
+	}
+	defer publisher.Disconnect(250)
+
+	publish := publisher.Publish(req.Topic, req.QoS, false, req.Payload)
 	if !publish.WaitTimeout(req.Timeout) {
 		return fmt.Errorf("mqtt publish timed out")
 	}
@@ -151,6 +135,23 @@ func (pahoMQTTPublisher) RoundTrip(req mqttRoundTripRequest) error {
 			return fmt.Errorf("mqtt roundtrip expectation timed out")
 		}
 	}
+}
+
+func mqttClientOptions(brokerURL, clientID, username, password string, timeout time.Duration) *mqtt.ClientOptions {
+	options := mqtt.NewClientOptions()
+	options.AddBroker(brokerURL)
+	options.SetClientID(clientID)
+	options.SetConnectTimeout(timeout)
+	options.SetWriteTimeout(timeout)
+	options.SetAutoReconnect(false)
+	options.SetCleanSession(true)
+	if username != "" {
+		options.SetUsername(username)
+	}
+	if password != "" {
+		options.SetPassword(password)
+	}
+	return options
 }
 
 func mqttCredentialsFromEnv() (string, string) {
