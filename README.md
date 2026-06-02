@@ -116,6 +116,8 @@ Keep generated workspaces, live reports, KUTTL artifacts, and kubeconfigs out of
 
 The checked-in reference layout at `examples/reference-scenario-repo/` models the separate scenario repository shape with CI targets and an opt-in live proof workflow.
 
+For a public, runnable example repository, see [pruefwerk/spex-testbench](https://github.com/pruefwerk/spex-testbench). It shows a scenario repository that uses the released `spex` binary in CI, validates tester-owned catalogs and suites, and runs the same scenario against a Kind-managed local test bench with MQTT, Redpanda, MongoDB, and GraphQL fixtures.
+
 Add another scenario:
 
 ```sh
@@ -425,7 +427,7 @@ spec:
     containers:
       - ${probeImage}
     commands:
-      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot}
+      - command: docker build -f ${repoRoot}/examples/integration/probe/Dockerfile -t ${probeImage} ${repoRoot}
         timeout: 300
       - command: kind load docker-image ${probeImage} --name ${kindCluster}
         timeout: 300

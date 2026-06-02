@@ -5,6 +5,7 @@
 .bin/
 .cache/
 .release-check/
+.release-linux-arm64/
 .tmp/
 .spex/
 reports/

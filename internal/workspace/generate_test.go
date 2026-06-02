@@ -329,7 +329,7 @@ spec:
     containers:
       - ${probeImage}
     commands:
-      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot}
+      - command: docker build -f ${repoRoot}/examples/integration/probe/Dockerfile -t ${probeImage} ${repoRoot}
         timeout: 300
       - command: kind load docker-image ${probeImage} --name ${kindCluster}
         timeout: 300
@@ -377,7 +377,7 @@ spec:
 		"suppress:\n  - events",
 		"- \"spex-probe:dev\"",
 		"docker build -f ",
-		"/Dockerfile.probe -t spex-probe:dev ",
+		"/examples/integration/probe/Dockerfile -t spex-probe:dev ",
 		"kindContext: \"local-dev\"",
 		"skipClusterDelete: true",
 		"kind load docker-image spex-probe:dev --name local-dev",

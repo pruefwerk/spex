@@ -131,7 +131,7 @@ live-proof-keycloak: probe-image
 	BINDING=examples/bindings/local-dev-keycloak.yaml INTEGRATION_PROFILE=examples/integration/local-kind-keycloak-profile.yaml WORKSPACE=generated/mqtt-ingestion-basic-keycloak-live KUBE_CONTEXT=kind-kind PROBE_IMAGE=$${PROBE_IMAGE:-spex-probe:dev} PROBE_IMAGE_PULL_POLICY=IfNotPresent scripts/integration_live.sh
 
 probe-image:
-	docker build -f Dockerfile.probe -t $${PROBE_IMAGE:-spex-probe:dev} .
+	docker build -f examples/integration/probe/Dockerfile -t $${PROBE_IMAGE:-spex-probe:dev} .
 
 spex-status:
 	scripts/spex_status.sh

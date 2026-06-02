@@ -712,7 +712,7 @@ spec:
     containers:
       - ${probeImage}
     commands:
-      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot} && test -d ${integrationProfileDir}
+      - command: docker build -f ${repoRoot}/examples/integration/probe/Dockerfile -t ${probeImage} ${repoRoot} && test -d ${integrationProfileDir}
         timeout: 300
   setup:
     commands:

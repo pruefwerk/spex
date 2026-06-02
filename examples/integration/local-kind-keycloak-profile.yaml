@@ -7,9 +7,9 @@ spec:
     config: local-kind.yaml
     nodeCache: false
     commands:
-      - command: docker build -f ${repoRoot}/Dockerfile.probe -t ${probeImage} ${repoRoot}
+      - command: docker build -f ${repoRoot}/examples/integration/probe/Dockerfile -t ${probeImage} ${repoRoot}
         timeout: 300
-      - command: docker build -f ${repoRoot}/Dockerfile.demo-stack -t spex-demo-stack:dev ${repoRoot}
+      - command: docker build -f ${repoRoot}/examples/integration/demo-stack/Dockerfile -t spex-demo-stack:dev ${repoRoot}
         timeout: 300
       - command: kind load docker-image ${probeImage} --name ${kindCluster}
         timeout: 300

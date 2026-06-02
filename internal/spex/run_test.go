@@ -2619,7 +2619,7 @@ func TestCompileAcceptsIntegrationProfile(t *testing.T) {
 	if !strings.Contains(string(kuttlTest), "kindConfig: ./kind.yaml") || !strings.Contains(string(kuttlTest), "startKIND: true") || !strings.Contains(string(kuttlTest), "\ntimeout: 300\n") || !strings.Contains(string(kuttlTest), "suppress:\n  - events") {
 		t.Fatalf("kuttl-test.yaml missing integration profile fields:\n%s", string(kuttlTest))
 	}
-	if !strings.Contains(string(kuttlTest), "docker build -f ../../Dockerfile.probe") {
+	if !strings.Contains(string(kuttlTest), "docker build -f ../../examples/integration/probe/Dockerfile") {
 		t.Fatalf("kuttl-test.yaml missing rendered repo root override:\n%s", string(kuttlTest))
 	}
 	if _, err := os.Stat(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "01-integration-setup.yaml")); err != nil {
