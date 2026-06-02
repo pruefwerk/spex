@@ -559,6 +559,17 @@ spec:
 
 The generated setup step creates a labeled Kubernetes Secret and fails if a Secret with the same name already exists; generated manifests and reports contain only Secret names, key names, env var names, and SSM parameter paths, not secret values. `ssmParameters` accepts either a raw SSM parameter name or the Helm-style `{{ ssm "path/to/key" }}` form.
 
+MQTT broker URLs can also come from SSM when the full URL is environment-specific:
+
+```yaml
+spec:
+  mqtt:
+    brokerURL: '{{ ssm "/team/dev/mqtt/broker_url" }}'
+    credentialsRef: mqtt-credentials
+```
+
+For SSM-backed MQTT broker URLs, the generated setup step materializes the value as a labeled Kubernetes Secret. Probe jobs read the URL from that Secret at runtime instead of rendering it into the generated Job arguments.
+
 GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
 
 MongoDB assertions use `mongodb.expect` operations. The scenario supplies a collection, a JSON filter, a correlation ID, and matchers. The binding supplies `spec.mongodb.uri`, `spec.mongodb.database`, and optionally `spec.mongodb.credentialsRef` with `username` and `password` keys. Filters and matchers support the same `${scenarioRunId}`, `${correlationId}`, and `${param.<name>}` template values used by the other assertion operations.

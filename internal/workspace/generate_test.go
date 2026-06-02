@@ -204,6 +204,51 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 	}
 }
 
+func TestGenerateWorkspaceMaterializesSSMMQTTBrokerURL(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "kubernetesSecret", `'{{ ssm "/dev/emqx/emqx_endpoint" }}'`)
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	setup, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "01-integration-setup.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"aws ssm get-parameter --with-decryption --name '/dev/emqx/emqx_endpoint'",
+		"kubectl '--context' 'local-dev' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials-broker-url'",
+		"--from-literal='brokerURL'=\"${SPEX_SSM_MQTT_BROKER_URL}\"",
+		"'spex/secret-id=mqtt-broker-url'",
+		"'spex/source=aws-ssm'",
+	} {
+		if !strings.Contains(string(setup), want) {
+			t.Fatalf("broker URL materialization step missing %q:\n%s", want, string(setup))
+		}
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "04-op-publish-reading-1.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`name: "SPEX_MQTT_BROKER_URL"`,
+		`name: "mqtt-probe-credentials-broker-url"`,
+		`key: "brokerURL"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("broker URL env missing %q:\n%s", want, string(job))
+		}
+	}
+	if strings.Contains(string(job), "--broker-url=") {
+		t.Fatalf("job should not render an SSM broker URL as a literal arg:\n%s", string(job))
+	}
+}
+
 func TestGenerateEscapesRenderedJSONPayloadValues(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")

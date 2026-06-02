@@ -546,6 +546,9 @@ func integrationSetupStep(in Inputs, ctx integrationRenderContext) string {
 }
 
 func hasMaterializedSecrets(in Inputs) bool {
+	if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+		return true
+	}
 	for _, secret := range in.Binding.Spec.Secrets {
 		if secret.Type == "localEnvFile" || secret.Type == "awsSsmParameter" {
 			return true
@@ -572,7 +575,24 @@ func secretMaterializationCommands(in Inputs, ctx integrationRenderContext) []KU
 			commands = append(commands, KUTTLCommand{Command: ssmSecretCommand(in, ctx, id, secret), Timeout: 120})
 		}
 	}
+	if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+		commands = append(commands, KUTTLCommand{Command: ssmMQTTBrokerURLCommand(in, ctx), Timeout: 120})
+	}
 	return commands
+}
+
+func ssmMQTTBrokerURLCommand(in Inputs, ctx integrationRenderContext) string {
+	secret := Secret{
+		Name: mqttBrokerURLSecretName(in.Binding),
+		Keys: map[string]string{"brokerURL": "brokerURL"},
+	}
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	b.WriteString(fmt.Sprintf("SPEX_SSM_MQTT_BROKER_URL=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", shellQuote(ssmParameterName(in.Binding.Spec.MQTT.BrokerURL))))
+	writeSecretCreatePipelineWithLabels(&b, in, ctx, "mqtt-broker-url", secret, []string{"spex/source=aws-ssm"}, func(logicalKey string) string {
+		return `"${SPEX_SSM_MQTT_BROKER_URL}"`
+	})
+	return b.String()
 }
 
 func localEnvSecretCommand(in Inputs, ctx integrationRenderContext, id string, secret Secret) string {
@@ -607,7 +627,7 @@ func ssmSecretCommand(in Inputs, ctx integrationRenderContext, id string, secret
 		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
 		b.WriteString(fmt.Sprintf("%s=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", varName, shellQuote(ssmParameterName(secret.SSMParameters[logicalKey]))))
 	}
-	writeSecretCreatePipeline(&b, in, ctx, id, secret, func(logicalKey string) string {
+	writeSecretCreatePipelineWithLabels(&b, in, ctx, id, secret, []string{"spex/source=aws-ssm"}, func(logicalKey string) string {
 		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
 		return fmt.Sprintf(`"${%s}"`, varName)
 	})
@@ -621,7 +641,24 @@ func ssmParameterName(value string) string {
 	return strings.TrimSpace(value)
 }
 
+func isSSMReference(value string) bool {
+	return ssmReferencePattern.FindStringSubmatch(value) != nil
+}
+
+func mqttBrokerURLSecretName(binding TargetBinding) string {
+	if binding.Spec.MQTT.CredentialsRef != "" {
+		if secret := binding.Spec.Secrets[binding.Spec.MQTT.CredentialsRef]; secret.Name != "" {
+			return secret.Name + "-broker-url"
+		}
+	}
+	return "spex-mqtt-broker-url"
+}
+
 func writeSecretCreatePipeline(b *strings.Builder, in Inputs, ctx integrationRenderContext, id string, secret Secret, valueExpr func(string) string) {
+	writeSecretCreatePipelineWithLabels(b, in, ctx, id, secret, nil, valueExpr)
+}
+
+func writeSecretCreatePipelineWithLabels(b *strings.Builder, in Inputs, ctx integrationRenderContext, id string, secret Secret, extraLabels []string, valueExpr func(string) string) {
 	args := []string{"-n", in.Namespace, "create", "secret", "generic", secret.Name, "--dry-run=client", "-o", "yaml"}
 	args = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), args...)
 	b.WriteString("kubectl " + shellCommand(args...) + " \\\n")
@@ -634,6 +671,7 @@ func writeSecretCreatePipeline(b *strings.Builder, in Inputs, ctx integrationRen
 		b.WriteString("  --from-literal=" + shellQuote(secret.Keys[logicalKey]) + "=" + valueExpr(logicalKey) + " \\\n")
 	}
 	labelArgs := []string{"label", "--local", "-f", "-", "-o", "yaml", "spex/owned=true", "spex/secret-id=" + id, "spex/run-id=" + in.RunID}
+	labelArgs = append(labelArgs, extraLabels...)
 	b.WriteString("  | kubectl " + shellCommand(labelArgs...) + " \\\n")
 	createArgs := []string{"create", "-f", "-"}
 	createArgs = append(kubectlContextArgs(in, filepath.ToSlash(filepath.Join(ctx.WorkspaceDir, "kubeconfig"))), createArgs...)
@@ -869,15 +907,18 @@ func redpandaSnapshotJob(in Inputs, scenarioSlug string, ordinal int) string {
 
 func mqttPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
 	topic := renderTemplate(op.MQTT.Topic, in.RunID, op.MQTT.CorrelationID, params)
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
+	args := []string{
 		"mqtt", "publish",
-		"--broker-url=" + in.Binding.Spec.MQTT.BrokerURL,
 		"--topic=" + topic,
 		"--client-id=" + mqttClientID(in, scenarioSlug, ordinal, op.ID),
 		"--qos=1",
 		"--payload-file=/spex/payloads/" + payloadFile,
 		"--timeout=" + defaultTimeout(in),
-	})
+	}
+	if !isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+		args = append([]string{"mqtt", "publish", "--broker-url=" + in.Binding.Spec.MQTT.BrokerURL}, args[2:]...)
+	}
+	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
 }
 
 func mqttClientID(in Inputs, scenarioSlug string, ordinal int, operationID string) string {
@@ -1390,10 +1431,21 @@ func shellQuote(value string) string {
 func secretEnv(in Inputs, args []string) string {
 	switch {
 	case len(args) >= 2 && args[0] == "mqtt" && args[1] == "publish":
-		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
+		env := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
 			"SPEX_MQTT_USERNAME": "username",
 			"SPEX_MQTT_PASSWORD": "password",
 		})
+		if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+			brokerEnv := secretKeyEnv(Secret{
+				Name: mqttBrokerURLSecretName(in.Binding),
+				Keys: map[string]string{"brokerURL": "brokerURL"},
+			}, map[string]string{"SPEX_MQTT_BROKER_URL": "brokerURL"})
+			if env == "" {
+				return brokerEnv
+			}
+			return env + "\n" + strings.TrimPrefix(brokerEnv, "          env:\n")
+		}
+		return env
 	case len(args) >= 2 && args[0] == "graphql" && args[1] == "expect":
 		if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {
 			return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.Auth.ClientSecretRef], map[string]string{

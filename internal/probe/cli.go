@@ -288,6 +288,9 @@ func runMQTTPublish(args []string, stdout io.Writer) error {
 	if err := rejectProbePositionalArgs(fs, "mqtt publish"); err != nil {
 		return err
 	}
+	if *brokerURL == "" {
+		*brokerURL = os.Getenv("SPEX_MQTT_BROKER_URL")
+	}
 	if *payloadFile == "" || *brokerURL == "" || *topic == "" {
 		return fmt.Errorf("mqtt publish requires --broker-url, --topic, and --payload-file")
 	}

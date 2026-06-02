@@ -2224,8 +2224,10 @@ func validateBinding(b TargetBinding) error {
 	if b.Spec.MQTT.ClientIDPrefix != "" && !idPattern.MatchString(b.Spec.MQTT.ClientIDPrefix) {
 		return fmt.Errorf("spec.mqtt.clientIdPrefix must match %s", idPattern.String())
 	}
-	if err := validateURLNoCredentials("spec.mqtt.brokerURL", b.Spec.MQTT.BrokerURL, []string{"tcp", "ssl", "ws", "wss", "mqtt", "mqtts"}); err != nil {
-		return err
+	if b.Spec.MQTT.BrokerURL != "" && !isSSMReference(b.Spec.MQTT.BrokerURL) {
+		if err := validateURLNoCredentials("spec.mqtt.brokerURL", b.Spec.MQTT.BrokerURL, []string{"tcp", "ssl", "ws", "wss", "mqtt", "mqtts"}); err != nil {
+			return err
+		}
 	}
 	if err := validateURLNoCredentials("spec.rabbitmq.uri", b.Spec.RabbitMQ.URI, []string{"amqp", "amqps"}); err != nil {
 		return err

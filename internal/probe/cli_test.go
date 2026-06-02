@@ -47,6 +47,23 @@ func TestMQTTPublishStub(t *testing.T) {
 	}
 }
 
+func TestMQTTPublishUsesBrokerURLFromEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	payload := writeTestFile(t, dir, "payload.json", `{"ok":true}`)
+	fake := &fakeMQTTPublisher{}
+	withMQTTPublisher(t, fake)
+	t.Setenv("SPEX_MQTT_BROKER_URL", "tcp://broker-from-env:1883")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"mqtt", "publish", "--topic", "telemetry/readings", "--payload-file", payload}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.request.BrokerURL != "tcp://broker-from-env:1883" {
+		t.Fatalf("unexpected broker URL: %#v", fake.request)
+	}
+}
+
 func TestMQTTPublishAcceptsQoSOverride(t *testing.T) {
 	dir := t.TempDir()
 	payload := writeTestFile(t, dir, "payload.json", `{"ok":true}`)
