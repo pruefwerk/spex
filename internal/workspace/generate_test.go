@@ -189,11 +189,11 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 	}
 	for _, want := range []string{
 		". " + shellQuote(filepath.ToSlash(filepath.Join(filepath.Dir(bindingPath), "local.env"))),
-		"kubectl '--context' 'local-dev' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
+		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials'",
 		"--from-literal='username'=\"${SPEX_MQTT_USERNAME}\"",
 		"--from-literal='password'=\"${SPEX_MQTT_PASSWORD}\"",
 		"| kubectl 'label' '--local' '-f' '-' '-o' 'yaml' 'spex/owned=true' 'spex/secret-id=mqtt-credentials' 'spex/run-id=run-fixed-test'",
-		"| kubectl '--context' 'local-dev' 'create' '-f' '-'",
+		"| kubectl '--kubeconfig' '../../kubeconfig' 'create' '-f' '-'",
 	} {
 		if !strings.Contains(string(setup), want) {
 			t.Fatalf("secret materialization step missing %q:\n%s", want, string(setup))
@@ -222,7 +222,7 @@ func TestGenerateWorkspaceMaterializesSSMMQTTBrokerURL(t *testing.T) {
 	}
 	for _, want := range []string{
 		"aws ssm get-parameter --with-decryption --name '/dev/emqx/emqx_endpoint'",
-		"kubectl '--context' 'local-dev' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials-broker-url'",
+		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials-broker-url'",
 		"--from-literal='brokerURL'=\"${SPEX_SSM_MQTT_BROKER_URL}\"",
 		"'spex/secret-id=mqtt-broker-url'",
 		"'spex/source=aws-ssm'",
@@ -684,7 +684,7 @@ func TestGenerateQuotesCleanupShellArguments(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"'kubectl' '--context' 'local-dev' '-n' 'spex-test' 'delete' 'job'",
+		"'kubectl' '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'delete' 'job'",
 		"'-l' 'spex/owned=true,spex/scenario=mqtt-ingestion-basic'",
 		"'delete' 'configmap'",
 		"'-l' 'spex/owned=true,spex/scenario=mqtt-ingestion-basic,spex/runtime=true'",

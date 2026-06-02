@@ -826,7 +826,7 @@ func cleanupStep(in Inputs, scenarioSlug string, ctx integrationRenderContext) s
 }
 
 func kubectlContextArgs(in Inputs, kubeconfig string) []string {
-	if in.Integration != nil && in.Integration.Spec.KIND.Start {
+	if kubeconfig != "" {
 		return []string{"--kubeconfig", kubeconfig}
 	}
 	if in.KubeContext != "" {
