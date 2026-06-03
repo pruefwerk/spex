@@ -4779,14 +4779,14 @@ func TestSchemaListAndShow(t *testing.T) {
 			}
 		}
 		if name == "scenario" {
-			for _, want := range []string{`"minItems": 1`, `"const": "string"`} {
+			for _, want := range []string{`"minItems": 1`, `"const": "string"`, `"with"`, `"dependsOn"`, `^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9_.-]*$`} {
 				if !strings.Contains(schemaOut.String(), want) {
 					t.Fatalf("scenario schema missing %s:\n%s", want, schemaOut.String())
 				}
 			}
 		}
 		if name == "target-binding" {
-			for _, want := range []string{`"minProperties": 1`, `"minLength": 1`} {
+			for _, want := range []string{`"minProperties": 1`, `"minLength": 1`, `"bindings"`, `"genericBinding"`} {
 				if !strings.Contains(schemaOut.String(), want) {
 					t.Fatalf("target-binding schema missing %s:\n%s", want, schemaOut.String())
 				}

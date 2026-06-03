@@ -1,0 +1,27 @@
+apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: influxdb-local
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+    imagePullPolicy: IfNotPresent
+    serviceAccountName: spex-probe
+  secrets:
+    influxdb-credentials:
+      type: kubernetesSecret
+      name: influxdb-probe-credentials
+      keys:
+        token: token
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v2
+        endpoint: http://influxdb.platform.svc.cluster.local:8086
+        org: dev
+        credentialsRef: influxdb-credentials
