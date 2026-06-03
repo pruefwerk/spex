@@ -65,6 +65,52 @@ spex bundle explain --suite suite.yaml
 
 `bundle list` shows locally resolved provider bundles. `bundle explain` shows registered capabilities, binding kinds, probe images, commands, and operation/result paths.
 
+Suites can reference built-in bundles or local bundle directories:
+
+```yaml
+spec:
+  bundleRefs:
+    - name: custom
+      version: 0.1.0
+      source: ../bundles/custom-echo
+```
+
+A local bundle directory contains `bundle.yaml`. Bundle capabilities register provider-qualified operation types, binding kinds, operation/result schemas, and declarative probe invocation metadata. Core still renders the KUTTL Job and writes the lowered operation file; bundles do not generate KUTTL directly.
+
+```yaml
+apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        schema:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+      resultSchema:
+        schema:
+          type: object
+      probe:
+        image: spex-probe:dev
+        command: [custom-probe, run]
+        input:
+          mode: operationFile
+          path: /spex/input/operation.json
+        output:
+          path: /spex/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+```
+
+Git and OCI bundle sources are reserved for the locked external-bundle model and intentionally fail before bundle locking is implemented. See `examples/bundles/custom-echo/bundle.yaml` and `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
+
 Inspect reusable catalogs:
 
 ```sh
