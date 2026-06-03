@@ -725,7 +725,7 @@ func verifyReleaseManifest(distDir string, manifest releaseManifest, archivePath
 	if err := compareReleaseVersion("spex version", manifest, binaryVersion); err != nil {
 		return err
 	}
-	for _, name := range []string{"spex-probe", "spex-demo-stack"} {
+	for _, name := range []string{"spex-probe", "spex-probe-redis", "spex-demo-stack"} {
 		source := name + " version"
 		componentVersion, err := readBinaryVersion(filepath.Join(distDir, name), source)
 		if err != nil {
@@ -1525,11 +1525,11 @@ func releaseArchiveName(manifest releaseManifest) string {
 }
 
 func releaseArtifacts() []string {
-	return []string{"spex", "spex-probe", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"}
+	return []string{"spex", "spex-probe", "spex-probe-redis", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json"}
 }
 
 func releaseArchiveFiles() []string {
-	return []string{"spex", "spex-probe", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"}
+	return []string{"spex", "spex-probe", "spex-probe-redis", "spex-demo-stack", "LICENSE", "COMMERCIAL.md", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.md", "go-modules.txt", "dependency-inventory.json", "buildinfo.txt", "third-party-licenses.txt", "release-provenance.json", "SHA256SUMS", "version.json", "release-manifest.yaml"}
 }
 
 func releaseArtifactSet() map[string]bool {
@@ -1557,7 +1557,7 @@ func isNormalizedGzipTimestamp(value time.Time) bool {
 }
 
 func expectedReleaseArchiveMode(name string) os.FileMode {
-	if name == "spex" || name == "spex-probe" || name == "spex-demo-stack" {
+	if name == "spex" || name == "spex-probe" || name == "spex-probe-redis" || name == "spex-demo-stack" {
 		return 0o755
 	}
 	return 0o644

@@ -124,6 +124,7 @@ make redis-probe-image
 ```
 
 This builds `spex-probe-redis:dev` from `examples/integration/probe-redis/Dockerfile`.
+The release archive includes the matching `spex-probe-redis` binary for building or wrapping that probe without the aggregate `spex-probe` entrypoint.
 
 Inspect reusable catalogs:
 
