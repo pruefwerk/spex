@@ -54,6 +54,16 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	}
 }
 
+func RunProvider(provider string, args []string, stdout, stderr io.Writer) error {
+	if strings.TrimSpace(provider) == "" {
+		return fmt.Errorf("provider is required")
+	}
+	fullArgs := make([]string, 0, len(args)+1)
+	fullArgs = append(fullArgs, provider)
+	fullArgs = append(fullArgs, args...)
+	return Run(fullArgs, stdout, stderr)
+}
+
 func runMongoDBExpect(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("mongodb expect", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

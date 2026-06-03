@@ -92,6 +92,15 @@ spex renders a standard Kubernetes Job and appends these flags:
 
 For local or external bundles, the bundle probe image is the runtime boundary and takes precedence over the aggregate target binding probe image. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding.
 
+First-party provider probes may be shipped both ways:
+
+```text
+spex-probe redis run ...       # aggregate image entrypoint
+spex-probe-redis run ...       # provider-specific image entrypoint
+```
+
+Both forms consume the same lowered operation file and write the same normalized result envelope. The provider-specific form is the target shape for standalone probe images.
+
 ## Exit Behavior
 
 The probe should write a normalized result envelope before exiting whenever possible.

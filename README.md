@@ -117,6 +117,14 @@ Git and OCI bundle sources are reserved for the locked external-bundle model and
 
 For local and external bundles, the bundle probe image is the runtime boundary and can be implemented in any language. spex only requires the lowered operation file input and normalized result envelope output described in `docs/probe-contract.md`. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding for local demos and first-party compatibility.
 
+First-party provider probes can also be built as standalone images. For example:
+
+```sh
+make redis-probe-image
+```
+
+This builds `spex-probe-redis:dev` from `examples/integration/probe-redis/Dockerfile`.
+
 Inspect reusable catalogs:
 
 ```sh
