@@ -51,6 +51,22 @@ func TestMQTTPublishStub(t *testing.T) {
 	}
 }
 
+func TestRunProviderDispatchesProviderCommand(t *testing.T) {
+	var stdout bytes.Buffer
+	err := RunProvider("redis", []string{"run"}, &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "redis run requires --operation-file and --result-file") {
+		t.Fatalf("expected redis run dispatch error, got %v", err)
+	}
+}
+
+func TestRunProviderRequiresProvider(t *testing.T) {
+	var stdout bytes.Buffer
+	err := RunProvider("", []string{"run"}, &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "provider is required") {
+		t.Fatalf("expected provider required error, got %v", err)
+	}
+}
+
 func TestMQTTPublishUsesBrokerURLFromEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	payload := writeTestFile(t, dir, "payload.json", `{"ok":true}`)

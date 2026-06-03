@@ -1,4 +1,4 @@
-.PHONY: test dependency-check install-vulncheck vulncheck security-check verify build install release release-check release-archive release-archive-check production-check production-candidate-check reference-scenario-check live-proof-kind live-proof-keycloak probe-image spex-status compile-example compile-example-keycloak compile-example-kind compile-example-kind-keycloak compile-suite-example validate-suite-example run-example-noop clean-example smoke-probes smoke-integration-script integration-example integration-example-keycloak integration-example-kind-keycloak
+.PHONY: test dependency-check install-vulncheck vulncheck security-check verify build install release release-check release-archive release-archive-check production-check production-candidate-check reference-scenario-check live-proof-kind live-proof-keycloak probe-image redis-probe-image spex-status compile-example compile-example-keycloak compile-example-kind compile-example-kind-keycloak compile-suite-example validate-suite-example run-example-noop clean-example smoke-probes smoke-integration-script integration-example integration-example-keycloak integration-example-kind-keycloak
 
 GO_RUN ?= env GOCACHE=$(CURDIR)/.cache/go-build go run
 GO_BUILD ?= env GOCACHE=$(CURDIR)/.cache/go-build go build
@@ -132,6 +132,9 @@ live-proof-keycloak: probe-image
 
 probe-image:
 	docker build -f examples/integration/probe/Dockerfile -t $${PROBE_IMAGE:-spex-probe:dev} .
+
+redis-probe-image:
+	docker build -f examples/integration/probe-redis/Dockerfile -t $${REDIS_PROBE_IMAGE:-spex-probe-redis:dev} .
 
 spex-status:
 	scripts/spex_status.sh
