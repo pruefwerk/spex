@@ -1,0 +1,25 @@
+apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: influxdb-reading-exists
+spec:
+  description: A telemetry reading is queryable in InfluxDB.
+  defaults:
+    timeout: 60s
+    pollInterval: 1s
+  operations:
+    - id: assert-reading-in-influxdb
+      type: influxdb.expect
+      timeout: 60s
+      with:
+        bindingRef: influxdb.main
+        language: flux
+        query: |
+          from(bucket: "telemetry")
+            |> range(start: -1h)
+            |> filter(fn: (r) => r._measurement == "device_readings")
+            |> filter(fn: (r) => r.correlationId == "reading-1")
+            |> limit(n: 1)
+        match:
+          - path: $.rows[0].correlationId
+            equalsString: reading-1

@@ -2,7 +2,7 @@
 
 spex lets testers describe acceptance scenarios once and generate an inspectable KUTTL workspace from that intent.
 
-It is built for Kubernetes-based integration testing where the test author should not have to hand-write KUTTL steps, probe Jobs, ConfigMaps, or report mapping. The current implementation focuses on MQTT publish, Redpanda offset/presence assertions, GraphQL expectations, optional Keycloak client-credentials auth, and Kind-backed local proof runs.
+It is built for Kubernetes-based integration testing where the test author should not have to hand-write KUTTL steps, probe Jobs, ConfigMaps, or report mapping. The current implementation focuses on provider-shaped operations for MQTT, Redpanda, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, optional Keycloak client-credentials auth, and Kind-backed local proof runs.
 
 Status: production-candidate. Use it for controlled pilots and promotion pipelines that run the validation, security, artifact-scan, and live proof gates described in the production-readiness and live-proof docs.
 
@@ -12,7 +12,7 @@ This diagram shows how spex turns acceptance-test intent into a repeatable Kuber
 
 Test authors describe the scenario once, using YAML, Gherkin features, GraphQL queries, suite configuration, and optional shared catalogs. Platform and test-infrastructure owners keep the environment-specific pieces separate: target bindings, integration profiles, secrets, and runtime settings.
 
-spex connects both sides. It validates the suite, explains what will run, resolves the required references, and compiles an inspectable KUTTL workspace. From that workspace, spex generates the probe jobs and assertions that exercise the target system through MQTT, Redpanda, GraphQL, and optional Keycloak authentication.
+spex connects both sides. It validates the suite, explains what will run, resolves the required references, and compiles an inspectable KUTTL workspace. From that workspace, spex generates the probe jobs and assertions that exercise the target system through provider capabilities such as MQTT, Redpanda, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, and optional Keycloak authentication.
 
 Teams can stop after compilation and review the generated workspace, or they can run the suite against kind or another Kubernetes target. During a live proof run, spex executes the generated probes, observes the system under test, collects results, and cleans up runtime resources.
 
@@ -324,6 +324,64 @@ Feature: MQTT ingestion
 
 Gherkin support is intentionally constrained to tags, `Background`, multiple `Scenario` blocks per `.feature` file, `Scenario Outline` with one `Examples` table, and `Given`/`When`/`Then`/`And`/`But` steps backed by catalog expressions.
 If a step does not match any catalog expression, validation fails with the unmatched text and the available expressions for that step kind.
+
+## Provider Operations
+
+spex supports provider-shaped operations through the generic operation IR:
+
+```yaml
+operations:
+  - id: assert-reading-in-influxdb
+    type: influxdb.expect
+    timeout: 60s
+    with:
+      bindingRef: influxdb.main
+      language: flux
+      query: |
+        from(bucket: "telemetry")
+          |> range(start: -1h)
+          |> filter(fn: (r) => r.correlationId == "reading-1")
+          |> limit(n: 1)
+      match:
+        - path: $.rows[0].correlationId
+          equalsString: reading-1
+```
+
+Provider operations always use a fully qualified `type` such as `redis.assertValueEquals` or `influxdb.expect`. The `with` object is validated by the provider capability schema, then lowered into one operation file for the probe container. The probe writes one normalized result envelope that spex validates and includes in reports.
+
+Generic bindings keep target configuration separate from scenario intent:
+
+```yaml
+spec:
+  secrets:
+    influxdb-credentials:
+      type: kubernetesSecret
+      name: influxdb-probe-credentials
+      keys:
+        token: token
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v2
+        endpoint: http://influxdb.platform.svc.cluster.local:8086
+        org: dev
+        credentialsRef: influxdb-credentials
+```
+
+InfluxDB uses `SPEX_INFLUXDB_TOKEN` inside the generated probe Job. For `version: v2`, use Flux queries and provide `org`. For `version: v3`, use `language: sql` or `language: influxql` and provide `database` instead of `org`:
+
+```yaml
+with:
+  bindingRef: influxdb.main
+  language: sql
+  query: select * from readings limit 1
+  match:
+    - path: $.rows[0].correlationId
+      equalsString: reading-1
+```
+
+See `examples/providers/influxdb/influxdb-reading-exists.yaml`, `examples/bindings/influxdb-local.yaml`, and `examples/suites/influxdb-local.example.yaml`.
 
 ## Integration Proof
 

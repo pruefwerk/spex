@@ -1,0 +1,16 @@
+apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: influxdb-local
+spec:
+  bindingRef: ../bindings/influxdb-local.yaml
+  scenarios:
+    - ../providers/influxdb/influxdb-reading-exists.yaml
+  workspaceDir: ../generated/influxdb-local
+  failFast: false
+  reports:
+    outputDir: ../reports
+    format:
+      - yaml
+      - json
+      - junit
