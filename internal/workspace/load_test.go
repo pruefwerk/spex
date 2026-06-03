@@ -1986,6 +1986,66 @@ func TestLoadInputsRejectsMQTTPayloadWithoutCorrelationMarkers(t *testing.T) {
 	}
 }
 
+func TestLoadInputsAcceptsGenericRedisOperation(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	scenario := `apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: redis-cache-check
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  operations:
+    - id: assert-cache-value
+      type: redis.assertValueEquals
+      timeout: 3s
+      with:
+        bindingRef: redis.main
+        key: cache:user-123
+        equals: active
+`
+	binding := `apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    redis-credentials:
+      type: kubernetesSecret
+      name: redis-probe-credentials
+      keys:
+        username: username
+        password: password
+  bindings:
+    - name: redis.main
+      kind: redis.connection
+      with:
+        uri: redis://redis.default.svc.cluster.local:6379/0
+        credentialsRef: redis-credentials
+`
+	if err := os.WriteFile(scenarioPath, []byte(scenario), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(binding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs.Scenario.Spec.Operations[0].With["key"]; got != "cache:user-123" {
+		t.Fatalf("generic operation with.key = %v", got)
+	}
+}
+
 func TestLoadInputsRejectsMixedOperationBlocks(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")

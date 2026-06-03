@@ -542,6 +542,7 @@ type suitePlanOutput struct {
 	BindingFile            string               `json:"bindingFile"`
 	IntegrationProfileFile string               `json:"integrationProfileFile,omitempty"`
 	CatalogFiles           []string             `json:"catalogFiles,omitempty"`
+	Providers              []suiteProvider      `json:"providers,omitempty"`
 	WorkspaceRoot          string               `json:"workspaceRoot"`
 	ReportDir              string               `json:"reportDir"`
 	Scenarios              []suitePlanScenario  `json:"scenarios"`
@@ -551,10 +552,18 @@ type suitePlanOutput struct {
 }
 
 type suitePlanScenario struct {
-	Name       string   `json:"name"`
-	File       string   `json:"file"`
-	Namespace  string   `json:"namespace"`
-	Operations []string `json:"operations"`
+	Name         string          `json:"name"`
+	File         string          `json:"file"`
+	Namespace    string          `json:"namespace"`
+	Operations   []string        `json:"operations"`
+	Capabilities []suiteProvider `json:"capabilities,omitempty"`
+}
+
+type suiteProvider struct {
+	Provider      string   `json:"provider"`
+	OperationType string   `json:"operationType,omitempty"`
+	BindingKind   string   `json:"bindingKind,omitempty"`
+	BindingNames  []string `json:"bindingNames,omitempty"`
 }
 
 type suitePlanHelmApp struct {
@@ -597,12 +606,17 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 	if len(inputs) > 0 {
 		plan.RequiredSecrets = planSecretRefs(inputs[0].Binding.Spec.Secrets)
 	}
+	providerSet := map[string]suiteProvider{}
 	seenHelmApps := map[string]bool{}
 	seenEnv := map[string]bool{}
 	for _, input := range inputs {
 		scenario := suitePlanScenario{Name: input.ScenarioName, File: input.ScenarioPath, Namespace: input.Namespace}
 		for _, op := range input.Scenario.Spec.Operations {
 			scenario.Operations = append(scenario.Operations, op.ID+":"+op.Type)
+		}
+		for _, provider := range suiteProvidersForInput(input) {
+			scenario.Capabilities = append(scenario.Capabilities, provider)
+			providerSet[provider.Provider+"\x00"+provider.OperationType+"\x00"+provider.BindingKind] = provider
 		}
 		plan.Scenarios = append(plan.Scenarios, scenario)
 		if input.Integration != nil {
@@ -626,6 +640,7 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 		plan.RequiredEnv = append(plan.RequiredEnv, envName)
 	}
 	sort.Strings(plan.RequiredEnv)
+	plan.Providers = sortedSuiteProviders(providerSet)
 	if format == "json" {
 		content, err := json.MarshalIndent(plan, "", "  ")
 		if err != nil {
@@ -656,6 +671,12 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 	if len(plan.RequiredEnv) > 0 {
 		fmt.Fprintf(stdout, "requiredEnv: %s\n", strings.Join(plan.RequiredEnv, ","))
 	}
+	if len(plan.Providers) > 0 {
+		fmt.Fprintln(stdout, "providers:")
+		for _, provider := range plan.Providers {
+			fmt.Fprintf(stdout, "  - %s: %s bindingKind=%s bindings=%s\n", provider.Provider, provider.OperationType, provider.BindingKind, strings.Join(provider.BindingNames, ","))
+		}
+	}
 	fmt.Fprintln(stdout, "scenarios:")
 	for _, scenario := range plan.Scenarios {
 		fmt.Fprintf(stdout, "  - %s (%s) namespace=%s operations=%d\n", scenario.Name, scenario.File, scenario.Namespace, len(scenario.Operations))
@@ -673,6 +694,47 @@ func parseSuitePlanFlags(args []string) (suiteFlags, string, error) {
 		return flags, "", fmt.Errorf("suite plan --format must be text or json")
 	}
 	return flags, format, nil
+}
+
+func suiteProvidersForInput(input workspace.Inputs) []suiteProvider {
+	registry, err := workspace.NewProviderRegistryWithProviders(input.Providers)
+	if err != nil {
+		return nil
+	}
+	lowered, err := workspace.LowerOperations(input, registry)
+	if err != nil {
+		return nil
+	}
+	out := make([]suiteProvider, 0, len(lowered))
+	for _, operation := range lowered {
+		out = append(out, suiteProvider{
+			Provider:      operation.Provider,
+			OperationType: operation.OperationType,
+			BindingKind:   operation.Binding.Kind,
+			BindingNames:  []string{operation.Binding.Name},
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Provider != out[j].Provider {
+			return out[i].Provider < out[j].Provider
+		}
+		return out[i].OperationType < out[j].OperationType
+	})
+	return out
+}
+
+func sortedSuiteProviders(providers map[string]suiteProvider) []suiteProvider {
+	out := make([]suiteProvider, 0, len(providers))
+	for _, provider := range providers {
+		out = append(out, provider)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Provider != out[j].Provider {
+			return out[i].Provider < out[j].Provider
+		}
+		return out[i].OperationType < out[j].OperationType
+	})
+	return out
 }
 
 func planSecretRefs(secrets map[string]workspace.Secret) []suitePlanSecretRef {

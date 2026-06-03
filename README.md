@@ -56,6 +56,15 @@ spex suite run --suite suite.yaml --collect-resource-usage
 
 `suite compile` writes an inspectable generated workspace without executing it. `suite run` runs the generated KUTTL workspace, collects Job status and logs, writes `reports/scenario-run-report.yaml`, and deletes generated Jobs and runtime offset ConfigMaps. Use `--retain-runtime-resources` when you want to inspect live Jobs and runtime ConfigMaps after a run. Use `--collect-resource-usage` to collect best-effort CPU/memory evidence with `kubectl top pod`; this writes `evidence/resources/*.pods.txt` and report `resourceRef` entries when metrics are available.
 
+Inspect resolved integration bundles:
+
+```sh
+spex bundle list --suite suite.yaml
+spex bundle explain --suite suite.yaml
+```
+
+`bundle list` shows locally resolved provider bundles. `bundle explain` shows registered capabilities, binding kinds, probe images, commands, and operation/result paths.
+
 Inspect reusable catalogs:
 
 ```sh

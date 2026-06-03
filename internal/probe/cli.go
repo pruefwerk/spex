@@ -12,27 +12,41 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|mongodb|mqtt|postgresql|rabbitmq|redpanda> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
 		return runGraphQLExpect(args[2:], stdout)
+	case "graphql run":
+		return runGraphQLOperation(args[2:], stdout)
 	case "mongodb expect":
 		return runMongoDBExpect(args[2:], stdout)
+	case "mongodb run":
+		return runMongoDBOperation(args[2:], stdout)
 	case "mqtt publish":
 		return runMQTTPublish(args[2:], stdout)
 	case "mqtt roundtrip":
 		return runMQTTRoundTrip(args[2:], stdout)
+	case "mqtt run":
+		return runMQTTOperation(args[2:], stdout)
 	case "postgresql expect":
 		return runPostgreSQLExpect(args[2:], stdout)
+	case "postgresql run":
+		return runPostgreSQLOperation(args[2:], stdout)
 	case "rabbitmq publish":
 		return runRabbitMQPublish(args[2:], stdout)
 	case "rabbitmq expect":
 		return runRabbitMQExpect(args[2:], stdout)
+	case "rabbitmq run":
+		return runRabbitMQOperation(args[2:], stdout)
+	case "redis run":
+		return runRedisOperation(args[2:], stdout)
 	case "redpanda snapshot-offsets":
 		return runRedpandaSnapshotOffsets(args[2:], stdout)
 	case "redpanda contains":
 		return runRedpandaContains(args[2:], stdout)
+	case "redpanda run":
+		return runRedpandaOperation(args[2:], stdout)
 	default:
 		return fmt.Errorf("unknown probe command %q %q", args[0], args[1])
 	}

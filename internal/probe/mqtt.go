@@ -2,8 +2,13 @@ package probe
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -41,6 +46,126 @@ type mqttPublisher interface {
 type pahoMQTTPublisher struct{}
 
 var mqttClient mqttPublisher = pahoMQTTPublisher{}
+
+func runMQTTOperation(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("mqtt run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	operationFile := fs.String("operation-file", "", "lowered operation JSON file")
+	resultFile := fs.String("result-file", "", "normalized result envelope path")
+	timeoutValue := fs.String("timeout", "", "timeout override")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "mqtt run"); err != nil {
+		return err
+	}
+	if *operationFile == "" || *resultFile == "" {
+		return fmt.Errorf("mqtt run requires --operation-file and --result-file")
+	}
+	operation, err := readLoweredOperation(*operationFile)
+	if err != nil {
+		return err
+	}
+	if operation.Provider != "mqtt" || (operation.OperationType != "mqtt.publish" && operation.OperationType != "mqtt.roundtrip") {
+		return fmt.Errorf("mqtt run cannot execute operation type %q from provider %q", operation.OperationType, operation.Provider)
+	}
+	timeoutText := operation.Timeout
+	if *timeoutValue != "" {
+		timeoutText = *timeoutValue
+	}
+	timeout, err := time.ParseDuration(timeoutText)
+	if err != nil {
+		return fmt.Errorf("invalid timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	err = executeMQTTLoweredOperation(operation, timeout)
+	envelope := probeResultEnvelope{
+		OperationID:   operation.OperationID,
+		OperationType: operation.OperationType,
+		Provider:      operation.Provider,
+		Status:        "passed",
+		Result:        map[string]any{},
+		Evidence:      []probeEvidenceEnvelope{},
+		Diagnostics:   []probeDiagnostic{},
+	}
+	if err != nil {
+		envelope.Status = "failed"
+		envelope.Diagnostics = append(envelope.Diagnostics, probeDiagnostic{Severity: "error", Message: err.Error()})
+	}
+	if writeErr := writeProbeResultEnvelope(*resultFile, envelope); writeErr != nil {
+		return writeErr
+	}
+	if writeErr := writeProbeResultEnvelopeToWriter(stdout, envelope); writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
+func executeMQTTLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
+	brokerURL, _ := operation.Binding.With["brokerURL"].(string)
+	if brokerURLFromEnv := os.Getenv("SPEX_MQTT_BROKER_URL"); brokerURLFromEnv != "" && (brokerURL == "" || strings.HasPrefix(brokerURL, "aws-ssm:")) {
+		brokerURL = brokerURLFromEnv
+	}
+	topic, _ := operation.With["topic"].(string)
+	clientID, _ := operation.With["clientId"].(string)
+	if clientID == "" {
+		clientID = "spex-probe"
+	}
+	payload, _ := operation.With["payload"].(string)
+	username, password := mqttCredentialsFromEnv()
+	switch operation.OperationType {
+	case "mqtt.publish":
+		return publishMQTT(mqttPublishRequest{
+			BrokerURL: brokerURL,
+			Topic:     topic,
+			ClientID:  clientID,
+			Username:  username,
+			Password:  password,
+			Payload:   []byte(payload),
+			Timeout:   timeout,
+			QoS:       1,
+		})
+	case "mqtt.roundtrip":
+		dir, err := os.MkdirTemp("", "spex-mqtt-*")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(dir)
+		matchersFile := filepath.Join(dir, "matchers.json")
+		matchContent, err := json.Marshal(operation.With["match"])
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
+			return err
+		}
+		clientMode, _ := operation.With["clientMode"].(string)
+		return roundTripMQTT(mqttRoundTripRequest{
+			BrokerURL:    brokerURL,
+			Topic:        topic,
+			ClientID:     clientID,
+			ClientMode:   clientMode,
+			Username:     username,
+			Password:     password,
+			Payload:      []byte(payload),
+			MatchersFile: matchersFile,
+			Timeout:      timeout,
+			QoS:          1,
+		})
+	default:
+		return fmt.Errorf("unsupported MQTT operation type %q", operation.OperationType)
+	}
+}
 
 func publishMQTT(req mqttPublishRequest) error {
 	return mqttClient.Publish(req)
