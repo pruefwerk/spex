@@ -102,7 +102,7 @@ spec:
         schema:
           type: object
       probe:
-        image: spex-probe:dev
+        image: ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0
         command: [custom-probe, run]
         input:
           mode: operationFile
@@ -114,6 +114,8 @@ spec:
 ```
 
 Git and OCI bundle sources are reserved for the locked external-bundle model and intentionally fail before bundle locking is implemented. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
+
+For local and external bundles, the bundle probe image is the runtime boundary and can be implemented in any language. spex only requires the lowered operation file input and normalized result envelope output described in `docs/probe-contract.md`. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding for local demos and first-party compatibility.
 
 Inspect reusable catalogs:
 

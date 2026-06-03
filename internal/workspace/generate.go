@@ -1196,9 +1196,9 @@ func legacyPostgreSQLExpectJob(in Inputs, scenarioSlug string, ordinal int, op O
 }
 
 func genericProviderJob(in Inputs, scenarioSlug string, ordinal int, op Operation) string {
-	capability := capabilityForOperationType(op.Type, in.Providers)
+	capability, preferProbeImage := capabilityForOperationTypeWithOrigin(op.Type, in.Providers)
 	args := genericProbeArgs(capability.Probe, op.ID, genericOperationTimeout(in, op), defaultPollInterval(in))
-	return genericProbeJob(in, scenarioSlug, ordinal, op.ID, op.Type, capability.Probe, args)
+	return genericProbeJob(in, scenarioSlug, ordinal, op.ID, op.Type, capability.Probe, args, preferProbeImage)
 }
 
 func builtInCapabilityForOperationType(operationType string) Capability {
@@ -1206,15 +1206,27 @@ func builtInCapabilityForOperationType(operationType string) Capability {
 }
 
 func capabilityForOperationType(operationType string, providers []Provider) Capability {
+	capability, _ := capabilityForOperationTypeWithOrigin(operationType, providers)
+	return capability
+}
+
+func capabilityForOperationTypeWithOrigin(operationType string, providers []Provider) (Capability, bool) {
+	for _, provider := range providers {
+		for _, capability := range provider.Capabilities {
+			if capability.Type == operationType {
+				return capability, true
+			}
+		}
+	}
 	registry, err := NewProviderRegistryWithProviders(providers)
 	if err != nil {
-		return Capability{Probe: defaultProbeInvocationSpec(providerNameForOperationType(operationType))}
+		return Capability{Probe: defaultProbeInvocationSpec(providerNameForOperationType(operationType))}, false
 	}
 	capability, ok := registry.ResolveCapability(operationType)
 	if !ok {
-		return Capability{Probe: defaultProbeInvocationSpec(providerNameForOperationType(operationType))}
+		return Capability{Probe: defaultProbeInvocationSpec(providerNameForOperationType(operationType))}, false
 	}
-	return capability.Capability
+	return capability.Capability, false
 }
 
 func defaultProbeInvocationSpec(provider string) ProbeInvocationSpec {
@@ -1252,11 +1264,14 @@ func probeOutputPath(output ProbeIO) string {
 	return output.Path
 }
 
-func genericProbeJob(in Inputs, scenarioSlug string, ordinal int, operationID, operationType string, probe ProbeInvocationSpec, args []string) string {
+func genericProbeJob(in Inputs, scenarioSlug string, ordinal int, operationID, operationType string, probe ProbeInvocationSpec, args []string, preferProbeImage bool) string {
 	name := jobName(scenarioSlug, ordinal, operationID)
 	operationSlug := DNSLabel(operationID)
 	ordinalLabel := twoDigitOrdinal(ordinal)
-	image := in.Binding.Spec.Probe.Image
+	image := probe.Image
+	if !preferProbeImage || image == "" {
+		image = in.Binding.Spec.Probe.Image
+	}
 	if image == "" {
 		image = probe.Image
 	}

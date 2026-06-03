@@ -584,7 +584,7 @@ spec:
   rbac:
     create: true
   probe:
-    image: spex-probe:dev
+    image: spex-probe:aggregate
   secrets:
     redis-credentials:
       type: kubernetesSecret
@@ -615,6 +615,7 @@ spec:
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		`image: "spex-probe:aggregate"`,
 		`"redis"`,
 		`"run"`,
 		`"--operation-file=/spex/input/assert-cache-value.operation.json"`,
@@ -785,7 +786,7 @@ spec:
             message:
               type: string
       probe:
-        image: custom-probe:dev
+        image: ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0
         command: ["custom", "run"]
         input:
           mode: operationFile
@@ -826,6 +827,7 @@ spec:
 				Namespace: "spex-test",
 				RBAC:      RBAC{Create: true},
 				Probe: Probe{
+					Image:           "spex-probe:aggregate",
 					ImagePullPolicy: "IfNotPresent",
 				},
 				Bindings: []GenericBinding{
@@ -847,7 +849,7 @@ spec:
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`image: "custom-probe:dev"`,
+		`image: "ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0"`,
 		`"custom"`,
 		`"run"`,
 		`"--operation-file=/custom/input/echo-message.operation.json"`,
@@ -858,6 +860,9 @@ spec:
 		if !strings.Contains(string(job), want) {
 			t.Fatalf("bundle provider job missing %q:\n%s", want, string(job))
 		}
+	}
+	if strings.Contains(string(job), `image: "spex-probe:aggregate"`) {
+		t.Fatalf("bundle provider job used aggregate image instead of bundle probe image:\n%s", string(job))
 	}
 	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "echo-message.operation.json"))
 	if err != nil {
