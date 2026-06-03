@@ -92,9 +92,10 @@ spex schema list
 spex schema show scenario-suite > scenario-suite.schema.json
 spex schema show scenario > scenario.schema.json
 spex schema show target-binding > target-binding.schema.json
+spex schema show integration-bundle > integration-bundle.schema.json
 ```
 
-Available schema names are `scenario`, `scenario-suite`, `target-binding`, `integration-profile`, `flow-catalog`, and `step-catalog`.
+Available schema names are `scenario`, `scenario-suite`, `target-binding`, `integration-profile`, `integration-bundle`, `flow-catalog`, and `step-catalog`.
 
 ## Scenario Repositories
 
@@ -286,9 +287,10 @@ spex schema list --format json
 spex schema show scenario-suite > scenario-suite.schema.json
 spex schema show scenario > scenario.schema.json
 spex schema show target-binding > target-binding.schema.json
+spex schema show integration-bundle > integration-bundle.schema.json
 ```
 
-Available schema names are `scenario`, `scenario-suite`, `target-binding`, `integration-profile`, `flow-catalog`, and `step-catalog`. Use `schema list --format json` when a CI job or editor bootstrap script needs a stable machine-readable schema inventory.
+Available schema names are `scenario`, `scenario-suite`, `target-binding`, `integration-profile`, `integration-bundle`, `flow-catalog`, and `step-catalog`. Use `schema list --format json` when a CI job or editor bootstrap script needs a stable machine-readable schema inventory.
 
 Suites may also include constrained Gherkin `.feature` files:
 

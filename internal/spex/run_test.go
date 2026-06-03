@@ -4728,6 +4728,7 @@ func TestSchemaListAndShow(t *testing.T) {
 		"scenario-suite",
 		"target-binding",
 		"integration-profile",
+		"integration-bundle",
 		"flow-catalog",
 		"step-catalog",
 	} {
@@ -4746,7 +4747,7 @@ func TestSchemaListAndShow(t *testing.T) {
 	if err := json.Unmarshal(listJSON.Bytes(), &parsedList); err != nil {
 		t.Fatalf("schema list json is invalid: %v\n%s", err, listJSON.String())
 	}
-	for _, want := range []string{"scenario", "scenario-suite", "target-binding"} {
+	for _, want := range []string{"scenario", "scenario-suite", "target-binding", "integration-bundle"} {
 		found := false
 		for _, got := range parsedList.Schemas {
 			if got == want {
@@ -4796,6 +4797,13 @@ func TestSchemaListAndShow(t *testing.T) {
 			for _, want := range []string{`"minimum": 0`, `"propertyNames"`} {
 				if !strings.Contains(schemaOut.String(), want) {
 					t.Fatalf("integration-profile schema missing %s:\n%s", want, schemaOut.String())
+				}
+			}
+		}
+		if name == "integration-bundle" {
+			for _, want := range []string{`"IntegrationBundle"`, `"capabilities"`, `"probeInvocation"`, `"qualifiedName"`} {
+				if !strings.Contains(schemaOut.String(), want) {
+					t.Fatalf("integration-bundle schema missing %s:\n%s", want, schemaOut.String())
 				}
 			}
 		}
