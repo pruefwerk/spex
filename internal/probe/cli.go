@@ -12,13 +12,15 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|influxdb|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
 		return runGraphQLExpect(args[2:], stdout)
 	case "graphql run":
 		return runGraphQLOperation(args[2:], stdout)
+	case "influxdb run":
+		return runInfluxDBOperation(args[2:], stdout)
 	case "mongodb expect":
 		return runMongoDBExpect(args[2:], stdout)
 	case "mongodb run":

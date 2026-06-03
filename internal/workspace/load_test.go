@@ -2046,6 +2046,207 @@ spec:
 	}
 }
 
+func TestLoadInputsAcceptsGenericInfluxDBV3Operation(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	scenario := `apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: influxdb-check
+spec:
+  operations:
+    - id: assert-reading
+      type: influxdb.expect
+      with:
+        bindingRef: influxdb.main
+        query: select * from readings limit 1
+        language: sql
+        match:
+          - path: $.rows[0].correlationId
+            equalsString: reading-1
+`
+	binding := `apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  secrets:
+    influxdb-credentials:
+      type: kubernetesSecret
+      name: influxdb-probe-credentials
+      keys:
+        token: token
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v3
+        endpoint: http://influxdb.default.svc.cluster.local:8181
+        database: telemetry
+        credentialsRef: influxdb-credentials
+`
+	if err := os.WriteFile(scenarioPath, []byte(scenario), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(binding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs.Binding.Spec.Bindings[0].With["database"]; got != "telemetry" {
+		t.Fatalf("generic InfluxDB binding database = %v", got)
+	}
+}
+
+func TestLoadInputsRejectsGenericInfluxDBV2WithoutOrg(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	scenario := `apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: influxdb-check
+spec:
+  operations:
+    - id: assert-reading
+      type: influxdb.expect
+      with:
+        bindingRef: influxdb.main
+        query: 'from(bucket: "telemetry") |> range(start: -1h)'
+        language: flux
+        match:
+          - path: $.rows[0].correlationId
+            equalsString: reading-1
+`
+	binding := `apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v2
+        endpoint: http://influxdb.default.svc.cluster.local:8086
+`
+	if err := os.WriteFile(scenarioPath, []byte(scenario), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(binding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadInputs(scenarioPath, bindingPath)
+	if err == nil || !strings.Contains(err.Error(), "with.org is required for InfluxDB v2") {
+		t.Fatalf("expected missing org error, got %v", err)
+	}
+}
+
+func TestLoadInputsRejectsGenericInfluxDBV2SQLLanguage(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	scenario := `apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: influxdb-check
+spec:
+  operations:
+    - id: assert-reading
+      type: influxdb.expect
+      with:
+        bindingRef: influxdb.main
+        query: select * from readings limit 1
+        language: sql
+        match:
+          - path: $.rows[0].correlationId
+            equalsString: reading-1
+`
+	binding := `apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v2
+        endpoint: http://influxdb.default.svc.cluster.local:8086
+        org: dev
+`
+	if err := os.WriteFile(scenarioPath, []byte(scenario), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(binding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadInputs(scenarioPath, bindingPath)
+	if err == nil || !strings.Contains(err.Error(), "influxdb.language must be flux for InfluxDB v2") {
+		t.Fatalf("expected v2 language error, got %v", err)
+	}
+}
+
+func TestLoadInputsRejectsGenericInfluxDBV3FluxLanguage(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	scenario := `apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: influxdb-check
+spec:
+  operations:
+    - id: assert-reading
+      type: influxdb.expect
+      with:
+        bindingRef: influxdb.main
+        query: 'from(bucket: "telemetry") |> range(start: -1h)'
+        language: flux
+        match:
+          - path: $.rows[0].correlationId
+            equalsString: reading-1
+`
+	binding := `apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v3
+        endpoint: http://influxdb.default.svc.cluster.local:8181
+        database: telemetry
+`
+	if err := os.WriteFile(scenarioPath, []byte(scenario), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(binding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadInputs(scenarioPath, bindingPath)
+	if err == nil || !strings.Contains(err.Error(), "influxdb.language must be sql or influxql for InfluxDB v3") {
+		t.Fatalf("expected v3 language error, got %v", err)
+	}
+}
+
 func TestLoadInputsRejectsMixedOperationBlocks(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")

@@ -648,6 +648,113 @@ spec:
 	}
 }
 
+func TestGenerateWorkspaceUsesGenericRendererForInfluxDBProviderOperation(t *testing.T) {
+	dir := t.TempDir()
+	inputDir := filepath.Join(dir, "inputs")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(inputDir, "scenario.yaml")
+	bindingPath := filepath.Join(inputDir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: influxdb-check
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  operations:
+    - id: assert-reading
+      type: influxdb.expect
+      timeout: 3s
+      with:
+        bindingRef: influxdb.main
+        query: 'from(bucket: "telemetry") |> range(start: -1h)'
+        language: flux
+        match:
+          - path: $.rows[0].correlationId
+            equalsString: reading-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    influxdb-credentials:
+      type: kubernetesSecret
+      name: influxdb-probe-credentials
+      keys:
+        token: token
+  bindings:
+    - name: influxdb.main
+      kind: influxdb.connection
+      with:
+        version: v2
+        endpoint: http://influxdb.default.svc.cluster.local:8086
+        org: dev
+        credentialsRef: influxdb-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "influxdb-check", "02-op-assert-reading.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"influxdb"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-reading.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
+		`"--timeout=3s"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
+		"SPEX_INFLUXDB_TOKEN",
+		`name: "influxdb-probe-credentials"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("generic InfluxDB Job missing %q:\n%s", want, string(job))
+		}
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "influxdb.expect"`,
+		`"provider": "influxdb"`,
+		`"name": "influxdb.main"`,
+		`"kind": "influxdb.connection"`,
+		`"version": "v2"`,
+		`"endpoint": "http://influxdb.default.svc.cluster.local:8086"`,
+		`"org": "dev"`,
+		`"language": "flux"`,
+		`"query": "from(bucket: \"telemetry\") |\u003e range(start: -1h)"`,
+	} {
+		if !strings.Contains(string(operation), want) {
+			t.Fatalf("lowered InfluxDB operation missing %q:\n%s", want, string(operation))
+		}
+	}
+}
+
 func TestGenerateWorkspaceUsesLocalBundleProvider(t *testing.T) {
 	dir := t.TempDir()
 	bundleDir := filepath.Join(dir, "bundles", "custom")

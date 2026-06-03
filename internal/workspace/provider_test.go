@@ -89,6 +89,7 @@ func TestBuiltInProviderRegistryResolvesCurrentOperationTypes(t *testing.T) {
 		"redpanda.contains",
 		"redpanda.snapshotOffsets",
 		"graphql.expect",
+		"influxdb.expect",
 		"mongodb.expect",
 		"postgresql.expect",
 		"rabbitmq.publish",

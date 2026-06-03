@@ -1821,6 +1821,10 @@ func secretEnv(in Inputs, args []string) string {
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.CredentialsRef], map[string]string{
 			"SPEX_GRAPHQL_TOKEN": "token",
 		})
+	case len(args) >= 2 && args[0] == "influxdb" && args[1] == "run":
+		return secretKeyEnv(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "influxdb.connection")], map[string]string{
+			"SPEX_INFLUXDB_TOKEN": "token",
+		})
 	case len(args) >= 2 && args[0] == "mongodb" && (args[1] == "expect" || args[1] == "run"):
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
 			"SPEX_MONGODB_USERNAME": "username",
