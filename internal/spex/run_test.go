@@ -3887,6 +3887,126 @@ spec:
 	}
 }
 
+func TestBundleExplainShowsBuiltInBundleCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: redis-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: redis
+      version: 0.1.0
+      source: builtin:redis
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: redis-check
+spec:
+  operations:
+    - id: assert-cache-value
+      type: redis.assertValueEquals
+      with:
+        bindingRef: redis.main
+        key: cache:user-123
+        equals: active
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: redis.main
+      kind: redis.connection
+      with:
+        uri: redis://redis.default.svc.cluster.local:6379/0
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"bundle", "explain", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"redis",
+		"redis.assertValueEquals",
+		"redis.connection",
+		"spex-probe:dev",
+		"/spex/input/operation.json",
+		"/spex/output/result.json",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("bundle explain missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestSuiteValidateRejectsUnknownBuiltInBundleRef(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: unknown-builtin-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: does-not-exist
+      source: builtin:does-not-exist
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: redis-check
+spec:
+  operations:
+    - id: assert-cache-value
+      type: redis.assertValueEquals
+      with:
+        bindingRef: redis.main
+        key: cache:user-123
+        equals: active
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: redis.main
+      kind: redis.connection
+      with:
+        uri: redis://redis.default.svc.cluster.local:6379/0
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"suite", "validate", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), `unknown built-in provider "does-not-exist"`) {
+		t.Fatalf("expected unknown built-in provider error, got %v", err)
+	}
+}
+
 func suitePlanHasProvider(providers []struct {
 	Provider      string `json:"provider"`
 	OperationType string `json:"operationType"`

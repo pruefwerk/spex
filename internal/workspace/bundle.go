@@ -25,6 +25,16 @@ func LoadBundleProviders(baseDir string, refs []BundleRef) ([]Provider, error) {
 			return nil, fmt.Errorf("spec.bundleRefs[%d].source is required", i)
 		}
 		if strings.HasPrefix(ref.Source, "builtin:") {
+			name := strings.TrimPrefix(ref.Source, "builtin:")
+			if name == "" {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source must name a built-in provider after builtin:", i)
+			}
+			if name != ref.Name {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source %q does not match bundleRef name %q", i, ref.Source, ref.Name)
+			}
+			if _, ok := BuiltInProvider(name); !ok {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source references unknown built-in provider %q", i, name)
+			}
 			continue
 		}
 		if strings.HasPrefix(ref.Source, "git::") || strings.HasPrefix(ref.Source, "oci://") {

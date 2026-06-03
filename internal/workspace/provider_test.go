@@ -111,6 +111,19 @@ func TestBuiltInProviderRegistryResolvesCurrentOperationTypes(t *testing.T) {
 	}
 }
 
+func TestBuiltInProviderLookup(t *testing.T) {
+	provider, ok := BuiltInProvider("redis")
+	if !ok {
+		t.Fatal("redis built-in provider not found")
+	}
+	if provider.Name != "redis" || len(provider.Capabilities) == 0 {
+		t.Fatalf("unexpected redis provider: %#v", provider)
+	}
+	if _, ok := BuiltInProvider("does-not-exist"); ok {
+		t.Fatal("unexpected unknown built-in provider")
+	}
+}
+
 func testProvider(name, operationType, bindingKind string) Provider {
 	return Provider{
 		Name: name,

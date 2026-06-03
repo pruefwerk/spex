@@ -1,0 +1,15 @@
+apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: redis-cache-value
+spec:
+  defaults:
+    timeout: 30s
+    pollInterval: 1s
+  operations:
+    - id: assert-cache-value
+      type: redis.assertValueEquals
+      with:
+        bindingRef: redis.main
+        key: cache:user-123
+        equals: active

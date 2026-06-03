@@ -1,0 +1,14 @@
+apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: redis-builtin-bundle
+spec:
+  bindingRef: ../bindings/redis-local.yaml
+  bundleRefs:
+    - name: redis
+      version: 0.1.0
+      source: builtin:redis
+  scenarios:
+    - ../providers/redis/redis-cache-value.yaml
+  workspaceDir: ../generated/redis-builtin-bundle
+  failFast: false

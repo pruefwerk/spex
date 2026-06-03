@@ -70,6 +70,10 @@ Suites can reference built-in bundles or local bundle directories:
 ```yaml
 spec:
   bundleRefs:
+    - name: redis
+      version: 0.1.0
+      source: builtin:redis
+
     - name: custom
       version: 0.1.0
       source: ../bundles/custom-echo
@@ -109,7 +113,7 @@ spec:
     - kind: custom.connection
 ```
 
-Git and OCI bundle sources are reserved for the locked external-bundle model and intentionally fail before bundle locking is implemented. See `examples/bundles/custom-echo/bundle.yaml` and `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
+Git and OCI bundle sources are reserved for the locked external-bundle model and intentionally fail before bundle locking is implemented. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
 
 Inspect reusable catalogs:
 

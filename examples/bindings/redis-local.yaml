@@ -1,0 +1,18 @@
+apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: redis-local
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+    imagePullPolicy: IfNotPresent
+    serviceAccountName: spex-probe
+  secrets: {}
+  bindings:
+    - name: redis.main
+      kind: redis.connection
+      with:
+        uri: redis://redis.default.svc.cluster.local:6379/0
