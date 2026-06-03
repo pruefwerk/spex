@@ -34,6 +34,8 @@ func TestGenerateWorkspace(t *testing.T) {
 		filepath.Join("kuttl", "mqtt-ingestion-basic", "04-assert.yaml"),
 		filepath.Join("kuttl", "mqtt-ingestion-basic", "05-op-assert-reading-1-in-graphql.yaml"),
 		filepath.Join("kuttl", "mqtt-ingestion-basic", "05-assert.yaml"),
+		filepath.Join("rendered", "operations", "publish-reading-1.operation.json"),
+		filepath.Join("rendered", "operations", "assert-reading-1-in-graphql.operation.json"),
 		filepath.Join("rendered", "payloads", "publish-reading-1.json"),
 		filepath.Join("rendered", "variables", "assert-reading-1-in-graphql.variables.json"),
 		filepath.Join("rendered", "matchers", "assert-reading-1-in-redpanda.matchers.json"),
@@ -68,6 +70,25 @@ func TestGenerateWorkspace(t *testing.T) {
 	if !strings.Contains(string(stepMap), `kubeContext: "local-dev"`) {
 		t.Fatalf("step map missing kubeContext:\n%s", string(stepMap))
 	}
+	loweredOperation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading-1-in-graphql.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationId": "assert-reading-1-in-graphql"`,
+		`"operationType": "graphql.expect"`,
+		`"provider": "graphql"`,
+		`"name": "graphql.default"`,
+		`"kind": "graphql.endpoint"`,
+		`"queryRef": "latest-device-reading"`,
+		`"query": "query LatestDeviceReading`,
+		`"deviceId": "device-dev-1"`,
+		`"timeout": "45s"`,
+	} {
+		if !strings.Contains(string(loweredOperation), want) {
+			t.Fatalf("lowered operation missing %q:\n%s", want, string(loweredOperation))
+		}
+	}
 	for _, want := range []string{
 		`scenarioFile: "` + filepath.ToSlash(scenarioPath) + `"`,
 		`bindingFile: "` + filepath.ToSlash(bindingPath) + `"`,
@@ -88,8 +109,10 @@ func TestGenerateWorkspace(t *testing.T) {
 		`name: "mqtt-probe-credentials"`,
 		`key: "username"`,
 		`key: "password"`,
-		`"--client-id=spex-mqtt-ingestion-basic-run-fixed-test-03-publish-reading-1"`,
-		`"--qos=1"`,
+		`"mqtt"`,
+		`"run"`,
+		`"--operation-file=/spex/input/publish-reading-1.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
 		`"--timeout=45s"`,
 		`spex/operation-type: "mqtt.publish"`,
 		`spex/step-ordinal: "03"`,
@@ -105,16 +128,36 @@ func TestGenerateWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"--offsets-configmap=spex-mqtt-ingestion-basic-redpanda-offsets"`,
-		`"--namespace=spex-test"`,
-		`"--scenario=mqtt-ingestion-basic"`,
-		`"--run-id=run-fixed-test"`,
+		`"redpanda"`,
+		`"run"`,
+		`"--operation-file=/spex/input/redpanda-snapshot-offsets.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
 		`"--timeout=45s"`,
-		`"--topic=ingestion.normalized-readings"`,
+		`"--poll-interval=250ms"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
 		"activeDeadlineSeconds: 75",
 	} {
 		if !strings.Contains(string(snapshotJob), want) {
 			t.Fatalf("Redpanda snapshot Job missing %q", want)
+		}
+	}
+	snapshotOperation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "redpanda-snapshot-offsets.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "redpanda.snapshotOffsets"`,
+		`"provider": "redpanda"`,
+		`"topics": [`,
+		`"ingestion.normalized-readings"`,
+		`"offsetsConfigMap": "spex-mqtt-ingestion-basic-redpanda-offsets"`,
+		`"namespace": "spex-test"`,
+		`"scenario": "mqtt-ingestion-basic"`,
+		`"runId": "run-fixed-test"`,
+	} {
+		if !strings.Contains(string(snapshotOperation), want) {
+			t.Fatalf("lowered Redpanda snapshot operation missing %q:\n%s", want, string(snapshotOperation))
 		}
 	}
 	redpandaJob, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "04-op-assert-reading-1-in-redpanda.yaml"))
@@ -122,18 +165,36 @@ func TestGenerateWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"--topic=ingestion.normalized-readings"`,
-		`"--offsets-configmap=spex-mqtt-ingestion-basic-redpanda-offsets"`,
-		`"--namespace=spex-test"`,
-		`"--scenario=mqtt-ingestion-basic"`,
-		`"--run-id=run-fixed-test"`,
-		`"--matchers-file=/spex/matchers/assert-reading-1-in-redpanda.matchers.json"`,
+		`"redpanda"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-reading-1-in-redpanda.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
 		`"--timeout=45s"`,
 		`"--poll-interval=250ms"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
 		"activeDeadlineSeconds: 75",
 	} {
 		if !strings.Contains(string(redpandaJob), want) {
 			t.Fatalf("Redpanda contains Job missing %q", want)
+		}
+	}
+	redpandaOperation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading-1-in-redpanda.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "redpanda.contains"`,
+		`"provider": "redpanda"`,
+		`"topic": "ingestion.normalized-readings"`,
+		`"offsetsConfigMap": "spex-mqtt-ingestion-basic-redpanda-offsets"`,
+		`"namespace": "spex-test"`,
+		`"scenario": "mqtt-ingestion-basic"`,
+		`"runId": "run-fixed-test"`,
+		`"equalsString": "run-fixed-test"`,
+	} {
+		if !strings.Contains(string(redpandaOperation), want) {
+			t.Fatalf("lowered Redpanda operation missing %q:\n%s", want, string(redpandaOperation))
 		}
 	}
 	graphQLJob, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "05-op-assert-reading-1-in-graphql.yaml"))
@@ -141,10 +202,12 @@ func TestGenerateWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"--query-file=/spex/graphql/latest-device-reading.graphql"`,
-		`"--variables-file=/spex/variables/assert-reading-1-in-graphql.variables.json"`,
-		`name: "spex-mqtt-ingestion-basic-variables"`,
-		`mountPath: /spex/variables`,
+		`"graphql"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-reading-1-in-graphql.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
 		`"--timeout=45s"`,
 		`"--poll-interval=250ms"`,
 		"activeDeadlineSeconds: 75",
@@ -152,6 +215,550 @@ func TestGenerateWorkspace(t *testing.T) {
 		if !strings.Contains(string(graphQLJob), want) {
 			t.Fatalf("GraphQL Job missing %q", want)
 		}
+	}
+}
+
+func TestGenerateWorkspaceUsesGenericRendererForPostgreSQL(t *testing.T) {
+	dir := t.TempDir()
+	inputDir := filepath.Join(dir, "inputs")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(inputDir, "scenario.yaml")
+	bindingPath := filepath.Join(inputDir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: postgresql-check
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  operations:
+    - id: assert-user-row
+      type: postgresql.expect
+      postgresql:
+        query: select scenario_run_id, id from users where id = $1
+        args:
+          - user-123
+        correlationId: user-123
+        match:
+          - path: $.scenario_run_id
+            equalsString: ${scenarioRunId}
+          - path: $.id
+            equalsString: user-123
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    postgres-credentials:
+      type: kubernetesSecret
+      name: postgres-probe-credentials
+      keys:
+        username: username
+        password: password
+  postgresql:
+    uri: postgresql://postgres.default.svc:5432/app
+    credentialsRef: postgres-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "postgresql-check", "02-op-assert-user-row.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"postgresql"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-user-row.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
+		`"--timeout=5s"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
+		`name: "spex-postgresql-check-operations"`,
+		"SPEX_POSTGRESQL_USERNAME",
+		`name: "postgres-probe-credentials"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("generic PostgreSQL Job missing %q:\n%s", want, string(job))
+		}
+	}
+	staticConfigMaps, err := os.ReadFile(filepath.Join(out, "kuttl", "postgresql-check", "01-static-configmaps.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(staticConfigMaps), `name: "spex-postgresql-check-operations"`) ||
+		!strings.Contains(string(staticConfigMaps), "assert-user-row.operation.json") {
+		t.Fatalf("static ConfigMaps missing operation input:\n%s", string(staticConfigMaps))
+	}
+}
+
+func TestGenerateWorkspaceUsesGenericRendererForMongoDB(t *testing.T) {
+	dir := t.TempDir()
+	inputDir := filepath.Join(dir, "inputs")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(inputDir, "scenario.yaml")
+	bindingPath := filepath.Join(inputDir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mongodb-check
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  operations:
+    - id: assert-reading-document
+      type: mongodb.expect
+      mongodb:
+        collection: readings
+        filter: '{"scenarioRunId":"${scenarioRunId}","correlationId":"reading-1"}'
+        correlationId: reading-1
+        match:
+          - path: $.scenarioRunId
+            equalsString: ${scenarioRunId}
+          - path: $.correlationId
+            equalsString: reading-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    mongodb-credentials:
+      type: kubernetesSecret
+      name: mongodb-probe-credentials
+      keys:
+        username: username
+        password: password
+  mongodb:
+    deployment: selfManaged
+    uri: mongodb://mongodb.default.svc:27017
+    database: app
+    credentialsRef: mongodb-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mongodb-check", "02-op-assert-reading-document.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"mongodb"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-reading-document.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
+		`"--timeout=5s"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
+		`name: "spex-mongodb-check-operations"`,
+		"SPEX_MONGODB_USERNAME",
+		`name: "mongodb-probe-credentials"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("MongoDB Job missing %q:\n%s", want, string(job))
+		}
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading-document.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "mongodb.expect"`,
+		`"provider": "mongodb"`,
+		`"collection": "readings"`,
+		`\"scenarioRunId\": \"run-fixed-test\"`,
+		`"kind": "mongodb.connection"`,
+		`"database": "app"`,
+		`"dependsOn": []`,
+	} {
+		if !strings.Contains(string(operation), want) {
+			t.Fatalf("lowered MongoDB operation missing %q:\n%s", want, string(operation))
+		}
+	}
+}
+
+func TestGenerateWorkspaceUsesGenericRendererForRabbitMQ(t *testing.T) {
+	dir := t.TempDir()
+	inputDir := filepath.Join(dir, "inputs")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(inputDir, "scenario.yaml")
+	bindingPath := filepath.Join(inputDir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: rabbitmq-check
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  payloadTemplates:
+    reading:
+      contentType: application/json
+      body: '{"scenarioRunId":"${scenarioRunId}","correlationId":"${correlationId}"}'
+  operations:
+    - id: publish-reading
+      type: rabbitmq.publish
+      rabbitmq:
+        exchange: events
+        routingKey: readings.${scenarioRunId}
+        payloadTemplateRef: reading
+        correlationId: reading-1
+    - id: assert-reading
+      type: rabbitmq.expect
+      rabbitmq:
+        queue: readings-${scenarioRunId}
+        correlationId: reading-1
+        match:
+          - path: $.scenarioRunId
+            equalsString: ${scenarioRunId}
+          - path: $.correlationId
+            equalsString: reading-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    rabbitmq-credentials:
+      type: kubernetesSecret
+      name: rabbitmq-probe-credentials
+      keys:
+        username: username
+        password: password
+  rabbitmq:
+    uri: amqp://rabbitmq.default.svc:5672
+    credentialsRef: rabbitmq-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	publishJob, err := os.ReadFile(filepath.Join(out, "kuttl", "rabbitmq-check", "02-op-publish-reading.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"rabbitmq"`,
+		`"run"`,
+		`"--operation-file=/spex/input/publish-reading.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
+		`name: "spex-rabbitmq-check-operations"`,
+		"SPEX_RABBITMQ_USERNAME",
+		`name: "rabbitmq-probe-credentials"`,
+	} {
+		if !strings.Contains(string(publishJob), want) {
+			t.Fatalf("RabbitMQ publish Job missing %q:\n%s", want, string(publishJob))
+		}
+	}
+	expectJob, err := os.ReadFile(filepath.Join(out, "kuttl", "rabbitmq-check", "03-op-assert-reading.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(expectJob), `"rabbitmq"`) ||
+		!strings.Contains(string(expectJob), `"run"`) ||
+		!strings.Contains(string(expectJob), `--operation-file=/spex/input/assert-reading.operation.json`) {
+		t.Fatalf("RabbitMQ expect Job should use generic run path:\n%s", string(expectJob))
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "publish-reading.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "rabbitmq.publish"`,
+		`"provider": "rabbitmq"`,
+		`"exchange": "events"`,
+		`"routingKey": "readings.run-fixed-test"`,
+		`\"scenarioRunId\": \"run-fixed-test\"`,
+		`"kind": "rabbitmq.connection"`,
+		`"uri": "amqp://rabbitmq.default.svc:5672"`,
+	} {
+		if !strings.Contains(string(operation), want) {
+			t.Fatalf("lowered RabbitMQ publish operation missing %q:\n%s", want, string(operation))
+		}
+	}
+	operation, err = os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(operation), `"queue": "readings-run-fixed-test"`) ||
+		!strings.Contains(string(operation), `"equalsString": "run-fixed-test"`) {
+		t.Fatalf("lowered RabbitMQ expect operation mismatch:\n%s", string(operation))
+	}
+}
+
+func TestGenerateWorkspaceUsesGenericRendererForRedisProviderOperation(t *testing.T) {
+	dir := t.TempDir()
+	inputDir := filepath.Join(dir, "inputs")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(inputDir, "scenario.yaml")
+	bindingPath := filepath.Join(inputDir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: redis-check
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  operations:
+    - id: assert-cache-value
+      type: redis.assertValueEquals
+      timeout: 3s
+      with:
+        bindingRef: redis.main
+        key: cache:user-123
+        equals: active
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  kubeContext: local-dev
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    redis-credentials:
+      type: kubernetesSecret
+      name: redis-probe-credentials
+      keys:
+        username: username
+        password: password
+  bindings:
+    - name: redis.main
+      kind: redis.connection
+      with:
+        uri: redis://redis.default.svc.cluster.local:6379/0
+        credentialsRef: redis-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "redis-check", "02-op-assert-cache-value.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"redis"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-cache-value.operation.json"`,
+		`"--result-file=/spex/output/result.json"`,
+		`"--timeout=3s"`,
+		`mountPath: "/spex/input"`,
+		`mountPath: "/spex/output"`,
+		"SPEX_REDIS_USERNAME",
+		`name: "redis-probe-credentials"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("generic Redis Job missing %q:\n%s", want, string(job))
+		}
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-cache-value.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "redis.assertValueEquals"`,
+		`"provider": "redis"`,
+		`"name": "redis.main"`,
+		`"kind": "redis.connection"`,
+		`"uri": "redis://redis.default.svc.cluster.local:6379/0"`,
+		`"key": "cache:user-123"`,
+		`"equals": "active"`,
+	} {
+		if !strings.Contains(string(operation), want) {
+			t.Fatalf("lowered Redis operation missing %q:\n%s", want, string(operation))
+		}
+	}
+}
+
+func TestGenerateWorkspaceUsesLocalBundleProvider(t *testing.T) {
+	dir := t.TempDir()
+	bundleDir := filepath.Join(dir, "bundles", "custom")
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        schema:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+      resultSchema:
+        schema:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := LoadBundleProviders(dir, []BundleRef{{Name: "custom", Version: "0.1.0", Source: "bundles/custom"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := Inputs{
+		ScenarioName: "custom-check",
+		Namespace:    "spex-test",
+		RunID:        "run-fixed-test",
+		Providers:    providers,
+		Scenario: Scenario{
+			Spec: ScenarioSpec{
+				Defaults: Defaults{Timeout: "5s", PollInterval: "100ms"},
+				Operations: []Operation{
+					{
+						ID:   "echo-message",
+						Type: "custom.echo",
+						With: map[string]any{
+							bindingRefKey: "custom.main",
+							"message":     "hello",
+						},
+					},
+				},
+			},
+		},
+		Binding: TargetBinding{
+			Spec: BindingSpec{
+				Namespace: "spex-test",
+				RBAC:      RBAC{Create: true},
+				Probe: Probe{
+					ImagePullPolicy: "IfNotPresent",
+				},
+				Bindings: []GenericBinding{
+					{
+						Name: "custom.main",
+						Kind: "custom.connection",
+						With: map[string]any{"uri": "custom://service"},
+					},
+				},
+			},
+		},
+	}
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "custom-check", "02-op-echo-message.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`image: "custom-probe:dev"`,
+		`"custom"`,
+		`"run"`,
+		`"--operation-file=/custom/input/echo-message.operation.json"`,
+		`"--result-file=/custom/output/result.json"`,
+		`mountPath: "/custom/input"`,
+		`mountPath: "/custom/output"`,
+	} {
+		if !strings.Contains(string(job), want) {
+			t.Fatalf("bundle provider job missing %q:\n%s", want, string(job))
+		}
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "echo-message.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(operation), `"operationType": "custom.echo"`) ||
+		!strings.Contains(string(operation), `"provider": "custom"`) {
+		t.Fatalf("lowered custom operation mismatch:\n%s", string(operation))
 	}
 }
 
@@ -300,8 +907,8 @@ func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLForRoundTrip(t *testing.T) {
 		`name: "mqtt-probe-credentials-broker-url"`,
 		`key: "brokerURL"`,
 		`"mqtt"`,
-		`"roundtrip"`,
-		`"--client-mode=shared"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-reading-1-mqtt.operation.json"`,
 	} {
 		if !strings.Contains(string(job), want) {
 			t.Fatalf("roundtrip broker URL env missing %q:\n%s", want, string(job))
@@ -309,6 +916,20 @@ func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLForRoundTrip(t *testing.T) {
 	}
 	if strings.Contains(string(job), "--broker-url=") {
 		t.Fatalf("roundtrip job should not render an SSM broker URL as a literal arg:\n%s", string(job))
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading-1-mqtt.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"operationType": "mqtt.roundtrip"`,
+		`"clientMode": "shared"`,
+		`"brokerURL": "{{ ssm \"/dev/emqx/emqx_endpoint\" }}"`,
+		`\"scenarioRunId\": \"run-fixed-test\"`,
+	} {
+		if !strings.Contains(string(operation), want) {
+			t.Fatalf("roundtrip lowered operation missing %q:\n%s", want, string(operation))
+		}
 	}
 }
 
@@ -701,7 +1322,7 @@ func TestGenerateQuotesManifestObjectReferences(t *testing.T) {
 		`serviceAccountName: "spex-probe"`,
 		`image: "spex-probe:dev"`,
 		`imagePullPolicy: "IfNotPresent"`,
-		`name: "spex-mqtt-ingestion-basic-payloads"`,
+		`name: "spex-mqtt-ingestion-basic-operations"`,
 		`name: "mqtt-probe-credentials"`,
 		`key: "username"`,
 	} {
@@ -847,10 +1468,9 @@ func TestGenerateGraphQLJobSupportsKeycloakClientCredentials(t *testing.T) {
 		`name: "SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET"`,
 		`name: "keycloak-client-credentials"`,
 		`key: "client-secret"`,
-		`"--keycloak-token-url=http://keycloak.identity.svc.cluster.local/realms/dev/protocol/openid-connect/token"`,
-		`"--keycloak-client-id=spex"`,
-		`"--keycloak-scope=openid"`,
-		`"--keycloak-scope=profile"`,
+		`"graphql"`,
+		`"run"`,
+		`"--operation-file=/spex/input/assert-reading-1-in-graphql.operation.json"`,
 	} {
 		if !strings.Contains(string(job), want) {
 			t.Fatalf("GraphQL Keycloak Job missing %q:\n%s", want, string(job))
@@ -858,6 +1478,21 @@ func TestGenerateGraphQLJobSupportsKeycloakClientCredentials(t *testing.T) {
 	}
 	if strings.Contains(string(job), "SPEX_GRAPHQL_TOKEN") {
 		t.Fatalf("Keycloak GraphQL Job should not mount direct bearer token:\n%s", string(job))
+	}
+	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "assert-reading-1-in-graphql.operation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"type": "keycloakClientCredentials"`,
+		`"tokenURL": "http://keycloak.identity.svc.cluster.local/realms/dev/protocol/openid-connect/token"`,
+		`"clientID": "spex"`,
+		`"openid"`,
+		`"profile"`,
+	} {
+		if !strings.Contains(string(operation), want) {
+			t.Fatalf("GraphQL lowered operation missing %q:\n%s", want, string(operation))
+		}
 	}
 }
 
@@ -889,10 +1524,7 @@ func TestGenerateStaticConfigMapNamesAreDNSLabelsForLongScenarioName(t *testing.
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`name: "` + payloadsConfigMapName(scenarioSlug) + `"`,
-		`name: "` + graphqlConfigMapName(scenarioSlug) + `"`,
-		`name: "` + variablesConfigMapName(scenarioSlug) + `"`,
-		`name: "` + matchersConfigMapName(scenarioSlug) + `"`,
+		`name: "` + operationsConfigMapName(scenarioSlug) + `"`,
 	} {
 		if !strings.Contains(string(staticConfigMaps), want) {
 			t.Fatalf("static ConfigMaps missing %q:\n%s", want, string(staticConfigMaps))
@@ -908,10 +1540,7 @@ func TestGenerateStaticConfigMapNamesAreDNSLabelsForLongScenarioName(t *testing.
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`name: "` + payloadsConfigMapName(scenarioSlug) + `"`,
-		`name: "` + graphqlConfigMapName(scenarioSlug) + `"`,
-		`name: "` + variablesConfigMapName(scenarioSlug) + `"`,
-		`name: "` + matchersConfigMapName(scenarioSlug) + `"`,
+		`name: "` + operationsConfigMapName(scenarioSlug) + `"`,
 	} {
 		if !strings.Contains(string(job), want) {
 			t.Fatalf("Job volume reference missing %q:\n%s", want, string(job))

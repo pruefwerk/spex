@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pruefwerk/spex/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -78,11 +79,28 @@ type ReportStep struct {
 }
 
 type probeResult struct {
-	APIVersion   string `json:"apiVersion"`
-	Operation    string `json:"operation"`
-	Status       string `json:"status"`
-	FailureClass string `json:"failureClass"`
-	Reason       string `json:"reason"`
+	APIVersion    string                  `json:"apiVersion"`
+	Operation     string                  `json:"operation"`
+	OperationID   string                  `json:"operationId"`
+	OperationType string                  `json:"operationType"`
+	Provider      string                  `json:"provider"`
+	Status        string                  `json:"status"`
+	FailureClass  string                  `json:"failureClass"`
+	Reason        string                  `json:"reason"`
+	Result        map[string]any          `json:"result"`
+	Evidence      []probeEvidenceEnvelope `json:"evidence"`
+	Diagnostics   []probeDiagnostic       `json:"diagnostics"`
+}
+
+type probeEvidenceEnvelope struct {
+	Kind string `json:"kind"`
+	Path string `json:"path,omitempty"`
+	Ref  string `json:"ref,omitempty"`
+}
+
+type probeDiagnostic struct {
+	Severity string `json:"severity,omitempty"`
+	Message  string `json:"message"`
 }
 
 type jobStatus struct {
@@ -483,13 +501,92 @@ func loadProbeResults(workspacePath string, stepMap stepMapFile) map[string]prob
 			}
 			if decoded.APIVersion == "spex.probe.result.v0.1" {
 				last = decoded
+				continue
+			}
+			if validateNormalizedProbeResult(decoded, step) == nil {
+				last = normalizeProbeResult(decoded)
 			}
 		}
-		if last.APIVersion != "" {
+		if last.APIVersion != "" || last.OperationID != "" {
 			results[step.OperationID] = last
 		}
 	}
 	return results
+}
+
+func validateNormalizedProbeResult(result probeResult, step stepMapStep) error {
+	if result.APIVersion != "" {
+		return fmt.Errorf("not a normalized probe envelope")
+	}
+	if result.OperationID == "" {
+		return fmt.Errorf("normalized probe envelope missing operationId")
+	}
+	if result.OperationID != step.OperationID {
+		return fmt.Errorf("normalized probe envelope operationId %q does not match step %q", result.OperationID, step.OperationID)
+	}
+	if result.OperationType == "" {
+		return fmt.Errorf("normalized probe envelope missing operationType")
+	}
+	if result.Provider == "" {
+		return fmt.Errorf("normalized probe envelope missing provider")
+	}
+	switch result.Status {
+	case "passed", "failed", "error":
+	default:
+		return fmt.Errorf("normalized probe envelope status %q is unsupported", result.Status)
+	}
+	if result.Result == nil {
+		return fmt.Errorf("normalized probe envelope missing result")
+	}
+	if result.Evidence == nil {
+		return fmt.Errorf("normalized probe envelope missing evidence")
+	}
+	if result.Diagnostics == nil {
+		return fmt.Errorf("normalized probe envelope missing diagnostics")
+	}
+	for i, diagnostic := range result.Diagnostics {
+		if strings.TrimSpace(diagnostic.Message) == "" {
+			return fmt.Errorf("normalized probe envelope diagnostics[%d].message is required", i)
+		}
+	}
+	if result.Status == "passed" {
+		if err := validateNormalizedProbeResultPayload(result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateNormalizedProbeResultPayload(result probeResult) error {
+	registry, err := workspace.NewBuiltInProviderRegistry()
+	if err != nil {
+		return err
+	}
+	capability, ok := registry.ResolveCapability(result.OperationType)
+	if !ok {
+		return nil
+	}
+	return workspace.ValidateCapabilityResult(result.OperationID, result.OperationType, capability.Capability, result.Result)
+}
+
+func normalizeProbeResult(result probeResult) probeResult {
+	if result.Status == "failed" || result.Status == "error" {
+		result.FailureClass = "probe_result_" + result.Status
+		result.Reason = firstProbeDiagnosticMessage(result.Diagnostics)
+		if result.Reason == "" {
+			result.Reason = "probe reported " + result.Status
+		}
+	}
+	return result
+}
+
+func firstProbeDiagnosticMessage(diagnostics []probeDiagnostic) string {
+	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.Message) != "" {
+			return diagnostic.Message
+		}
+	}
+	return ""
 }
 
 func loadJobStatuses(workspacePath string, stepMap stepMapFile) map[string]jobStatus {

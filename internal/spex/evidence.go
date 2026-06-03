@@ -1,6 +1,7 @@
 package spex
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -134,10 +135,40 @@ func probeResultLines(log string) []string {
 	var results []string
 	for _, line := range strings.Split(log, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, `"apiVersion":"spex.probe.result.v0.1"`) ||
-			strings.Contains(trimmed, `"apiVersion": "spex.probe.result.v0.1"`) {
+		if isProbeResultLine(trimmed) {
 			results = append(results, trimmed)
 		}
 	}
 	return results
+}
+
+func isProbeResultLine(line string) bool {
+	if line == "" || !strings.HasPrefix(line, "{") {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line), &fields); err != nil {
+		return false
+	}
+	if apiVersion, ok := stringJSONField(fields, "apiVersion"); ok && apiVersion == "spex.probe.result.v0.1" {
+		return true
+	}
+	for _, field := range []string{"operationId", "operationType", "provider", "status", "result", "evidence", "diagnostics"} {
+		if _, ok := fields[field]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func stringJSONField(fields map[string]json.RawMessage, key string) (string, bool) {
+	raw, ok := fields[key]
+	if !ok {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	return value, true
 }

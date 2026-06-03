@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -24,6 +26,122 @@ type graphQLAuth struct {
 	KeycloakTokenURL string
 	KeycloakClientID string
 	KeycloakScopes   []string
+}
+
+func runGraphQLOperation(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("graphql run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	operationFile := fs.String("operation-file", "", "lowered operation JSON file")
+	resultFile := fs.String("result-file", "", "normalized result envelope path")
+	timeoutValue := fs.String("timeout", "", "timeout override")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "graphql run"); err != nil {
+		return err
+	}
+	if *operationFile == "" || *resultFile == "" {
+		return fmt.Errorf("graphql run requires --operation-file and --result-file")
+	}
+	operation, err := readLoweredOperation(*operationFile)
+	if err != nil {
+		return err
+	}
+	if operation.OperationType != "graphql.expect" || operation.Provider != "graphql" {
+		return fmt.Errorf("graphql run cannot execute operation type %q from provider %q", operation.OperationType, operation.Provider)
+	}
+	timeoutText := operation.Timeout
+	if *timeoutValue != "" {
+		timeoutText = *timeoutValue
+	}
+	timeout, err := time.ParseDuration(timeoutText)
+	if err != nil {
+		return fmt.Errorf("invalid timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	err = executeGraphQLLoweredOperation(operation, timeout, pollInterval)
+	envelope := probeResultEnvelope{
+		OperationID:   operation.OperationID,
+		OperationType: operation.OperationType,
+		Provider:      operation.Provider,
+		Status:        "passed",
+		Result:        map[string]any{},
+		Evidence:      []probeEvidenceEnvelope{},
+		Diagnostics:   []probeDiagnostic{},
+	}
+	if err != nil {
+		envelope.Status = "failed"
+		envelope.Diagnostics = append(envelope.Diagnostics, probeDiagnostic{Severity: "error", Message: err.Error()})
+	}
+	if writeErr := writeProbeResultEnvelope(*resultFile, envelope); writeErr != nil {
+		return writeErr
+	}
+	if writeErr := writeProbeResultEnvelopeToWriter(stdout, envelope); writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
+func executeGraphQLLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) error {
+	dir, err := os.MkdirTemp("", "spex-graphql-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	query, _ := operation.With["query"].(string)
+	queryFile := filepath.Join(dir, "query.graphql")
+	variablesFile := filepath.Join(dir, "variables.json")
+	matchersFile := filepath.Join(dir, "matchers.json")
+	if err := os.WriteFile(queryFile, []byte(query), 0o644); err != nil {
+		return err
+	}
+	variablesContent, err := json.Marshal(operation.With["variables"])
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(variablesFile, variablesContent, 0o644); err != nil {
+		return err
+	}
+	matchContent, err := json.Marshal(operation.With["match"])
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
+		return err
+	}
+	endpoint, _ := operation.Binding.With["endpoint"].(string)
+	auth := graphQLAuthFromLoweredBinding(operation.Binding)
+	return expectGraphQL(endpoint, queryFile, variablesFile, matchersFile, timeout, pollInterval, auth)
+}
+
+func graphQLAuthFromLoweredBinding(binding probeLoweredBinding) graphQLAuth {
+	authMap, _ := binding.With["auth"].(map[string]any)
+	tokenURL, _ := authMap["tokenURL"].(string)
+	clientID, _ := authMap["clientID"].(string)
+	var scopes []string
+	switch value := authMap["scopes"].(type) {
+	case []any:
+		for _, item := range value {
+			scopes = append(scopes, fmt.Sprint(item))
+		}
+	case []string:
+		scopes = append(scopes, value...)
+	}
+	return graphQLAuth{
+		KeycloakTokenURL: tokenURL,
+		KeycloakClientID: clientID,
+		KeycloakScopes:   scopes,
+	}
 }
 
 func expectGraphQL(endpoint, queryFile, variablesFile, matchersFile string, timeout, pollInterval time.Duration, auth graphQLAuth) error {

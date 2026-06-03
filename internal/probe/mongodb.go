@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -24,6 +27,106 @@ type mongoDBExpectRequest struct {
 	MatchersFile string
 	Timeout      time.Duration
 	PollInterval time.Duration
+}
+
+func runMongoDBOperation(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("mongodb run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	operationFile := fs.String("operation-file", "", "lowered operation JSON file")
+	resultFile := fs.String("result-file", "", "normalized result envelope path")
+	timeoutValue := fs.String("timeout", "", "timeout override")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "mongodb run"); err != nil {
+		return err
+	}
+	if *operationFile == "" || *resultFile == "" {
+		return fmt.Errorf("mongodb run requires --operation-file and --result-file")
+	}
+	operation, err := readLoweredOperation(*operationFile)
+	if err != nil {
+		return err
+	}
+	if operation.OperationType != "mongodb.expect" || operation.Provider != "mongodb" {
+		return fmt.Errorf("mongodb run cannot execute operation type %q from provider %q", operation.OperationType, operation.Provider)
+	}
+	timeoutText := operation.Timeout
+	if *timeoutValue != "" {
+		timeoutText = *timeoutValue
+	}
+	timeout, err := time.ParseDuration(timeoutText)
+	if err != nil {
+		return fmt.Errorf("invalid timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	err = executeMongoDBLoweredOperation(operation, timeout, pollInterval)
+	envelope := probeResultEnvelope{
+		OperationID:   operation.OperationID,
+		OperationType: operation.OperationType,
+		Provider:      operation.Provider,
+		Status:        "passed",
+		Result:        map[string]any{},
+		Evidence:      []probeEvidenceEnvelope{},
+		Diagnostics:   []probeDiagnostic{},
+	}
+	if err != nil {
+		envelope.Status = "failed"
+		envelope.Diagnostics = append(envelope.Diagnostics, probeDiagnostic{Severity: "error", Message: err.Error()})
+	}
+	if writeErr := writeProbeResultEnvelope(*resultFile, envelope); writeErr != nil {
+		return writeErr
+	}
+	if writeErr := writeProbeResultEnvelopeToWriter(stdout, envelope); writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
+func executeMongoDBLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) error {
+	dir, err := os.MkdirTemp("", "spex-mongodb-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	filter, _ := operation.With["filter"].(string)
+	collection, _ := operation.With["collection"].(string)
+	filterFile := filepath.Join(dir, "filter.json")
+	matchersFile := filepath.Join(dir, "matchers.json")
+	if err := os.WriteFile(filterFile, []byte(filter), 0o644); err != nil {
+		return err
+	}
+	matchContent, err := json.Marshal(operation.With["match"])
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
+		return err
+	}
+	username, password := mongoDBCredentialsFromEnv()
+	uri, _ := operation.Binding.With["uri"].(string)
+	database, _ := operation.Binding.With["database"].(string)
+	return expectMongoDB(mongoDBExpectRequest{
+		URI:          uri,
+		Database:     database,
+		Collection:   collection,
+		Username:     username,
+		Password:     password,
+		FilterFile:   filterFile,
+		MatchersFile: matchersFile,
+		Timeout:      timeout,
+		PollInterval: pollInterval,
+	})
 }
 
 func expectMongoDB(req mongoDBExpectRequest) error {

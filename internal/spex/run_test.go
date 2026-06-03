@@ -2774,6 +2774,30 @@ func TestRunWorkspaceCollectsLogsAndProbeResults(t *testing.T) {
 	}
 }
 
+func TestRunWorkspaceCollectsNormalizedProbeResultEnvelope(t *testing.T) {
+	workspace := writeWorkspace(t)
+	logPath := filepath.Join(t.TempDir(), "kubectl-args.log")
+	probeResult := `{"operationId":"publish-reading-1","operationType":"redis.assertValueEquals","provider":"redis","status":"passed","result":{},"evidence":[],"diagnostics":[]}`
+	fake := writeRecordingKubectlWithOutput(t, logPath, 0, "log before\n"+probeResult+"\n")
+
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"run", "--workspace", workspace, "--command", fake}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultContent, err := os.ReadFile(filepath.Join(workspace, "evidence", "results", "03-publish-reading-1.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(resultContent)) != probeResult {
+		t.Fatalf("unexpected normalized result content:\n%s", string(resultContent))
+	}
+	report := readReport(t, workspace)
+	if !strings.Contains(report, "resultRef: evidence/results/03-publish-reading-1.jsonl") {
+		t.Fatalf("report missing normalized result ref:\n%s", report)
+	}
+}
+
 func TestCollectEvidenceRejectsSymlinkLogFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses symlinks")
@@ -3129,6 +3153,86 @@ func TestReportUsesProbeResultFailureOverKUTTLOutput(t *testing.T) {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report missing %q:\n%s", want, report)
 		}
+	}
+}
+
+func TestReportUsesNormalizedProbeResultEnvelopeFailure(t *testing.T) {
+	workspace := writeWorkspace(t)
+	resultDir := filepath.Join(workspace, "evidence", "results")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	probeResult := `{"operationId":"publish-reading-1","operationType":"redis.assertValueEquals","provider":"redis","status":"failed","result":{},"evidence":[],"diagnostics":[{"severity":"error","message":"redis key \"cache:user-123\" value \"pending\" does not equal \"active\""}]}`
+	if err := os.WriteFile(filepath.Join(resultDir, "03-publish-reading-1.jsonl"), []byte(probeResult+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := WriteReport(ReportInput{
+		Workspace:      workspace,
+		StartedAt:      testTime(),
+		FinishedAt:     testTime(),
+		ScenarioResult: "passed",
+		RunnerResult:   "passed",
+		KUTTLOutput:    "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := readReport(t, workspace)
+	for _, want := range []string{
+		"result: failed",
+		"scenarioResult: failed",
+		"failureClass: probe_result_failed",
+		`failureMessage: redis key "cache:user-123" value "pending" does not equal "active"`,
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report missing %q:\n%s", want, report)
+		}
+	}
+}
+
+func TestReportIgnoresMalformedNormalizedProbeResultEnvelope(t *testing.T) {
+	workspace := writeWorkspace(t)
+	resultDir := filepath.Join(workspace, "evidence", "results")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	probeResult := `{"operationId":"publish-reading-1","operationType":"redis.assertValueEquals","provider":"redis","status":"failed","diagnostics":[{"message":"ignored"}]}`
+	if err := os.WriteFile(filepath.Join(resultDir, "03-publish-reading-1.jsonl"), []byte(probeResult+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := WriteReport(ReportInput{
+		Workspace:      workspace,
+		StartedAt:      testTime(),
+		FinishedAt:     testTime(),
+		ScenarioResult: "passed",
+		RunnerResult:   "passed",
+		KUTTLOutput:    "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := readReport(t, workspace)
+	if strings.Contains(report, "probe_result_failed") || strings.Contains(report, "ignored") {
+		t.Fatalf("report used malformed normalized probe envelope:\n%s", report)
+	}
+}
+
+func TestReportIgnoresNormalizedProbeResultWithInvalidProviderResult(t *testing.T) {
+	err := validateNormalizedProbeResult(probeResult{
+		OperationID:   "publish-reading-1",
+		OperationType: "redis.assertValueEquals",
+		Provider:      "redis",
+		Status:        "passed",
+		Result: map[string]any{
+			"key": "cache:user-123",
+		},
+		Evidence:    []probeEvidenceEnvelope{},
+		Diagnostics: []probeDiagnostic{},
+	}, stepMapStep{OperationID: "publish-reading-1"})
+	if err == nil || !strings.Contains(err.Error(), "result.value is required") {
+		t.Fatalf("expected provider result schema validation error, got %v", err)
 	}
 }
 
@@ -3587,9 +3691,18 @@ func TestSuitePlan(t *testing.T) {
 			ID   string   `json:"id"`
 			Keys []string `json:"keys"`
 		} `json:"requiredSecrets"`
+		Providers []struct {
+			Provider      string `json:"provider"`
+			OperationType string `json:"operationType"`
+			BindingKind   string `json:"bindingKind"`
+		} `json:"providers"`
 		Scenarios []struct {
-			Name       string   `json:"name"`
-			Operations []string `json:"operations"`
+			Name         string   `json:"name"`
+			Operations   []string `json:"operations"`
+			Capabilities []struct {
+				Provider      string `json:"provider"`
+				OperationType string `json:"operationType"`
+			} `json:"capabilities"`
 		} `json:"scenarios"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
@@ -3603,6 +3716,12 @@ func TestSuitePlan(t *testing.T) {
 	}
 	if len(parsed.RequiredSecrets) == 0 {
 		t.Fatalf("suite plan missing required secrets:\n%s", stdout.String())
+	}
+	if !suitePlanHasProvider(parsed.Providers, "mqtt", "mqtt.publish") || !suitePlanHasProvider(parsed.Providers, "graphql", "graphql.expect") {
+		t.Fatalf("suite plan missing provider capabilities:\n%s", stdout.String())
+	}
+	if len(parsed.Scenarios[0].Capabilities) == 0 {
+		t.Fatalf("suite plan scenario missing capabilities:\n%s", stdout.String())
 	}
 }
 
@@ -3619,13 +3738,25 @@ func TestSuiteExplainJSON(t *testing.T) {
 	var parsed struct {
 		Suite     string `json:"suite"`
 		SuiteFile string `json:"suiteFile"`
+		Providers []struct {
+			Provider      string `json:"provider"`
+			OperationType string `json:"operationType"`
+			BindingKind   string `json:"bindingKind"`
+		} `json:"providers"`
 		Scenarios []struct {
-			Name       string `json:"name"`
-			File       string `json:"file"`
-			Namespace  string `json:"namespace"`
+			Name         string `json:"name"`
+			File         string `json:"file"`
+			Namespace    string `json:"namespace"`
+			Capabilities []struct {
+				Provider      string `json:"provider"`
+				OperationType string `json:"operationType"`
+			} `json:"capabilities"`
 			Operations []struct {
 				ID                 string `json:"id"`
 				Type               string `json:"type"`
+				Provider           string `json:"provider"`
+				BindingKind        string `json:"bindingKind"`
+				BindingName        string `json:"bindingName"`
 				Topic              string `json:"topic"`
 				PayloadTemplateRef string `json:"payloadTemplateRef"`
 				QueryRef           string `json:"queryRef"`
@@ -3639,19 +3770,134 @@ func TestSuiteExplainJSON(t *testing.T) {
 	if parsed.Suite != "mqtt-local" || parsed.SuiteFile != suite || len(parsed.Scenarios) != 5 {
 		t.Fatalf("suite explain json basic fields mismatch:\n%s", stdout.String())
 	}
+	if !suitePlanHasProvider(parsed.Providers, "mqtt", "mqtt.publish") || !suitePlanHasProvider(parsed.Providers, "graphql", "graphql.expect") {
+		t.Fatalf("suite explain json missing provider capabilities:\n%s", stdout.String())
+	}
 	foundScenario := false
 	for _, scenario := range parsed.Scenarios {
 		if scenario.Name != "mqtt-ingestion-basic" {
 			continue
 		}
 		foundScenario = true
-		if len(scenario.Operations) != 3 || scenario.Operations[0].Type != "mqtt.publish" || scenario.Operations[0].PayloadTemplateRef == "" {
+		if len(scenario.Capabilities) == 0 {
+			t.Fatalf("suite explain json scenario missing capabilities: %+v\n%s", scenario, stdout.String())
+		}
+		if len(scenario.Operations) != 3 || scenario.Operations[0].Type != "mqtt.publish" || scenario.Operations[0].Provider != "mqtt" || scenario.Operations[0].BindingKind != "mqtt.connection" || scenario.Operations[0].BindingName != "mqtt.default" || scenario.Operations[0].PayloadTemplateRef == "" {
 			t.Fatalf("suite explain json operation details mismatch: %+v\n%s", scenario, stdout.String())
 		}
 	}
 	if !foundScenario {
 		t.Fatalf("suite explain json missing mqtt-ingestion-basic:\n%s", stdout.String())
 	}
+}
+
+func TestBundleExplainShowsLocalBundleCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "bundles", "custom"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bundles", "custom", "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        schema:
+          type: object
+      resultSchema:
+        schema:
+          type: object
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: custom-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: custom
+      version: 0.1.0
+      source: bundles/custom
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-check
+spec:
+  operations:
+    - id: echo-message
+      type: custom.echo
+      with:
+        bindingRef: custom.main
+        message: hello
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: custom.main
+      kind: custom.connection
+      with:
+        uri: custom://service
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"bundle", "explain", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"custom",
+		"custom.echo",
+		"custom.connection",
+		"custom-probe:dev",
+		"/custom/input/operation.json",
+		"/custom/output/result.json",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("bundle explain missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func suitePlanHasProvider(providers []struct {
+	Provider      string `json:"provider"`
+	OperationType string `json:"operationType"`
+	BindingKind   string `json:"bindingKind"`
+}, provider, operationType string) bool {
+	for _, item := range providers {
+		if item.Provider == provider && item.OperationType == operationType {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDoctorWithSuiteJSON(t *testing.T) {

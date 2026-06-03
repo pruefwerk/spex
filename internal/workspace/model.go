@@ -11,6 +11,7 @@ type Inputs struct {
 	RepoRoot               string
 	IntegrationProfilePath string
 	CatalogPaths           []string
+	Providers              []Provider
 	Integration            *IntegrationProfile
 	Scenario               Scenario
 	Binding                TargetBinding
@@ -65,15 +66,18 @@ type GraphQLQuery struct {
 }
 
 type Operation struct {
-	ID       string                 `yaml:"id"`
-	Type     string                 `yaml:"type"`
-	After    string                 `yaml:"after"`
-	MQTT     *MQTTPublish           `yaml:"mqtt"`
-	Redpanda *RedpandaContains      `yaml:"redpanda"`
-	GraphQL  *GraphQLExpectation    `yaml:"graphql"`
-	MongoDB  *MongoDBExpectation    `yaml:"mongodb"`
-	Postgres *PostgreSQLExpectation `yaml:"postgresql"`
-	RabbitMQ *RabbitMQOperation     `yaml:"rabbitmq"`
+	ID        string                 `yaml:"id"`
+	Type      string                 `yaml:"type"`
+	After     string                 `yaml:"after"`
+	Timeout   string                 `yaml:"timeout"`
+	DependsOn []string               `yaml:"dependsOn"`
+	With      map[string]any         `yaml:"with"`
+	MQTT      *MQTTPublish           `yaml:"mqtt"`
+	Redpanda  *RedpandaContains      `yaml:"redpanda"`
+	GraphQL   *GraphQLExpectation    `yaml:"graphql"`
+	MongoDB   *MongoDBExpectation    `yaml:"mongodb"`
+	Postgres  *PostgreSQLExpectation `yaml:"postgresql"`
+	RabbitMQ  *RabbitMQOperation     `yaml:"rabbitmq"`
 }
 
 type MQTTPublish struct {
@@ -147,6 +151,7 @@ type BindingSpec struct {
 	RBAC               RBAC              `yaml:"rbac"`
 	Probe              Probe             `yaml:"probe"`
 	Secrets            map[string]Secret `yaml:"secrets"`
+	Bindings           []GenericBinding  `yaml:"bindings"`
 	MQTT               MQTTBinding       `yaml:"mqtt"`
 	Redpanda           RedpandaBinding   `yaml:"redpanda"`
 	GraphQL            GraphQLBinding    `yaml:"graphql"`
@@ -276,6 +281,7 @@ type ScenarioSuiteSpec struct {
 	BindingRef            string        `yaml:"bindingRef"`
 	IntegrationProfileRef string        `yaml:"integrationProfileRef"`
 	CatalogRefs           []string      `yaml:"catalogRefs"`
+	BundleRefs            []BundleRef   `yaml:"bundleRefs"`
 	Scenarios             []ScenarioRef `yaml:"scenarios"`
 	WorkspaceDir          string        `yaml:"workspaceDir"`
 	FailFast              bool          `yaml:"failFast"`
@@ -309,8 +315,32 @@ type ResolvedScenarioSuite struct {
 	BindingPath            string
 	IntegrationProfilePath string
 	CatalogPaths           []string
+	Providers              []Provider
 	ScenarioPaths          []string
 	ScenarioRefs           []ResolvedScenarioRef
+}
+
+type BundleRef struct {
+	Name    string `yaml:"name"`
+	Version string `yaml:"version"`
+	Source  string `yaml:"source"`
+}
+
+type IntegrationBundle struct {
+	APIVersion string                `yaml:"apiVersion"`
+	Kind       string                `yaml:"kind"`
+	Metadata   BundleMetadata        `yaml:"metadata"`
+	Spec       IntegrationBundleSpec `yaml:"spec"`
+}
+
+type BundleMetadata struct {
+	Name    string `yaml:"name"`
+	Version string `yaml:"version"`
+}
+
+type IntegrationBundleSpec struct {
+	Capabilities   []Capability    `yaml:"capabilities"`
+	BindingSchemas []BindingSchema `yaml:"bindingSchemas"`
 }
 
 type FlowUse struct {

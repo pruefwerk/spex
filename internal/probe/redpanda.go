@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,6 +43,122 @@ type kafkaRedpandaClient struct{}
 
 var redpandaKafka redpandaClient = kafkaRedpandaClient{}
 var scanRedpandaPartition = scanPartition
+
+func runRedpandaOperation(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("redpanda run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	operationFile := fs.String("operation-file", "", "lowered operation JSON file")
+	resultFile := fs.String("result-file", "", "normalized result envelope path")
+	timeoutValue := fs.String("timeout", "", "timeout override")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectProbePositionalArgs(fs, "redpanda run"); err != nil {
+		return err
+	}
+	if *operationFile == "" || *resultFile == "" {
+		return fmt.Errorf("redpanda run requires --operation-file and --result-file")
+	}
+	operation, err := readLoweredOperation(*operationFile)
+	if err != nil {
+		return err
+	}
+	if operation.Provider != "redpanda" || (operation.OperationType != "redpanda.contains" && operation.OperationType != "redpanda.snapshotOffsets") {
+		return fmt.Errorf("redpanda run cannot execute operation type %q from provider %q", operation.OperationType, operation.Provider)
+	}
+	timeoutText := operation.Timeout
+	if *timeoutValue != "" {
+		timeoutText = *timeoutValue
+	}
+	timeout, err := time.ParseDuration(timeoutText)
+	if err != nil {
+		return fmt.Errorf("invalid timeout: %w", err)
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
+	}
+	err = executeRedpandaLoweredOperation(operation, timeout, pollInterval)
+	envelope := probeResultEnvelope{
+		OperationID:   operation.OperationID,
+		OperationType: operation.OperationType,
+		Provider:      operation.Provider,
+		Status:        "passed",
+		Result:        map[string]any{},
+		Evidence:      []probeEvidenceEnvelope{},
+		Diagnostics:   []probeDiagnostic{},
+	}
+	if err != nil {
+		envelope.Status = "failed"
+		envelope.Diagnostics = append(envelope.Diagnostics, probeDiagnostic{Severity: "error", Message: err.Error()})
+	}
+	if writeErr := writeProbeResultEnvelope(*resultFile, envelope); writeErr != nil {
+		return writeErr
+	}
+	if writeErr := writeProbeResultEnvelopeToWriter(stdout, envelope); writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
+func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) error {
+	if operation.OperationType == "redpanda.snapshotOffsets" {
+		return executeRedpandaSnapshotLoweredOperation(operation, timeout)
+	}
+	dir, err := os.MkdirTemp("", "spex-redpanda-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	matchersFile := filepath.Join(dir, "matchers.json")
+	matchContent, err := json.Marshal(operation.With["match"])
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
+		return err
+	}
+	brokers, _ := operation.Binding.With["brokers"].(string)
+	topic, _ := operation.With["topic"].(string)
+	offsetsConfigMap, _ := operation.With["offsetsConfigMap"].(string)
+	namespace, _ := operation.With["namespace"].(string)
+	scenario, _ := operation.With["scenario"].(string)
+	runID, _ := operation.With["runId"].(string)
+	store := redpandaOffsetStore(offsetsConfigMap, "", namespace, scenario, runID)
+	snapshot, err := store.Load()
+	if err != nil {
+		return err
+	}
+	return redpandaContains(brokers, topic, snapshot.Topics[topic], matchersFile, timeout, pollInterval)
+}
+
+func executeRedpandaSnapshotLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
+	brokers, _ := operation.Binding.With["brokers"].(string)
+	topics := loweredStringSlice(operation.With["topics"])
+	offsetsConfigMap, _ := operation.With["offsetsConfigMap"].(string)
+	offsetsFile, _ := operation.With["offsetsFile"].(string)
+	namespace, _ := operation.With["namespace"].(string)
+	scenario, _ := operation.With["scenario"].(string)
+	runID, _ := operation.With["runId"].(string)
+	offsets, err := snapshotRedpandaOffsets(brokers, topics, timeout)
+	if err != nil {
+		return err
+	}
+	store := redpandaOffsetStore(offsetsConfigMap, offsetsFile, namespace, scenario, runID)
+	return store.Save(redpandaOffsetSnapshot{
+		APIVersion:    "spex.offsets.v0.1",
+		ScenarioRunID: runID,
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		Topics:        offsets,
+	})
+}
 
 func snapshotRedpandaOffsets(brokersValue string, topics []string, timeout time.Duration) (map[string]map[int]int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

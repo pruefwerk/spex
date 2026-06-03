@@ -18,6 +18,7 @@ type generationPlan struct {
 	Queries      map[string]string
 	Variables    map[string]string
 	Matchers     map[string]string
+	Operations   map[string]string
 	Steps        []generatedStep
 }
 
@@ -49,8 +50,14 @@ func Generate(out string, in Inputs) error {
 		integrationProfileDir = filepath.Dir(in.IntegrationProfilePath)
 	}
 	plan := buildPlan(in)
+	loweredOperations, err := loweredOperationFiles(in)
+	if err != nil {
+		return err
+	}
+	plan.Operations = loweredOperations
 	dirs := []string{
 		filepath.Join(out, "kuttl", plan.ScenarioSlug),
+		filepath.Join(out, "rendered", "operations"),
 		filepath.Join(out, "rendered", "payloads"),
 		filepath.Join(out, "rendered", "queries"),
 		filepath.Join(out, "rendered", "variables"),
@@ -92,6 +99,9 @@ func Generate(out string, in Inputs) error {
 	}
 	for name, content := range plan.Payloads {
 		files[filepath.Join("rendered", "payloads", name)] = content
+	}
+	for name, content := range plan.Operations {
+		files[filepath.Join("rendered", "operations", name)] = content
 	}
 	for name, content := range plan.Queries {
 		files[filepath.Join("rendered", "queries", name)] = content
@@ -254,6 +264,58 @@ func writeGeneratedFile(root, path string, content []byte) error {
 	return nil
 }
 
+func loweredOperationFiles(in Inputs) (map[string]string, error) {
+	registry, err := NewProviderRegistryWithProviders(in.Providers)
+	if err != nil {
+		return nil, err
+	}
+	operations, err := LowerOperations(in, registry)
+	if err != nil {
+		return nil, err
+	}
+	if needsRedpandaSnapshot(in.Scenario.Spec.Operations) {
+		operation, err := lowerRedpandaSnapshotOperation(in, registry)
+		if err != nil {
+			return nil, err
+		}
+		operations = append([]LoweredOperation{operation}, operations...)
+	}
+	files := make(map[string]string, len(operations))
+	for _, operation := range operations {
+		content, err := json.MarshalIndent(operation, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		files[loweredOperationFileName(operation.OperationID)] = string(content) + "\n"
+	}
+	return files, nil
+}
+
+func loweredOperationFileName(operationID string) string {
+	return DNSLabel(operationID) + ".operation.json"
+}
+
+func lowerRedpandaSnapshotOperation(in Inputs, registry *ProviderRegistry) (LoweredOperation, error) {
+	bindings, err := ResolveGenericBindings(in.Binding)
+	if err != nil {
+		return LoweredOperation{}, err
+	}
+	scenarioSlug := DNSLabel(in.ScenarioName)
+	return LowerOperation(GenericOperation{
+		ID:   "redpanda-snapshot-offsets",
+		Type: "redpanda.snapshotOffsets",
+		With: map[string]any{
+			bindingRefKey:      legacyBindingName("redpanda"),
+			"topics":           redpandaSnapshotTopics(in),
+			"offsetsConfigMap": offsetConfigMapName(scenarioSlug),
+			"namespace":        in.Namespace,
+			"scenario":         scenarioSlug,
+			"runId":            in.RunID,
+		},
+		Timeout: defaultTimeout(in),
+	}, bindings, registry, defaultTimeout(in))
+}
+
 func syncGeneratedDir(dir string) error {
 	handle, err := os.Open(dir)
 	if err != nil {
@@ -275,6 +337,7 @@ func buildPlan(in Inputs) generationPlan {
 		Queries:      map[string]string{},
 		Variables:    map[string]string{},
 		Matchers:     map[string]string{},
+		Operations:   map[string]string{},
 	}
 
 	ordinal := firstProbeOrdinal(in)
@@ -424,6 +487,18 @@ func buildPlan(in Inputs) generationPlan {
 			}
 			plan.Steps = append(plan.Steps, step)
 			ordinal++
+		default:
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         genericProviderJob(in, scenarioSlug, ordinal, op),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
 		}
 	}
 	return plan
@@ -542,9 +617,9 @@ func executionPlan(plan generationPlan) string {
 	var b strings.Builder
 	b.WriteString("steps:\n  - 00 rerun cleanup\n")
 	if len(plan.Steps) > 0 && plan.Steps[0].Ordinal > 2 {
-		b.WriteString("  - 01 integration setup\n  - 02 apply RBAC when enabled and static payload/query/variables/matcher ConfigMaps\n")
+		b.WriteString("  - 01 integration setup\n  - 02 apply RBAC when enabled and static operation/payload/query/variables/matcher ConfigMaps\n")
 	} else {
-		b.WriteString("  - 01 apply RBAC when enabled and static payload/query/variables/matcher ConfigMaps\n")
+		b.WriteString("  - 01 apply RBAC when enabled and static operation/payload/query/variables/matcher ConfigMaps\n")
 	}
 	for _, step := range plan.Steps {
 		b.WriteString(fmt.Sprintf("  - %02d %s\n", step.Ordinal, step.OperationID))
@@ -943,13 +1018,37 @@ metadata:
     spex/run-id: "%s"
     spex/static: "true"
 data:
+%s---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    spex/owned: "true"
+    spex/scenario: "%s"
+    spex/run-id: "%s"
+    spex/static: "true"
+data:
 %s`, yamlString(payloadsConfigMapName(plan.ScenarioSlug)), yamlString(in.Namespace), plan.ScenarioSlug, in.RunID, configMapData(plan.Payloads),
 		yamlString(graphqlConfigMapName(plan.ScenarioSlug)), yamlString(in.Namespace), plan.ScenarioSlug, in.RunID, configMapData(plan.Queries),
 		yamlString(variablesConfigMapName(plan.ScenarioSlug)), yamlString(in.Namespace), plan.ScenarioSlug, in.RunID, configMapData(plan.Variables),
-		yamlString(matchersConfigMapName(plan.ScenarioSlug)), yamlString(in.Namespace), plan.ScenarioSlug, in.RunID, configMapData(plan.Matchers))
+		yamlString(matchersConfigMapName(plan.ScenarioSlug)), yamlString(in.Namespace), plan.ScenarioSlug, in.RunID, configMapData(plan.Matchers),
+		yamlString(operationsConfigMapName(plan.ScenarioSlug)), yamlString(in.Namespace), plan.ScenarioSlug, in.RunID, configMapData(plan.Operations))
 }
 
 func redpandaSnapshotJob(in Inputs, scenarioSlug string, ordinal int) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, redpandaSnapshotOperation(in))
+}
+
+func redpandaSnapshotOperation(in Inputs) Operation {
+	return Operation{
+		ID:   "redpanda-snapshot-offsets",
+		Type: "redpanda.snapshotOffsets",
+	}
+}
+
+func legacyRedpandaSnapshotJob(in Inputs, scenarioSlug string, ordinal int) string {
 	args := []string{
 		"redpanda", "snapshot-offsets",
 		"--brokers=" + in.Binding.Spec.Redpanda.Brokers,
@@ -966,6 +1065,10 @@ func redpandaSnapshotJob(in Inputs, scenarioSlug string, ordinal int) string {
 }
 
 func mqttPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyMQTTPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
 	topic := renderTemplate(op.MQTT.Topic, in.RunID, op.MQTT.CorrelationID, params)
 	args := []string{
 		"mqtt", "publish",
@@ -982,6 +1085,10 @@ func mqttPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, p
 }
 
 func mqttRoundTripJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile, matchersFile string, params map[string]string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyMQTTRoundTripJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile, matchersFile string, params map[string]string) string {
 	topic := renderTemplate(op.MQTT.Topic, in.RunID, op.MQTT.CorrelationID, params)
 	args := []string{
 		"mqtt", "roundtrip",
@@ -1010,6 +1117,10 @@ func mqttClientID(in Inputs, scenarioSlug string, ordinal int, operationID strin
 }
 
 func redpandaContainsJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyRedpandaContainsJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string) string {
 	topic := redpandaTopicName(in, op.Redpanda.TopicRef)
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
 		"redpanda", "contains",
@@ -1026,6 +1137,10 @@ func redpandaContainsJob(in Inputs, scenarioSlug string, ordinal int, op Operati
 }
 
 func graphqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, variablesFile, matchersFile string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyGraphQLExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, variablesFile, matchersFile string) string {
 	args := []string{
 		"graphql", "expect",
 		"--endpoint=" + in.Binding.Spec.GraphQL.Endpoint,
@@ -1048,6 +1163,10 @@ func graphqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation,
 }
 
 func mongodbExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, filterFile, matchersFile string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyMongoDBExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, filterFile, matchersFile string) string {
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
 		"mongodb", "expect",
 		"--uri=" + in.Binding.Spec.MongoDB.URI,
@@ -1061,6 +1180,10 @@ func mongodbExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation,
 }
 
 func postgresqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, argsFile, matchersFile string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyPostgreSQLExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, argsFile, matchersFile string) string {
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
 		"postgresql", "expect",
 		"--uri=" + in.Binding.Spec.PostgreSQL.URI,
@@ -1072,7 +1195,152 @@ func postgresqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operati
 	})
 }
 
+func genericProviderJob(in Inputs, scenarioSlug string, ordinal int, op Operation) string {
+	capability := capabilityForOperationType(op.Type, in.Providers)
+	args := genericProbeArgs(capability.Probe, op.ID, genericOperationTimeout(in, op), defaultPollInterval(in))
+	return genericProbeJob(in, scenarioSlug, ordinal, op.ID, op.Type, capability.Probe, args)
+}
+
+func builtInCapabilityForOperationType(operationType string) Capability {
+	return capabilityForOperationType(operationType, nil)
+}
+
+func capabilityForOperationType(operationType string, providers []Provider) Capability {
+	registry, err := NewProviderRegistryWithProviders(providers)
+	if err != nil {
+		return Capability{Probe: defaultProbeInvocationSpec(providerNameForOperationType(operationType))}
+	}
+	capability, ok := registry.ResolveCapability(operationType)
+	if !ok {
+		return Capability{Probe: defaultProbeInvocationSpec(providerNameForOperationType(operationType))}
+	}
+	return capability.Capability
+}
+
+func defaultProbeInvocationSpec(provider string) ProbeInvocationSpec {
+	return ProbeInvocationSpec{
+		Image:   "spex-probe:dev",
+		Command: []string{provider, "run"},
+		Input:   ProbeIO{Mode: "operationFile", Path: "/spex/input/operation.json"},
+		Output:  ProbeIO{Path: "/spex/output/result.json"},
+	}
+}
+
+func genericProbeArgs(probe ProbeInvocationSpec, operationID, timeout, pollInterval string) []string {
+	inputPath := probeOperationInputPath(probe.Input, operationID)
+	outputPath := probeOutputPath(probe.Output)
+	args := append([]string(nil), probe.Command...)
+	args = append(args, probe.Args...)
+	args = append(args,
+		"--operation-file="+inputPath,
+		"--result-file="+outputPath,
+		"--timeout="+timeout,
+		"--poll-interval="+pollInterval,
+	)
+	return args
+}
+
+func probeOperationInputPath(input ProbeIO, operationID string) string {
+	dir := probeIODir(input, "/spex/input")
+	return pathJoinSlash(dir, loweredOperationFileName(operationID))
+}
+
+func probeOutputPath(output ProbeIO) string {
+	if output.Path == "" {
+		return "/spex/output/result.json"
+	}
+	return output.Path
+}
+
+func genericProbeJob(in Inputs, scenarioSlug string, ordinal int, operationID, operationType string, probe ProbeInvocationSpec, args []string) string {
+	name := jobName(scenarioSlug, ordinal, operationID)
+	operationSlug := DNSLabel(operationID)
+	ordinalLabel := twoDigitOrdinal(ordinal)
+	image := in.Binding.Spec.Probe.Image
+	if image == "" {
+		image = probe.Image
+	}
+	if image == "" {
+		image = "spex-probe:dev"
+	}
+	imagePullPolicy := in.Binding.Spec.Probe.ImagePullPolicy
+	if imagePullPolicy == "" {
+		imagePullPolicy = "IfNotPresent"
+	}
+	serviceAccountName := probeServiceAccountName(in)
+	inputMountPath := probeIODir(probe.Input, "/spex/input")
+	outputMountPath := probeIODir(probe.Output, "/spex/output")
+	return fmt.Sprintf(`apiVersion: batch/v1
+kind: Job
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    spex/owned: "true"
+    spex/scenario: "%s"
+    spex/operation-id: "%s"
+    spex/operation-type: "%s"
+    spex/step-ordinal: "%s"
+    spex/run-id: "%s"
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: %d
+  template:
+    metadata:
+      labels:
+        spex/owned: "true"
+        spex/scenario: "%s"
+        spex/operation-id: "%s"
+        spex/operation-type: "%s"
+        spex/step-ordinal: "%s"
+        spex/run-id: "%s"
+    spec:
+      restartPolicy: Never
+      serviceAccountName: %s
+      containers:
+        - name: probe
+          image: %s
+          imagePullPolicy: %s
+%s
+          args:
+%s
+          volumeMounts:
+            - name: operation-input
+              mountPath: %s
+              readOnly: true
+            - name: operation-output
+              mountPath: %s
+      volumes:
+        - name: operation-input
+          configMap:
+            name: %s
+        - name: operation-output
+          emptyDir: {}
+`, yamlString(name), yamlString(in.Namespace), scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, activeDeadlineSeconds(args),
+		scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, yamlString(serviceAccountName), yamlString(image), yamlString(imagePullPolicy), secretEnv(in, args), yamlArgs(args),
+		yamlString(inputMountPath), yamlString(outputMountPath), yamlString(operationsConfigMapName(scenarioSlug)))
+}
+
+func probeIODir(io ProbeIO, fallback string) string {
+	if io.Path == "" {
+		return fallback
+	}
+	dir := filepath.ToSlash(filepath.Dir(io.Path))
+	if dir == "." || dir == "/" {
+		return fallback
+	}
+	return dir
+}
+
+func pathJoinSlash(elem ...string) string {
+	return filepath.ToSlash(filepath.Join(elem...))
+}
+
 func rabbitmqPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyRabbitMQPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
 	exchange := renderTemplate(op.RabbitMQ.Exchange, in.RunID, op.RabbitMQ.CorrelationID, params)
 	routingKey := renderTemplate(op.RabbitMQ.RoutingKey, in.RunID, op.RabbitMQ.CorrelationID, params)
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
@@ -1086,6 +1354,10 @@ func rabbitmqPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operatio
 }
 
 func rabbitmqExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string, params map[string]string) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
+func legacyRabbitMQExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string, params map[string]string) string {
 	queue := renderTemplate(op.RabbitMQ.Queue, in.RunID, op.RabbitMQ.CorrelationID, params)
 	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
 		"rabbitmq", "expect",
@@ -1471,6 +1743,13 @@ func rabbitmqTimeout(in Inputs, op Operation) string {
 	return defaultTimeout(in)
 }
 
+func genericOperationTimeout(in Inputs, op Operation) string {
+	if op.Timeout != "" {
+		return op.Timeout
+	}
+	return defaultTimeout(in)
+}
+
 func configMapData(files map[string]string) string {
 	var names []string
 	for name := range files {
@@ -1517,7 +1796,7 @@ func shellQuote(value string) string {
 
 func secretEnv(in Inputs, args []string) string {
 	switch {
-	case len(args) >= 2 && args[0] == "mqtt" && (args[1] == "publish" || args[1] == "roundtrip"):
+	case len(args) >= 2 && args[0] == "mqtt" && (args[1] == "publish" || args[1] == "roundtrip" || args[1] == "run"):
 		env := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
 			"SPEX_MQTT_USERNAME": "username",
 			"SPEX_MQTT_PASSWORD": "password",
@@ -1533,7 +1812,7 @@ func secretEnv(in Inputs, args []string) string {
 			return env + "\n" + strings.TrimPrefix(brokerEnv, "          env:\n")
 		}
 		return env
-	case len(args) >= 2 && args[0] == "graphql" && args[1] == "expect":
+	case len(args) >= 2 && args[0] == "graphql" && (args[1] == "expect" || args[1] == "run"):
 		if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {
 			return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.Auth.ClientSecretRef], map[string]string{
 				"SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET": "clientSecret",
@@ -1542,24 +1821,40 @@ func secretEnv(in Inputs, args []string) string {
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.CredentialsRef], map[string]string{
 			"SPEX_GRAPHQL_TOKEN": "token",
 		})
-	case len(args) >= 2 && args[0] == "mongodb" && args[1] == "expect":
+	case len(args) >= 2 && args[0] == "mongodb" && (args[1] == "expect" || args[1] == "run"):
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
 			"SPEX_MONGODB_USERNAME": "username",
 			"SPEX_MONGODB_PASSWORD": "password",
 		})
-	case len(args) >= 2 && args[0] == "postgresql" && args[1] == "expect":
+	case len(args) >= 2 && args[0] == "postgresql" && (args[1] == "expect" || args[1] == "run"):
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.PostgreSQL.CredentialsRef], map[string]string{
 			"SPEX_POSTGRESQL_USERNAME": "username",
 			"SPEX_POSTGRESQL_PASSWORD": "password",
 		})
-	case len(args) >= 2 && args[0] == "rabbitmq" && (args[1] == "publish" || args[1] == "expect"):
+	case len(args) >= 2 && args[0] == "rabbitmq" && (args[1] == "publish" || args[1] == "expect" || args[1] == "run"):
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.RabbitMQ.CredentialsRef], map[string]string{
 			"SPEX_RABBITMQ_USERNAME": "username",
 			"SPEX_RABBITMQ_PASSWORD": "password",
 		})
+	case len(args) >= 2 && args[0] == "redis" && args[1] == "run":
+		return secretKeyEnv(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "redis.connection")], map[string]string{
+			"SPEX_REDIS_USERNAME": "username",
+			"SPEX_REDIS_PASSWORD": "password",
+		})
 	default:
 		return ""
 	}
+}
+
+func genericCredentialsRef(binding TargetBinding, kind string) string {
+	for _, generic := range binding.Spec.Bindings {
+		if generic.Kind != kind {
+			continue
+		}
+		ref, _ := generic.With["credentialsRef"].(string)
+		return ref
+	}
+	return ""
 }
 
 func secretKeyEnv(secret Secret, envToKey map[string]string) string {
@@ -1629,6 +1924,10 @@ func variablesConfigMapName(scenarioSlug string) string {
 
 func matchersConfigMapName(scenarioSlug string) string {
 	return DNSLabel("spex-" + scenarioSlug + "-matchers")
+}
+
+func operationsConfigMapName(scenarioSlug string) string {
+	return DNSLabel("spex-" + scenarioSlug + "-operations")
 }
 
 func redpandaTopicName(in Inputs, topicRef string) string {

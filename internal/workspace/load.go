@@ -74,6 +74,10 @@ func LoadInputsWithCatalogs(scenarioPath, bindingPath string, catalogs CatalogBu
 }
 
 func LoadInputsWithCatalogsMany(scenarioPath, bindingPath string, catalogs CatalogBundle) ([]Inputs, error) {
+	return LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath, catalogs, nil)
+}
+
+func LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath string, catalogs CatalogBundle, providers []Provider) ([]Inputs, error) {
 	scenarios, err := loadScenarioFile(scenarioPath)
 	if err != nil {
 		return nil, fmt.Errorf("scenario: %w", err)
@@ -90,10 +94,10 @@ func LoadInputsWithCatalogsMany(scenarioPath, bindingPath string, catalogs Catal
 		if err := expandScenarioFromCatalogs(&scenario, catalogs); err != nil {
 			return nil, fmt.Errorf("scenario %q: %w", scenario.Metadata.Name, err)
 		}
-		if err := validateScenario(scenario, scenarioPath); err != nil {
+		if err := validateScenarioWithProviders(scenario, scenarioPath, providers); err != nil {
 			return nil, fmt.Errorf("scenario %q: %w", scenario.Metadata.Name, err)
 		}
-		if err := validateScenarioBinding(scenario, binding); err != nil {
+		if err := validateScenarioBindingWithProviders(scenario, binding, providers); err != nil {
 			return nil, err
 		}
 		out = append(out, Inputs{
@@ -103,6 +107,7 @@ func LoadInputsWithCatalogsMany(scenarioPath, bindingPath string, catalogs Catal
 			Namespace:    binding.Spec.Namespace,
 			KubeContext:  binding.Spec.KubeContext,
 			RunID:        "run-" + time.Now().UTC().Format("20060102T150405Z"),
+			Providers:    providers,
 			Scenario:     scenario,
 			Binding:      binding,
 		})
@@ -632,6 +637,10 @@ func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
 		}
 		catalogPaths = append(catalogPaths, catalogPath)
 	}
+	providers, err := LoadBundleProviders(baseDir, suite.Spec.BundleRefs)
+	if err != nil {
+		return ResolvedScenarioSuite{}, err
+	}
 	scenarioRefs, err := expandSuiteScenarioRefs(baseDir, suite.Spec.Scenarios, bindingPath, integrationProfilePath)
 	if err != nil {
 		return ResolvedScenarioSuite{}, err
@@ -649,6 +658,7 @@ func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
 		BindingPath:            bindingPath,
 		IntegrationProfilePath: integrationProfilePath,
 		CatalogPaths:           catalogPaths,
+		Providers:              providers,
 		ScenarioPaths:          scenarioPaths,
 		ScenarioRefs:           scenarioRefs,
 	}, nil
@@ -683,6 +693,14 @@ func validateScenarioSuite(s ScenarioSuite) error {
 			if err := validateTag(tag); err != nil {
 				return fmt.Errorf("spec.scenarios[%d].tags[%d]: %w", i, j, err)
 			}
+		}
+	}
+	for i, ref := range s.Spec.BundleRefs {
+		if strings.TrimSpace(ref.Name) == "" {
+			return fmt.Errorf("spec.bundleRefs[%d].name is required", i)
+		}
+		if strings.TrimSpace(ref.Source) == "" {
+			return fmt.Errorf("spec.bundleRefs[%d].source is required", i)
 		}
 	}
 	seenReportFormats := map[string]bool{}
@@ -1376,6 +1394,14 @@ func readRegularInputFile(path string, maxSize int64) ([]byte, error) {
 }
 
 func validateScenario(s Scenario, scenarioPath string) error {
+	return validateScenarioWithProviders(s, scenarioPath, nil)
+}
+
+func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []Provider) error {
+	registry, err := NewProviderRegistryWithProviders(providers)
+	if err != nil {
+		return err
+	}
 	if s.APIVersion != "spex.scenario.v0.1" {
 		return fmt.Errorf("unsupported apiVersion %q", s.APIVersion)
 	}
@@ -1654,25 +1680,63 @@ func validateScenario(s Scenario, scenarioPath string) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("operation %q uses unsupported type %q", op.ID, op.Type)
+			if err := validateGenericProviderOperation(op, registry); err != nil {
+				return err
+			}
 		}
 	}
 	for _, op := range s.Spec.Operations {
-		if op.After == "" {
-			continue
+		dependencies := op.DependsOn
+		if op.After != "" {
+			dependencies = append([]string{op.After}, dependencies...)
 		}
-		if _, ok := operationIDs[op.After]; !ok {
-			return fmt.Errorf("operation %q depends on unknown operation %q", op.ID, op.After)
+		for _, dependency := range dependencies {
+			if _, ok := operationIDs[dependency]; !ok {
+				return fmt.Errorf("operation %q depends on unknown operation %q", op.ID, dependency)
+			}
 		}
 	}
 	seenOperations := map[string]struct{}{}
 	for _, op := range s.Spec.Operations {
+		dependencies := op.DependsOn
 		if op.After != "" {
-			if _, ok := seenOperations[op.After]; !ok {
-				return fmt.Errorf("operation %q depends on %q, but dependencies must appear earlier in spec.operations", op.ID, op.After)
+			dependencies = append([]string{op.After}, dependencies...)
+		}
+		for _, dependency := range dependencies {
+			if _, ok := seenOperations[dependency]; !ok {
+				return fmt.Errorf("operation %q depends on %q, but dependencies must appear earlier in spec.operations", op.ID, dependency)
 			}
 		}
 		seenOperations[op.ID] = struct{}{}
+	}
+	return nil
+}
+
+func validateGenericProviderOperation(op Operation, registry *ProviderRegistry) error {
+	capability, ok := registry.ResolveCapability(op.Type)
+	if !ok {
+		return fmt.Errorf("operation %q uses unsupported type %q", op.ID, op.Type)
+	}
+	if err := validateOperationBlocks(op, ""); err != nil {
+		return err
+	}
+	if len(op.With) == 0 {
+		return fmt.Errorf("operation %q with is required for provider operation type %q", op.ID, op.Type)
+	}
+	if err := validateOptionalTimeout("operation "+op.ID+" timeout", op.Timeout); err != nil {
+		return err
+	}
+	generic := GenericOperation{
+		ID:      op.ID,
+		Type:    op.Type,
+		With:    copyAnyMap(op.With),
+		Timeout: op.Timeout,
+	}
+	if _, ok := generic.With[bindingRefKey]; !ok {
+		generic.With[bindingRefKey] = legacyBindingName(capability.Provider)
+	}
+	if err := ValidateOperationInput(generic, capability.Capability); err != nil {
+		return err
 	}
 	return nil
 }
@@ -2335,6 +2399,45 @@ func validateBinding(b TargetBinding) error {
 			return err
 		}
 	}
+	if err := validateGenericBindings(b); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateGenericBindings(b TargetBinding) error {
+	seen := map[string]struct{}{}
+	for i, binding := range b.Spec.Bindings {
+		field := fmt.Sprintf("spec.bindings[%d]", i)
+		if binding.Name == "" {
+			return fmt.Errorf("%s.name is required", field)
+		}
+		if !idPattern.MatchString(binding.Name) {
+			return fmt.Errorf("%s.name must match %s", field, idPattern.String())
+		}
+		if _, ok := seen[binding.Name]; ok {
+			return fmt.Errorf("name_collision: duplicate binding name %q", binding.Name)
+		}
+		seen[binding.Name] = struct{}{}
+		if binding.Kind == "" {
+			return fmt.Errorf("%s.kind is required", field)
+		}
+		switch binding.Kind {
+		case "redis.connection":
+			uri, _ := binding.With["uri"].(string)
+			if err := validateURLNoCredentials(field+".with.uri", uri, []string{"redis"}); err != nil {
+				return err
+			}
+			credentialsRef, _ := binding.With["credentialsRef"].(string)
+			if err := validateSecretRef(b, field+".with.credentialsRef", credentialsRef, []string{"username", "password"}); err != nil {
+				return err
+			}
+		default:
+			if !operationTypePattern.MatchString(binding.Kind) {
+				return fmt.Errorf("%s.kind must be provider-qualified", field)
+			}
+		}
+	}
 	return nil
 }
 
@@ -2371,6 +2474,14 @@ func validateGraphQLAuth(b TargetBinding) error {
 }
 
 func validateScenarioBinding(s Scenario, b TargetBinding) error {
+	return validateScenarioBindingWithProviders(s, b, nil)
+}
+
+func validateScenarioBindingWithProviders(s Scenario, b TargetBinding, providers []Provider) error {
+	registry, err := NewProviderRegistryWithProviders(providers)
+	if err != nil {
+		return err
+	}
 	for name := range b.Spec.ScenarioParameters {
 		if _, ok := s.Spec.Parameters[name]; !ok {
 			return fmt.Errorf("binding_validation_failure: spec.scenarioParameters references unknown parameter %q", name)
@@ -2437,6 +2548,35 @@ func validateScenarioBinding(s Scenario, b TargetBinding) error {
 				return fmt.Errorf("binding_validation_failure: spec.rabbitmq.uri is required because operation %q uses %s", op.ID, op.Type)
 			}
 		}
+		if err := validateGenericOperationBinding(op, b, registry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGenericOperationBinding(op Operation, b TargetBinding, registry *ProviderRegistry) error {
+	if len(op.With) == 0 {
+		return nil
+	}
+	capability, ok := registry.ResolveCapability(op.Type)
+	if !ok {
+		return nil
+	}
+	bindings, err := ResolveGenericBindings(b)
+	if err != nil {
+		return err
+	}
+	bindingRef, _ := op.With[bindingRefKey].(string)
+	if bindingRef == "" {
+		bindingRef = legacyBindingName(capability.Provider)
+	}
+	binding, ok := bindings[bindingRef]
+	if !ok {
+		return fmt.Errorf("binding_validation_failure: operation %q references unknown binding %q", op.ID, bindingRef)
+	}
+	if binding.Kind != capability.Capability.BindingKind {
+		return fmt.Errorf("binding_validation_failure: operation %q binding %q has kind %q, expected %q", op.ID, bindingRef, binding.Kind, capability.Capability.BindingKind)
 	}
 	return nil
 }

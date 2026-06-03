@@ -68,6 +68,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runExplain(args[1:], stdout)
 	case "catalog":
 		return runCatalog(args[1:], stdout)
+	case "bundle":
+		return runBundle(args[1:], stdout)
 	case "schema":
 		return runSchema(args[1:], stdout)
 	case "doctor":
@@ -137,6 +139,7 @@ Commands:
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
   catalog   list, explain, check, or document reusable catalogs
+  bundle    list or explain resolved integration bundles
   schema    list or print embedded JSON Schemas
   doctor    run host and suite preflight checks
   release   verify release artifacts
@@ -149,6 +152,7 @@ Examples:
   spex init scenario-repo --dir acceptance-tests
   spex suite validate --suite acceptance-tests/suite.yaml
   spex suite plan --suite acceptance-tests/suite.yaml --format json
+  spex bundle explain --suite acceptance-tests/suite.yaml
   spex catalog check --suite acceptance-tests/suite.yaml --format json
   spex schema list --format json`)
 }
@@ -2286,19 +2290,21 @@ type suiteExplainOutput struct {
 	BindingFile            string                 `json:"bindingFile"`
 	IntegrationProfileFile string                 `json:"integrationProfileFile,omitempty"`
 	CatalogFiles           []string               `json:"catalogFiles,omitempty"`
+	Providers              []suiteProvider        `json:"providers,omitempty"`
 	Scenarios              []suiteExplainScenario `json:"scenarios"`
 }
 
 type suiteExplainScenario struct {
-	Name        string                  `json:"name"`
-	File        string                  `json:"file"`
-	Tags        []string                `json:"tags,omitempty"`
-	Binding     string                  `json:"bindingFile"`
-	Namespace   string                  `json:"namespace"`
-	KubeContext string                  `json:"kubeContext,omitempty"`
-	HelmApps    []suitePlanHelmApp      `json:"helmApps,omitempty"`
-	Steps       []suiteExplainStep      `json:"steps,omitempty"`
-	Operations  []suiteExplainOperation `json:"operations"`
+	Name         string                  `json:"name"`
+	File         string                  `json:"file"`
+	Tags         []string                `json:"tags,omitempty"`
+	Binding      string                  `json:"bindingFile"`
+	Namespace    string                  `json:"namespace"`
+	KubeContext  string                  `json:"kubeContext,omitempty"`
+	HelmApps     []suitePlanHelmApp      `json:"helmApps,omitempty"`
+	Steps        []suiteExplainStep      `json:"steps,omitempty"`
+	Capabilities []suiteProvider         `json:"capabilities,omitempty"`
+	Operations   []suiteExplainOperation `json:"operations"`
 }
 
 type suiteExplainStep struct {
@@ -2309,6 +2315,9 @@ type suiteExplainStep struct {
 type suiteExplainOperation struct {
 	ID                 string `json:"id"`
 	Type               string `json:"type"`
+	Provider           string `json:"provider,omitempty"`
+	BindingKind        string `json:"bindingKind,omitempty"`
+	BindingName        string `json:"bindingName,omitempty"`
 	After              string `json:"after,omitempty"`
 	Exchange           string `json:"exchange,omitempty"`
 	RoutingKey         string `json:"routingKey,omitempty"`
@@ -2332,6 +2341,7 @@ func buildSuiteExplainOutput(resolved workspace.ResolvedScenarioSuite, inputs []
 		IntegrationProfileFile: resolved.IntegrationProfilePath,
 		CatalogFiles:           resolved.CatalogPaths,
 	}
+	providerSet := map[string]suiteProvider{}
 	for _, input := range inputs {
 		scenario := suiteExplainScenario{
 			Name:        input.ScenarioName,
@@ -2353,8 +2363,26 @@ func buildSuiteExplainOutput(resolved workspace.ResolvedScenarioSuite, inputs []
 				scenario.HelmApps = append(scenario.HelmApps, suitePlanHelmApp{Name: app.Name, Chart: app.Chart, Namespace: namespace, Values: app.Values})
 			}
 		}
+		capabilities := suiteProvidersForInput(input)
+		for _, provider := range capabilities {
+			scenario.Capabilities = append(scenario.Capabilities, provider)
+			providerSet[provider.Provider+"\x00"+provider.OperationType+"\x00"+provider.BindingKind] = provider
+		}
+		loweredByID := map[string]workspace.LoweredOperation{}
+		if registry, err := workspace.NewProviderRegistryWithProviders(input.Providers); err == nil {
+			if lowered, err := workspace.LowerOperations(input, registry); err == nil {
+				for _, operation := range lowered {
+					loweredByID[operation.OperationID] = operation
+				}
+			}
+		}
 		for _, op := range input.Scenario.Spec.Operations {
 			explained := suiteExplainOperation{ID: op.ID, Type: op.Type, After: op.After}
+			if lowered, ok := loweredByID[op.ID]; ok {
+				explained.Provider = lowered.Provider
+				explained.BindingKind = lowered.Binding.Kind
+				explained.BindingName = lowered.Binding.Name
+			}
 			switch op.Type {
 			case "mqtt.publish":
 				explained.Topic = op.MQTT.Topic
@@ -2390,6 +2418,7 @@ func buildSuiteExplainOutput(resolved workspace.ResolvedScenarioSuite, inputs []
 		}
 		out.Scenarios = append(out.Scenarios, scenario)
 	}
+	out.Providers = sortedSuiteProviders(providerSet)
 	return out
 }
 
@@ -2424,12 +2453,13 @@ func loadSuiteInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags)
 		}
 	}
 	for _, scenarioRef := range scenarioRefs {
-		scenarioInputs, err := workspace.LoadInputsWithCatalogsMany(scenarioRef.Path, scenarioRef.BindingPath, catalogs)
+		scenarioInputs, err := workspace.LoadInputsWithCatalogsManyAndProviders(scenarioRef.Path, scenarioRef.BindingPath, catalogs, resolved.Providers)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", scenarioRef.Path, err)
 		}
 		for i := range scenarioInputs {
 			inputs := scenarioInputs[i]
+			inputs.Providers = resolved.Providers
 			if len(scenarioRef.Parameters) > 0 {
 				if inputs.Binding.Spec.ScenarioParameters == nil {
 					inputs.Binding.Spec.ScenarioParameters = map[string]string{}
@@ -2811,6 +2841,146 @@ func loadCatalogsForCommand(command string, args []string) (workspace.CatalogBun
 	return bundle, format, err
 }
 
+type bundleCommandOutput struct {
+	Bundles []bundleSummary `json:"bundles"`
+}
+
+type bundleSummary struct {
+	Name           string                    `json:"name"`
+	Capabilities   []bundleCapabilitySummary `json:"capabilities"`
+	BindingSchemas []string                  `json:"bindingSchemas"`
+}
+
+type bundleCapabilitySummary struct {
+	Type        string   `json:"type"`
+	BindingKind string   `json:"bindingKind"`
+	Image       string   `json:"image,omitempty"`
+	Command     []string `json:"command,omitempty"`
+	InputPath   string   `json:"inputPath,omitempty"`
+	OutputPath  string   `json:"outputPath,omitempty"`
+}
+
+func runBundle(args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("bundle requires subcommand list or explain")
+	}
+	switch args[0] {
+	case "list":
+		return runBundleList(args[1:], stdout)
+	case "explain":
+		return runBundleExplain(args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown bundle subcommand %q", args[0])
+	}
+}
+
+func bundleFlags(command string, args []string) (string, string, error) {
+	fs := flag.NewFlagSet("bundle "+command, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	suitePath := fs.String("suite", "", "suite YAML path")
+	format := fs.String("format", "text", "output format: text or json")
+	if err := fs.Parse(args); err != nil {
+		return "", "", err
+	}
+	if err := rejectPositionalArgs(fs, "bundle "+command); err != nil {
+		return "", "", err
+	}
+	if *suitePath == "" {
+		return "", "", fmt.Errorf("bundle %s requires --suite", command)
+	}
+	switch *format {
+	case "text", "json":
+		return *suitePath, *format, nil
+	default:
+		return "", "", fmt.Errorf("bundle %s --format must be text or json", command)
+	}
+}
+
+func loadBundlesForCommand(command string, args []string) (bundleCommandOutput, string, error) {
+	suitePath, format, err := bundleFlags(command, args)
+	if err != nil {
+		return bundleCommandOutput{}, "", err
+	}
+	resolved, err := workspace.LoadScenarioSuite(suitePath)
+	if err != nil {
+		return bundleCommandOutput{}, "", fmt.Errorf("suite: %w", err)
+	}
+	out := bundleCommandOutput{}
+	for _, provider := range resolved.Providers {
+		summary := bundleSummary{Name: provider.Name}
+		for _, capability := range provider.Capabilities {
+			summary.Capabilities = append(summary.Capabilities, bundleCapabilitySummary{
+				Type:        capability.Type,
+				BindingKind: capability.BindingKind,
+				Image:       capability.Probe.Image,
+				Command:     capability.Probe.Command,
+				InputPath:   capability.Probe.Input.Path,
+				OutputPath:  capability.Probe.Output.Path,
+			})
+		}
+		for _, binding := range provider.BindingSchemas {
+			summary.BindingSchemas = append(summary.BindingSchemas, binding.Kind)
+		}
+		out.Bundles = append(out.Bundles, summary)
+	}
+	return out, format, nil
+}
+
+func runBundleList(args []string, stdout io.Writer) error {
+	out, format, err := loadBundlesForCommand("list", args)
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeBundleJSON(stdout, out)
+	}
+	if len(out.Bundles) == 0 {
+		fmt.Fprintln(stdout, "bundles: none")
+		return nil
+	}
+	fmt.Fprintln(stdout, "bundles:")
+	for _, bundle := range out.Bundles {
+		fmt.Fprintf(stdout, "  - %s (%d capability(s))\n", bundle.Name, len(bundle.Capabilities))
+	}
+	return nil
+}
+
+func runBundleExplain(args []string, stdout io.Writer) error {
+	out, format, err := loadBundlesForCommand("explain", args)
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeBundleJSON(stdout, out)
+	}
+	if len(out.Bundles) == 0 {
+		fmt.Fprintln(stdout, "bundles: none")
+		return nil
+	}
+	for _, bundle := range out.Bundles {
+		fmt.Fprintf(stdout, "%s\n", bundle.Name)
+		fmt.Fprintln(stdout, "  capabilities:")
+		for _, capability := range bundle.Capabilities {
+			fmt.Fprintf(stdout, "    - %s\n      bindingKind: %s\n      image: %s\n      command: %s\n      input: %s\n      output: %s\n",
+				capability.Type, capability.BindingKind, capability.Image, strings.Join(capability.Command, " "), capability.InputPath, capability.OutputPath)
+		}
+		fmt.Fprintln(stdout, "  bindingSchemas:")
+		for _, binding := range bundle.BindingSchemas {
+			fmt.Fprintf(stdout, "    - %s\n", binding)
+		}
+	}
+	return nil
+}
+
+func writeBundleJSON(stdout io.Writer, out bundleCommandOutput) error {
+	content, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, string(content))
+	return err
+}
+
 func runCatalogList(args []string, stdout io.Writer) error {
 	bundle, format, err := loadCatalogsForCommand("list", args)
 	if err != nil {
@@ -2991,6 +3161,12 @@ func writeInputsExplanation(stdout io.Writer, inputs workspace.Inputs) {
 		fmt.Fprintln(stdout, "steps:")
 		for _, step := range inputs.Scenario.Spec.StepInvocations {
 			fmt.Fprintf(stdout, "  - %s %s\n", step.Kind, step.Text)
+		}
+	}
+	if providers := suiteProvidersForInput(inputs); len(providers) > 0 {
+		fmt.Fprintln(stdout, "capabilities:")
+		for _, provider := range providers {
+			fmt.Fprintf(stdout, "  - %s: %s bindingKind=%s bindings=%s\n", provider.Provider, provider.OperationType, provider.BindingKind, strings.Join(provider.BindingNames, ","))
 		}
 	}
 	fmt.Fprintln(stdout, "operations:")
