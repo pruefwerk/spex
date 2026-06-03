@@ -22,7 +22,7 @@ spec:
             echoed:
               type: string
       probe:
-        image: spex-probe:dev
+        image: ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0
         command:
           - custom-probe
           - run
