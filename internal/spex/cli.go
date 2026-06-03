@@ -3282,6 +3282,10 @@ func scenarioRepoVSCodeSettingsTemplate() string {
       "integration/*.yaml",
       "integration/**/*.yaml"
     ],
+    "./.schemas/integration-bundle.schema.json": [
+      "bundles/*/bundle.yaml",
+      "bundles/**/*.bundle.yaml"
+    ],
     "./.schemas/flow-catalog.schema.json": [
       "catalogs/*flow*.yaml",
       "catalogs/**/*flow*.yaml"
@@ -3383,6 +3387,7 @@ schemas:
 	$(SPEX) schema show scenario > .schemas/scenario.schema.json
 	$(SPEX) schema show target-binding > .schemas/target-binding.schema.json
 	$(SPEX) schema show integration-profile > .schemas/integration-profile.schema.json
+	$(SPEX) schema show integration-bundle > .schemas/integration-bundle.schema.json
 	$(SPEX) schema show flow-catalog > .schemas/flow-catalog.schema.json
 	$(SPEX) schema show step-catalog > .schemas/step-catalog.schema.json
 `
