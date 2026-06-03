@@ -1,0 +1,14 @@
+apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-echo
+spec:
+  defaults:
+    timeout: 30s
+    pollInterval: 1s
+  operations:
+    - id: echo-message
+      type: custom.echo
+      with:
+        bindingRef: custom.main
+        message: hello
