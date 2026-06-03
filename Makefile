@@ -48,18 +48,21 @@ build:
 	mkdir -p $(BINDIR)
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex ./cmd/spex
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-probe ./cmd/spex-probe
+	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-probe-redis ./cmd/spex-probe-redis
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-demo-stack ./cmd/spex-demo-stack
 
 install: build
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	install -m 0755 $(BINDIR)/spex $(DESTDIR)$(PREFIX)/bin/spex
 	install -m 0755 $(BINDIR)/spex-probe $(DESTDIR)$(PREFIX)/bin/spex-probe
+	install -m 0755 $(BINDIR)/spex-probe-redis $(DESTDIR)$(PREFIX)/bin/spex-probe-redis
 	install -m 0755 $(BINDIR)/spex-demo-stack $(DESTDIR)$(PREFIX)/bin/spex-demo-stack
 
 release: build
 	mkdir -p $(DISTDIR)
 	install -m 0755 $(BINDIR)/spex $(DISTDIR)/spex
 	install -m 0755 $(BINDIR)/spex-probe $(DISTDIR)/spex-probe
+	install -m 0755 $(BINDIR)/spex-probe-redis $(DISTDIR)/spex-probe-redis
 	install -m 0755 $(BINDIR)/spex-demo-stack $(DISTDIR)/spex-demo-stack
 	install -m 0644 LICENSE $(DISTDIR)/LICENSE
 	install -m 0644 COMMERCIAL.md $(DISTDIR)/COMMERCIAL.md
@@ -92,6 +95,7 @@ release-check:
 	$(MAKE) release DISTDIR=$(RELEASE_CHECK_DISTDIR) VERSION=$(VERSION) COMMIT=$(COMMIT) BUILD_DATE=$(BUILD_DATE)
 	test -f $(RELEASE_CHECK_DISTDIR)/spex
 	test -f $(RELEASE_CHECK_DISTDIR)/spex-probe
+	test -f $(RELEASE_CHECK_DISTDIR)/spex-probe-redis
 	test -f $(RELEASE_CHECK_DISTDIR)/spex-demo-stack
 	test -f $(RELEASE_CHECK_DISTDIR)/LICENSE
 	test -f $(RELEASE_CHECK_DISTDIR)/COMMERCIAL.md
