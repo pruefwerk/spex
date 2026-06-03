@@ -32,6 +32,9 @@ func builtInProviders() []Provider {
 		builtInProvider("graphql", "graphql.endpoint", []string{
 			"graphql.expect",
 		}),
+		builtInProvider("influxdb", "influxdb.connection", []string{
+			"influxdb.expect",
+		}),
 		builtInProvider("mongodb", "mongodb.connection", []string{
 			"mongodb.expect",
 		}),
@@ -135,6 +138,13 @@ func builtInInputSchema(operationType string) *JSONSchema {
 			"variables": objectSchemaValue(nil, nil),
 			"match":     arraySchema(objectSchemaValue(nil, nil)),
 		})
+	case "influxdb.expect":
+		return objectSchema([]string{"query", "match"}, map[string]JSONSchema{
+			"query":         stringSchema(),
+			"language":      {Type: "string", Enum: []string{"flux", "sql", "influxql"}},
+			"correlationId": stringSchema(),
+			"match":         arraySchema(objectSchemaValue(nil, nil)),
+		})
 	case "mongodb.expect":
 		return objectSchema([]string{"collection", "filter", "correlationId", "match"}, map[string]JSONSchema{
 			"collection":    stringSchema(),
@@ -220,6 +230,8 @@ func builtInInputValidator(operationType string) OperationInputValidator {
 		return requireOperationInputFields("topics")
 	case "graphql.expect":
 		return requireOperationInputFields("query", "variables", "match")
+	case "influxdb.expect":
+		return requireOperationInputFields("query", "match")
 	case "mongodb.expect":
 		return requireOperationInputFields("collection", "filter", "correlationId", "match")
 	case "postgresql.expect":

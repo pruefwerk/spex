@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -835,6 +836,137 @@ func TestPostgreSQLRunWritesNormalizedFailureEnvelope(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"status":"failed"`) {
 		t.Fatalf("stdout missing failed envelope: %s", stdout.String())
+	}
+}
+
+func TestInfluxDBRunQueriesV2FluxCSV(t *testing.T) {
+	dir := t.TempDir()
+	var sawBearer atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/query" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("org") != "dev" {
+			t.Errorf("unexpected org: %s", r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") == "Bearer influx-token" {
+			sawBearer.Store(true)
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		fmt.Fprint(w, "#group,false,false,false\n#datatype,string,long,string,double\n#default,_result,,,\n,result,table,correlationId,_value\n,,0,reading-1,42.5\n")
+	}))
+	defer server.Close()
+	t.Setenv("SPEX_INFLUXDB_TOKEN", "influx-token")
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "assert-reading",
+  "operationType": "influxdb.expect",
+  "provider": "influxdb",
+  "binding": {
+    "name": "influxdb.main",
+    "kind": "influxdb.connection",
+    "with": {
+      "version": "v2",
+      "endpoint": "`+server.URL+`",
+      "org": "dev"
+    }
+  },
+  "with": {
+    "query": "from(bucket: \"telemetry\") |> range(start: -1h)",
+    "language": "flux",
+    "match": [
+      {"path":"$.rows[0].correlationId","equalsString":"reading-1"},
+      {"path":"$.rows[0]._value","equalsNumber":"42.5"}
+    ]
+  },
+  "timeout": "1s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+
+	var stdout bytes.Buffer
+	if err := Run([]string{
+		"influxdb", "run",
+		"--operation-file", operation,
+		"--result-file", result,
+		"--timeout", "1s",
+		"--poll-interval", "10ms",
+	}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !sawBearer.Load() {
+		t.Fatal("server did not receive bearer token")
+	}
+	content, readErr := os.ReadFile(result)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, want := range []string{
+		`"operationType": "influxdb.expect"`,
+		`"provider": "influxdb"`,
+		`"status": "passed"`,
+		`"rowCount": 1`,
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("result envelope missing %q:\n%s", want, string(content))
+		}
+	}
+}
+
+func TestInfluxDBRunQueriesV3JSONL(t *testing.T) {
+	dir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/query_sql" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if request["database"] != "telemetry" {
+			t.Errorf("unexpected database payload: %#v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"time":"2026-06-03T10:00:00Z","correlationId":"reading-1","value":42.5}`)
+	}))
+	defer server.Close()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "assert-reading",
+  "operationType": "influxdb.expect",
+  "provider": "influxdb",
+  "binding": {
+    "name": "influxdb.main",
+    "kind": "influxdb.connection",
+    "with": {
+      "version": "v3",
+      "endpoint": "`+server.URL+`",
+      "database": "telemetry"
+    }
+  },
+  "with": {
+    "query": "select * from readings limit 1",
+    "language": "sql",
+    "match": [
+      {"path":"$.rows[0].correlationId","equalsString":"reading-1"},
+      {"path":"$.rows[0].value","equalsNumber":"42.5"}
+    ]
+  },
+  "timeout": "1s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+
+	var stdout bytes.Buffer
+	if err := Run([]string{
+		"influxdb", "run",
+		"--operation-file", operation,
+		"--result-file", result,
+		"--timeout", "1s",
+		"--poll-interval", "10ms",
+	}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("stdout missing passed envelope: %s", stdout.String())
 	}
 }
 

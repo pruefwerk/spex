@@ -2423,6 +2423,29 @@ func validateGenericBindings(b TargetBinding) error {
 			return fmt.Errorf("%s.kind is required", field)
 		}
 		switch binding.Kind {
+		case "influxdb.connection":
+			version, _ := binding.With["version"].(string)
+			switch version {
+			case "v2", "v3":
+			default:
+				return fmt.Errorf("%s.with.version must be v2 or v3", field)
+			}
+			endpoint, _ := binding.With["endpoint"].(string)
+			if err := validateURLNoCredentials(field+".with.endpoint", endpoint, []string{"http", "https"}); err != nil {
+				return err
+			}
+			org, _ := binding.With["org"].(string)
+			database, _ := binding.With["database"].(string)
+			if version == "v2" && org == "" {
+				return fmt.Errorf("%s.with.org is required for InfluxDB v2", field)
+			}
+			if version == "v3" && database == "" {
+				return fmt.Errorf("%s.with.database is required for InfluxDB v3", field)
+			}
+			credentialsRef, _ := binding.With["credentialsRef"].(string)
+			if err := validateSecretRef(b, field+".with.credentialsRef", credentialsRef, []string{"token"}); err != nil {
+				return err
+			}
 		case "redis.connection":
 			uri, _ := binding.With["uri"].(string)
 			if err := validateURLNoCredentials(field+".with.uri", uri, []string{"redis"}); err != nil {
@@ -2577,6 +2600,34 @@ func validateGenericOperationBinding(op Operation, b TargetBinding, registry *Pr
 	}
 	if binding.Kind != capability.Capability.BindingKind {
 		return fmt.Errorf("binding_validation_failure: operation %q binding %q has kind %q, expected %q", op.ID, bindingRef, binding.Kind, capability.Capability.BindingKind)
+	}
+	if err := validateProviderSpecificOperationBinding(op, binding); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateProviderSpecificOperationBinding(op Operation, binding GenericBinding) error {
+	switch op.Type {
+	case "influxdb.expect":
+		return validateInfluxDBOperationBinding(op, binding)
+	default:
+		return nil
+	}
+}
+
+func validateInfluxDBOperationBinding(op Operation, binding GenericBinding) error {
+	version, _ := binding.With["version"].(string)
+	language, _ := op.With["language"].(string)
+	switch version {
+	case "v2":
+		if language != "" && language != "flux" {
+			return fmt.Errorf("binding_validation_failure: operation %q influxdb.language must be flux for InfluxDB v2", op.ID)
+		}
+	case "v3":
+		if language == "flux" {
+			return fmt.Errorf("binding_validation_failure: operation %q influxdb.language must be sql or influxql for InfluxDB v3", op.ID)
+		}
 	}
 	return nil
 }
