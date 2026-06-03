@@ -19,6 +19,15 @@ func NewProviderRegistryWithProviders(providers []Provider) (*ProviderRegistry, 
 	return registry, nil
 }
 
+func BuiltInProvider(name string) (Provider, bool) {
+	for _, provider := range builtInProviders() {
+		if provider.Name == name {
+			return provider, true
+		}
+	}
+	return Provider{}, false
+}
+
 func builtInProviders() []Provider {
 	return []Provider{
 		builtInProvider("mqtt", "mqtt.connection", []string{

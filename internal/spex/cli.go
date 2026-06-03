@@ -2906,24 +2906,39 @@ func loadBundlesForCommand(command string, args []string) (bundleCommandOutput, 
 		return bundleCommandOutput{}, "", fmt.Errorf("suite: %w", err)
 	}
 	out := bundleCommandOutput{}
+	for _, ref := range resolved.Suite.Spec.BundleRefs {
+		if !strings.HasPrefix(ref.Source, "builtin:") {
+			continue
+		}
+		name := strings.TrimPrefix(ref.Source, "builtin:")
+		provider, ok := workspace.BuiltInProvider(name)
+		if !ok {
+			continue
+		}
+		out.Bundles = append(out.Bundles, bundleSummaryForProvider(provider))
+	}
 	for _, provider := range resolved.Providers {
-		summary := bundleSummary{Name: provider.Name}
-		for _, capability := range provider.Capabilities {
-			summary.Capabilities = append(summary.Capabilities, bundleCapabilitySummary{
-				Type:        capability.Type,
-				BindingKind: capability.BindingKind,
-				Image:       capability.Probe.Image,
-				Command:     capability.Probe.Command,
-				InputPath:   capability.Probe.Input.Path,
-				OutputPath:  capability.Probe.Output.Path,
-			})
-		}
-		for _, binding := range provider.BindingSchemas {
-			summary.BindingSchemas = append(summary.BindingSchemas, binding.Kind)
-		}
-		out.Bundles = append(out.Bundles, summary)
+		out.Bundles = append(out.Bundles, bundleSummaryForProvider(provider))
 	}
 	return out, format, nil
+}
+
+func bundleSummaryForProvider(provider workspace.Provider) bundleSummary {
+	summary := bundleSummary{Name: provider.Name}
+	for _, capability := range provider.Capabilities {
+		summary.Capabilities = append(summary.Capabilities, bundleCapabilitySummary{
+			Type:        capability.Type,
+			BindingKind: capability.BindingKind,
+			Image:       capability.Probe.Image,
+			Command:     capability.Probe.Command,
+			InputPath:   capability.Probe.Input.Path,
+			OutputPath:  capability.Probe.Output.Path,
+		})
+	}
+	for _, binding := range provider.BindingSchemas {
+		summary.BindingSchemas = append(summary.BindingSchemas, binding.Kind)
+	}
+	return summary
 }
 
 func runBundleList(args []string, stdout io.Writer) error {
