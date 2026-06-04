@@ -4152,6 +4152,142 @@ spec:
 	}
 }
 
+func TestSuiteValidateUsesBundleSchemaFileRefs(t *testing.T) {
+	dir := t.TempDir()
+	bundleDir := filepath.Join(dir, "bundles", "custom")
+	if err := os.MkdirAll(filepath.Join(bundleDir, "schemas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "schemas", "custom-input.schema.yaml"), []byte(`type: object
+required:
+  - message
+properties:
+  message:
+    type: string
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "schemas", "custom-result.schema.yaml"), []byte(`type: object
+required:
+  - echoed
+properties:
+  echoed:
+    type: string
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "schemas", "custom-binding.schema.yaml"), []byte(`type: object
+required:
+  - endpoint
+properties:
+  endpoint:
+    type: string
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        path: schemas/custom-input.schema.yaml
+      resultSchema:
+        path: schemas/custom-result.schema.yaml
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+      schema:
+        path: schemas/custom-binding.schema.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: custom-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: custom
+      version: 0.1.0
+      source: bundles/custom
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-check
+spec:
+  operations:
+    - id: echo-message
+      type: custom.echo
+      with:
+        bindingRef: custom.main
+        message: hello
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  bindings:
+    - name: custom.main
+      kind: custom.connection
+      with:
+        endpoint: custom://service
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"suite", "validate", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+
+	scenarioWithoutMessage := strings.Replace(readTestFile(t, filepath.Join(dir, "scenario.yaml")), "        message: hello\n", "", 1)
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(scenarioWithoutMessage), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Run([]string{"suite", "validate", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "custom.echo input schema validation failed") || !strings.Contains(err.Error(), "with.message is required") {
+		t.Fatalf("expected input schema validation error, got %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(strings.Replace(scenarioWithoutMessage, "        bindingRef: custom.main\n", "        bindingRef: custom.main\n        message: hello\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bindingWithoutEndpoint := strings.Replace(readTestFile(t, filepath.Join(dir, "binding.yaml")), "        endpoint: custom://service\n", "", 1)
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(bindingWithoutEndpoint), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = Run([]string{"suite", "validate", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), `binding "custom.main" schema validation failed`) || !strings.Contains(err.Error(), "binding.custom.main.with.endpoint is required") {
+		t.Fatalf("expected binding schema validation error, got %v", err)
+	}
+}
+
 func TestSuiteValidateRejectsUnknownBuiltInBundleRef(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
@@ -6155,6 +6291,15 @@ func replaceChecksumHash(t *testing.T, path, artifact, replacement string) {
 func readReport(t *testing.T, workspace string) string {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(workspace, "reports", "scenario-run-report.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}

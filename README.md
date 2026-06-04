@@ -79,7 +79,7 @@ spec:
       source: ../bundles/custom-echo
 ```
 
-A local bundle directory contains `bundle.yaml`. Bundle capabilities register provider-qualified operation types, binding kinds, operation/result schemas, declarative probe invocation metadata, and optional step/flow catalogs. Bundle catalogs load before local suite catalogs, so teams can use bundle-provided default steps and append project catalogs in `suite.spec.catalogRefs`. Core still renders the KUTTL Job and writes the lowered operation file; bundles do not generate KUTTL directly.
+A local bundle directory contains `bundle.yaml`. Bundle capabilities register provider-qualified operation types, binding kinds, operation/result schemas, declarative probe invocation metadata, and optional step/flow catalogs. Bundle schema `path` refs are resolved relative to the bundle manifest. Bundle catalogs load before local suite catalogs, so teams can use bundle-provided default steps and append project catalogs in `suite.spec.catalogRefs`. Core still renders the KUTTL Job and writes the lowered operation file; bundles do not generate KUTTL directly.
 
 ```yaml
 apiVersion: spex.bundle.v0.1

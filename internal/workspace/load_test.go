@@ -2149,6 +2149,86 @@ spec:
 	}
 }
 
+func TestLoadBundleProvidersResolvesSchemaFileRefs(t *testing.T) {
+	dir := t.TempDir()
+	bundleDir := filepath.Join(dir, "bundles", "custom")
+	if err := os.MkdirAll(filepath.Join(bundleDir, "schemas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"input.schema.yaml": `type: object
+required:
+  - message
+properties:
+  message:
+    type: string
+`,
+		"result.schema.yaml": `type: object
+required:
+  - echoed
+properties:
+  echoed:
+    type: string
+`,
+		"binding.schema.yaml": `type: object
+required:
+  - endpoint
+properties:
+  endpoint:
+    type: string
+`,
+	} {
+		if err := os.WriteFile(filepath.Join(bundleDir, "schemas", name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        path: schemas/input.schema.yaml
+      resultSchema:
+        path: schemas/result.schema.yaml
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+      schema:
+        path: schemas/binding.schema.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := LoadBundleProviders(dir, []BundleRef{{Name: "custom", Source: "bundles/custom"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(providers) != 1 || len(providers[0].Capabilities) != 1 || len(providers[0].BindingSchemas) != 1 {
+		t.Fatalf("provider shape mismatch: %+v", providers)
+	}
+	capability := providers[0].Capabilities[0]
+	if capability.InputSchema.Schema == nil || capability.InputSchema.Path != "schemas/input.schema.yaml" || capability.InputSchema.Schema.Properties["message"].Type != "string" {
+		t.Fatalf("input schema was not loaded: %+v", capability.InputSchema)
+	}
+	if capability.ResultSchema.Schema == nil || capability.ResultSchema.Path != "schemas/result.schema.yaml" || capability.ResultSchema.Schema.Properties["echoed"].Type != "string" {
+		t.Fatalf("result schema was not loaded: %+v", capability.ResultSchema)
+	}
+	bindingSchema := providers[0].BindingSchemas[0].Schema
+	if bindingSchema.Schema == nil || bindingSchema.Path != "schemas/binding.schema.yaml" || bindingSchema.Schema.Properties["endpoint"].Type != "string" {
+		t.Fatalf("binding schema was not loaded: %+v", bindingSchema)
+	}
+}
+
 func TestLoadInputsAcceptsGenericInfluxDBV3Operation(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath := filepath.Join(dir, "scenario.yaml")

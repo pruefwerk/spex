@@ -8,19 +8,9 @@ spec:
     - type: custom.echo
       bindingKind: custom.connection
       inputSchema:
-        schema:
-          type: object
-          required:
-            - message
-          properties:
-            message:
-              type: string
+        path: schemas/custom-echo-input.schema.yaml
       resultSchema:
-        schema:
-          type: object
-          properties:
-            echoed:
-              type: string
+        path: schemas/custom-echo-result.schema.yaml
       probe:
         image: ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0
         command:
@@ -34,12 +24,6 @@ spec:
   bindingSchemas:
     - kind: custom.connection
       schema:
-        schema:
-          type: object
-          required:
-            - endpoint
-          properties:
-            endpoint:
-              type: string
+        path: schemas/custom-connection.schema.yaml
   stepCatalogs:
     - catalogs/custom-echo-steps.yaml

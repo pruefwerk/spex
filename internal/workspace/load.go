@@ -2632,6 +2632,14 @@ func validateGenericOperationBinding(op Operation, b TargetBinding, registry *Pr
 	if binding.Kind != capability.Capability.BindingKind {
 		return fmt.Errorf("binding_validation_failure: operation %q binding %q has kind %q, expected %q", op.ID, bindingRef, binding.Kind, capability.Capability.BindingKind)
 	}
+	if bindingSchema, ok := registry.ResolveBindingSchema(binding.Kind); ok {
+		schema := bindingSchema.Schema.Schema.Schema
+		if schema != nil {
+			if err := ValidateJSONSchema("binding."+binding.Name+".with", *schema, binding.With); err != nil {
+				return fmt.Errorf("binding_validation_failure: operation %q binding %q schema validation failed: %w", op.ID, bindingRef, err)
+			}
+		}
+	}
 	if err := validateProviderSpecificOperationBinding(op, binding); err != nil {
 		return err
 	}
