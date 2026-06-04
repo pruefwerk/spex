@@ -2280,6 +2280,9 @@ func runSuiteExplain(args []string, stdout io.Writer) error {
 	for _, path := range resolved.CatalogPaths {
 		fmt.Fprintf(stdout, "catalog: %s\n", path)
 	}
+	if execution := suiteExecutionFor(resolved); execution != nil {
+		writeSuiteExecution(stdout, *execution)
+	}
 	for _, input := range inputs {
 		writeInputsExplanation(stdout, input)
 	}
@@ -2292,6 +2295,7 @@ type suiteExplainOutput struct {
 	BindingFile            string                 `json:"bindingFile"`
 	IntegrationProfileFile string                 `json:"integrationProfileFile,omitempty"`
 	CatalogFiles           []string               `json:"catalogFiles,omitempty"`
+	Execution              *suiteExecution        `json:"execution,omitempty"`
 	Providers              []suiteProvider        `json:"providers,omitempty"`
 	Scenarios              []suiteExplainScenario `json:"scenarios"`
 }
@@ -2342,6 +2346,7 @@ func buildSuiteExplainOutput(resolved workspace.ResolvedScenarioSuite, inputs []
 		BindingFile:            resolved.BindingPath,
 		IntegrationProfileFile: resolved.IntegrationProfilePath,
 		CatalogFiles:           resolved.CatalogPaths,
+		Execution:              suiteExecutionFor(resolved),
 	}
 	providerSet := map[string]suiteProvider{}
 	for _, input := range inputs {

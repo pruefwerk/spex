@@ -278,14 +278,27 @@ type ScenarioSuite struct {
 }
 
 type ScenarioSuiteSpec struct {
-	BindingRef            string        `yaml:"bindingRef"`
-	IntegrationProfileRef string        `yaml:"integrationProfileRef"`
-	CatalogRefs           []string      `yaml:"catalogRefs"`
-	BundleRefs            []BundleRef   `yaml:"bundleRefs"`
-	Scenarios             []ScenarioRef `yaml:"scenarios"`
-	WorkspaceDir          string        `yaml:"workspaceDir"`
-	FailFast              bool          `yaml:"failFast"`
-	Reports               SuiteReports  `yaml:"reports"`
+	BindingRef            string         `yaml:"bindingRef"`
+	IntegrationProfileRef string         `yaml:"integrationProfileRef"`
+	CatalogRefs           []string       `yaml:"catalogRefs"`
+	BundleRefs            []BundleRef    `yaml:"bundleRefs"`
+	Scenarios             []ScenarioRef  `yaml:"scenarios"`
+	WorkspaceDir          string         `yaml:"workspaceDir"`
+	FailFast              bool           `yaml:"failFast"`
+	Execution             SuiteExecution `yaml:"execution"`
+	Reports               SuiteReports   `yaml:"reports"`
+}
+
+type SuiteExecution struct {
+	Repetitions int            `yaml:"repetitions"`
+	Concurrency int            `yaml:"concurrency"`
+	RateLimit   SuiteRateLimit `yaml:"rateLimit"`
+	FailFast    *bool          `yaml:"failFast"`
+	MaxFailures int            `yaml:"maxFailures"`
+}
+
+type SuiteRateLimit struct {
+	PerSecond int `yaml:"perSecond"`
 }
 
 type ScenarioRef struct {

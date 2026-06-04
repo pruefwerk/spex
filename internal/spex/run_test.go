@@ -3752,6 +3752,64 @@ func TestSuitePlan(t *testing.T) {
 	}
 }
 
+func TestSuiteExecutionControlsAppearInPlanAndExplain(t *testing.T) {
+	root := repoRoot(t)
+	restore := chdir(t, root)
+	defer restore()
+	dir := t.TempDir()
+	suite := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suite, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: semantic-load-suite
+spec:
+  bindingRef: `+filepath.ToSlash(filepath.Join(root, "examples", "bindings", "local-dev.yaml"))+`
+  scenarios:
+    - `+filepath.ToSlash(filepath.Join(root, "examples", "scenarios", "mqtt-ingestion-basic.yaml"))+`
+  execution:
+    repetitions: 100
+    concurrency: 10
+    rateLimit:
+      perSecond: 25
+    failFast: false
+    maxFailures: 10
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, command := range []string{"plan", "explain"} {
+		var stdout, stderr bytes.Buffer
+		if err := Run([]string{"suite", command, "--suite", suite, "--format", "json"}, &stdout, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		var parsed struct {
+			Execution struct {
+				Repetitions        int   `json:"repetitions"`
+				Concurrency        int   `json:"concurrency"`
+				RateLimitPerSecond int   `json:"rateLimitPerSecond"`
+				FailFast           *bool `json:"failFast"`
+				MaxFailures        int   `json:"maxFailures"`
+			} `json:"execution"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+			t.Fatalf("suite %s json is invalid: %v\n%s", command, err, stdout.String())
+		}
+		if parsed.Execution.Repetitions != 100 || parsed.Execution.Concurrency != 10 || parsed.Execution.RateLimitPerSecond != 25 || parsed.Execution.FailFast == nil || *parsed.Execution.FailFast || parsed.Execution.MaxFailures != 10 {
+			t.Fatalf("suite %s execution mismatch: %+v\n%s", command, parsed.Execution, stdout.String())
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"suite", "plan", "--suite", suite}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"execution:", "repetitions: 100", "concurrency: 10", "rateLimitPerSecond: 25", "failFast: false", "maxFailures: 10"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("suite plan text missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestSuiteExplainJSON(t *testing.T) {
 	root := repoRoot(t)
 	restore := chdir(t, root)

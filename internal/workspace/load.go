@@ -709,6 +709,9 @@ func validateScenarioSuite(s ScenarioSuite) error {
 			return fmt.Errorf("spec.bundleRefs[%d].source is required", i)
 		}
 	}
+	if err := validateSuiteExecution(s.Spec.Execution); err != nil {
+		return err
+	}
 	seenReportFormats := map[string]bool{}
 	for _, format := range s.Spec.Reports.Format {
 		switch format {
@@ -720,6 +723,28 @@ func validateScenarioSuite(s ScenarioSuite) error {
 			return fmt.Errorf("spec.reports.format contains duplicate format %q", format)
 		}
 		seenReportFormats[format] = true
+	}
+	return nil
+}
+
+func validateSuiteExecution(execution SuiteExecution) error {
+	if execution.Repetitions < 0 {
+		return fmt.Errorf("spec.execution.repetitions must be greater than or equal to 0")
+	}
+	if execution.Concurrency < 0 {
+		return fmt.Errorf("spec.execution.concurrency must be greater than or equal to 0")
+	}
+	if execution.RateLimit.PerSecond < 0 {
+		return fmt.Errorf("spec.execution.rateLimit.perSecond must be greater than or equal to 0")
+	}
+	if execution.MaxFailures < 0 {
+		return fmt.Errorf("spec.execution.maxFailures must be greater than or equal to 0")
+	}
+	if execution.Concurrency > 0 && execution.Repetitions <= 1 {
+		return fmt.Errorf("spec.execution.concurrency requires spec.execution.repetitions greater than 1")
+	}
+	if execution.RateLimit.PerSecond > 0 && execution.Repetitions <= 1 {
+		return fmt.Errorf("spec.execution.rateLimit.perSecond requires spec.execution.repetitions greater than 1")
 	}
 	return nil
 }
