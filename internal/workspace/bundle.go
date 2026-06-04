@@ -78,6 +78,9 @@ func loadLocalBundleProvider(baseDir string, ref BundleRef) (Provider, []string,
 	if err := validateIntegrationBundle(ref, bundle); err != nil {
 		return Provider{}, nil, err
 	}
+	if err := resolveBundleSchemaRefs(filepath.Dir(path), &bundle); err != nil {
+		return Provider{}, nil, err
+	}
 	catalogPaths, err := resolveBundleCatalogPaths(filepath.Dir(path), bundle)
 	if err != nil {
 		return Provider{}, nil, err
@@ -152,4 +155,35 @@ func resolveBundleCatalogPaths(baseDir string, bundle IntegrationBundle) ([]stri
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+func resolveBundleSchemaRefs(baseDir string, bundle *IntegrationBundle) error {
+	for i := range bundle.Spec.Capabilities {
+		capability := &bundle.Spec.Capabilities[i]
+		if err := resolveBundleSchemaRef(baseDir, &capability.InputSchema); err != nil {
+			return fmt.Errorf("spec.capabilities[%d].inputSchema: %w", i, err)
+		}
+		if err := resolveBundleSchemaRef(baseDir, &capability.ResultSchema); err != nil {
+			return fmt.Errorf("spec.capabilities[%d].resultSchema: %w", i, err)
+		}
+	}
+	for i := range bundle.Spec.BindingSchemas {
+		if err := resolveBundleSchemaRef(baseDir, &bundle.Spec.BindingSchemas[i].Schema); err != nil {
+			return fmt.Errorf("spec.bindingSchemas[%d].schema: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func resolveBundleSchemaRef(baseDir string, ref *SchemaRef) error {
+	if ref == nil || ref.Path == "" {
+		return nil
+	}
+	path := resolveSuiteFile(baseDir, ref.Path)
+	schema, err := loadYAML[JSONSchema](path)
+	if err != nil {
+		return err
+	}
+	ref.Schema = &schema
+	return nil
 }
