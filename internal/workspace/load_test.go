@@ -203,6 +203,125 @@ spec:
 	}
 }
 
+func TestLoadScenarioSuiteResolvesGitBundleRef(t *testing.T) {
+	dir := t.TempDir()
+	bundleRepo := filepath.Join(dir, "bundle-repo")
+	if err := os.MkdirAll(filepath.Join(bundleRepo, "custom"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleRepo, "custom", "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        schema:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+      resultSchema:
+        schema:
+          type: object
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForTest(t, bundleRepo, "init", "-b", "main")
+	runGitForTest(t, bundleRepo, "add", ".")
+	runGitForTest(t, bundleRepo, "-c", "user.name=spex", "-c", "user.email=spex@example.invalid", "commit", "-m", "initial")
+
+	scenarioRepo := filepath.Join(dir, "scenario-repo")
+	if err := os.MkdirAll(scenarioRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(scenarioRepo, "scenario.yaml")
+	bindingPath := filepath.Join(scenarioRepo, "binding.yaml")
+	suitePath := filepath.Join(scenarioRepo, "suite.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-check
+spec:
+  operations:
+    - id: echo-message
+      type: custom.echo
+      with:
+        bindingRef: custom.main
+        message: hello
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  bindings:
+    - name: custom.main
+      kind: custom.connection
+      with:
+        endpoint: custom://service
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bundleURL := "file://" + filepath.ToSlash(bundleRepo)
+	if err := os.WriteFile(suitePath, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: git-bundle-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: custom
+      version: 0.1.0
+      source: git::`+bundleURL+`//custom@main
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := LoadScenarioSuite(suitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Bundles) != 1 {
+		t.Fatalf("bundle count = %d, want 1", len(resolved.Bundles))
+	}
+	bundle := resolved.Bundles[0]
+	if bundle.Name != "custom" || bundle.Version != "0.1.0" || bundle.SourceType != "git" || bundle.Source == "" || bundle.ManifestPath == filepath.Join(bundleRepo, "custom", "bundle.yaml") {
+		t.Fatalf("unexpected resolved bundle: %+v", bundle)
+	}
+	inputs, err := LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath, CatalogBundle{}, resolved.Providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 1 || len(inputs[0].Scenario.Spec.Operations) != 1 {
+		t.Fatalf("input shape mismatch: %+v", inputs)
+	}
+}
+
 func TestLoadScenarioSuiteResolvesLocalRefsToAbsolutePaths(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
