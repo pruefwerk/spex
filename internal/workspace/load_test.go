@@ -395,6 +395,91 @@ spec:
 	}
 }
 
+func TestLoadResolvedBundlesUsesOCIBundleCacheDirAndReusesCachedManifest(t *testing.T) {
+	oldFetch := fetchOCIBundleRef
+	t.Cleanup(func() { fetchOCIBundleRef = oldFetch })
+	cacheDir := t.TempDir()
+	t.Setenv("SPEX_OCI_BUNDLE_CACHE_DIR", cacheDir)
+	fetches := 0
+	fetchOCIBundleRef = func(_ context.Context, _ ociBundleRef, targetDir string) error {
+		fetches++
+		if !strings.HasPrefix(targetDir, cacheDir+string(os.PathSeparator)) {
+			t.Fatalf("targetDir %q is outside cache dir %q", targetDir, cacheDir)
+		}
+		return writeMinimalBundleManifest(t, targetDir, "custom", "0.1.0")
+	}
+	source := "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	ref := BundleRef{Name: "custom", Version: "0.1.0", Source: source}
+	first, err := LoadResolvedBundles(t.TempDir(), []BundleRef{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadResolvedBundles(t.TempDir(), []BundleRef{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetches != 1 {
+		t.Fatalf("fetch count = %d, want cached second resolution", fetches)
+	}
+	if len(first) != 1 || len(second) != 1 || first[0].ManifestPath != second[0].ManifestPath {
+		t.Fatalf("expected cached manifest reuse, first=%+v second=%+v", first, second)
+	}
+}
+
+func TestLoadResolvedBundlesCleansOCIBundleCacheWhenRootManifestIsMissing(t *testing.T) {
+	oldFetch := fetchOCIBundleRef
+	t.Cleanup(func() { fetchOCIBundleRef = oldFetch })
+	cacheDir := t.TempDir()
+	t.Setenv("SPEX_OCI_BUNDLE_CACHE_DIR", cacheDir)
+	var targetDir string
+	fetchOCIBundleRef = func(_ context.Context, _ ociBundleRef, dir string) error {
+		targetDir = dir
+		if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o755); err != nil {
+			return err
+		}
+		return writeMinimalBundleManifest(t, filepath.Join(dir, "nested"), "custom", "0.1.0")
+	}
+	source := "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	_, err := LoadResolvedBundles(t.TempDir(), []BundleRef{{
+		Name:    "custom",
+		Version: "0.1.0",
+		Source:  source,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "did not contain bundle.yaml at artifact root") {
+		t.Fatalf("expected missing root manifest error, got %v", err)
+	}
+	if _, statErr := os.Stat(targetDir); !os.IsNotExist(statErr) {
+		t.Fatalf("expected cache dir cleanup after invalid OCI artifact, stat err=%v", statErr)
+	}
+}
+
+func writeMinimalBundleManifest(t *testing.T, targetDir, name, version string) error {
+	t.Helper()
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(targetDir, "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: `+name+`
+  version: `+version+`
+spec:
+  capabilities:
+    - type: `+name+`.echo
+      bindingKind: `+name+`.connection
+      probe:
+        image: `+name+`-probe:dev
+        command: ["`+name+`", "run"]
+        input:
+          mode: operationFile
+          path: /`+name+`/input/operation.json
+        output:
+          path: /`+name+`/output/result.json
+  bindingSchemas:
+    - kind: `+name+`.connection
+`), 0o644)
+}
+
 func TestLoadScenarioSuiteResolvesLocalRefsToAbsolutePaths(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
