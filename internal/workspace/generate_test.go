@@ -788,6 +788,13 @@ spec:
       probe:
         image: ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0
         command: ["custom", "run"]
+        env:
+          CUSTOM_STATIC:
+            value: fixed
+          CUSTOM_TOKEN:
+            secretRef: credentials.token
+          CUSTOM_URI:
+            fromBinding: uri
         input:
           mode: operationFile
           path: /custom/input/operation.json
@@ -830,11 +837,21 @@ spec:
 					Image:           "spex-probe:aggregate",
 					ImagePullPolicy: "IfNotPresent",
 				},
+				Secrets: map[string]Secret{
+					"custom-credentials": {
+						Type: "kubernetesSecret",
+						Name: "custom-probe-credentials",
+						Keys: map[string]string{"token": "token"},
+					},
+				},
 				Bindings: []GenericBinding{
 					{
 						Name: "custom.main",
 						Kind: "custom.connection",
-						With: map[string]any{"uri": "custom://service"},
+						With: map[string]any{
+							"uri":            "custom://service",
+							"credentialsRef": "custom-credentials",
+						},
 					},
 				},
 			},
@@ -856,6 +873,13 @@ spec:
 		`"--result-file=/custom/output/result.json"`,
 		`mountPath: "/custom/input"`,
 		`mountPath: "/custom/output"`,
+		`name: "CUSTOM_STATIC"`,
+		`value: "fixed"`,
+		`name: "CUSTOM_TOKEN"`,
+		`name: "custom-probe-credentials"`,
+		`key: "token"`,
+		`name: "CUSTOM_URI"`,
+		`value: "custom://service"`,
 	} {
 		if !strings.Contains(string(job), want) {
 			t.Fatalf("bundle provider job missing %q:\n%s", want, string(job))
