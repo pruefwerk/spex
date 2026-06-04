@@ -3838,6 +3838,11 @@ spec:
       probe:
         image: custom-probe:dev
         command: ["custom", "run"]
+        env:
+          CUSTOM_TOKEN:
+            secretRef: credentials.token
+          CUSTOM_URI:
+            fromBinding: uri
         input:
           mode: operationFile
           path: /custom/input/operation.json
@@ -3901,13 +3906,42 @@ spec:
 		"custom",
 		"custom.echo",
 		"custom.connection",
+		"inputSchema: true",
+		"resultSchema: true",
 		"custom-probe:dev",
 		"/custom/input/operation.json",
 		"/custom/output/result.json",
+		"CUSTOM_TOKEN: secretRef:credentials.token",
+		"CUSTOM_URI: fromBinding:uri",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("bundle explain missing %q:\n%s", want, stdout.String())
 		}
+	}
+	stdout.Reset()
+	if err := Run([]string{"bundle", "explain", "--suite", filepath.Join(dir, "suite.yaml"), "--format", "json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Bundles []struct {
+			Name         string `json:"name"`
+			Capabilities []struct {
+				Type         string            `json:"type"`
+				InputSchema  bool              `json:"inputSchema"`
+				ResultSchema bool              `json:"resultSchema"`
+				Env          map[string]string `json:"env"`
+			} `json:"capabilities"`
+		} `json:"bundles"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		t.Fatalf("bundle explain json is invalid: %v\n%s", err, stdout.String())
+	}
+	if len(parsed.Bundles) != 1 || parsed.Bundles[0].Name != "custom" || len(parsed.Bundles[0].Capabilities) != 1 {
+		t.Fatalf("bundle explain json shape mismatch:\n%s", stdout.String())
+	}
+	capability := parsed.Bundles[0].Capabilities[0]
+	if capability.Type != "custom.echo" || !capability.InputSchema || !capability.ResultSchema || capability.Env["CUSTOM_TOKEN"] != "secretRef:credentials.token" || capability.Env["CUSTOM_URI"] != "fromBinding:uri" {
+		t.Fatalf("bundle explain json capability mismatch: %+v\n%s", capability, stdout.String())
 	}
 }
 

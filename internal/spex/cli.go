@@ -2852,12 +2852,15 @@ type bundleSummary struct {
 }
 
 type bundleCapabilitySummary struct {
-	Type        string   `json:"type"`
-	BindingKind string   `json:"bindingKind"`
-	Image       string   `json:"image,omitempty"`
-	Command     []string `json:"command,omitempty"`
-	InputPath   string   `json:"inputPath,omitempty"`
-	OutputPath  string   `json:"outputPath,omitempty"`
+	Type         string            `json:"type"`
+	BindingKind  string            `json:"bindingKind"`
+	InputSchema  bool              `json:"inputSchema"`
+	ResultSchema bool              `json:"resultSchema"`
+	Image        string            `json:"image,omitempty"`
+	Command      []string          `json:"command,omitempty"`
+	InputPath    string            `json:"inputPath,omitempty"`
+	OutputPath   string            `json:"outputPath,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
 }
 
 func runBundle(args []string, stdout io.Writer) error {
@@ -2927,18 +2930,41 @@ func bundleSummaryForProvider(provider workspace.Provider) bundleSummary {
 	summary := bundleSummary{Name: provider.Name}
 	for _, capability := range provider.Capabilities {
 		summary.Capabilities = append(summary.Capabilities, bundleCapabilitySummary{
-			Type:        capability.Type,
-			BindingKind: capability.BindingKind,
-			Image:       capability.Probe.Image,
-			Command:     capability.Probe.Command,
-			InputPath:   capability.Probe.Input.Path,
-			OutputPath:  capability.Probe.Output.Path,
+			Type:         capability.Type,
+			BindingKind:  capability.BindingKind,
+			InputSchema:  capability.InputSchema.Schema != nil || capability.InputSchema.Name != "" || capability.InputSchema.Path != "",
+			ResultSchema: capability.ResultSchema.Schema != nil || capability.ResultSchema.Name != "" || capability.ResultSchema.Path != "",
+			Image:        capability.Probe.Image,
+			Command:      capability.Probe.Command,
+			InputPath:    capability.Probe.Input.Path,
+			OutputPath:   capability.Probe.Output.Path,
+			Env:          bundleEnvSummary(capability.Probe.Env),
 		})
 	}
 	for _, binding := range provider.BindingSchemas {
 		summary.BindingSchemas = append(summary.BindingSchemas, binding.Kind)
 	}
 	return summary
+}
+
+func bundleEnvSummary(env map[string]workspace.ProbeEnvSource) map[string]string {
+	if len(env) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for name, source := range env {
+		switch {
+		case source.Value != "":
+			out[name] = "value"
+		case source.FromBinding != "":
+			out[name] = "fromBinding:" + source.FromBinding
+		case source.SecretRef != "":
+			out[name] = "secretRef:" + source.SecretRef
+		default:
+			out[name] = "unresolved"
+		}
+	}
+	return out
 }
 
 func runBundleList(args []string, stdout io.Writer) error {
@@ -2976,8 +3002,14 @@ func runBundleExplain(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "%s\n", bundle.Name)
 		fmt.Fprintln(stdout, "  capabilities:")
 		for _, capability := range bundle.Capabilities {
-			fmt.Fprintf(stdout, "    - %s\n      bindingKind: %s\n      image: %s\n      command: %s\n      input: %s\n      output: %s\n",
-				capability.Type, capability.BindingKind, capability.Image, strings.Join(capability.Command, " "), capability.InputPath, capability.OutputPath)
+			fmt.Fprintf(stdout, "    - %s\n      bindingKind: %s\n      inputSchema: %t\n      resultSchema: %t\n      image: %s\n      command: %s\n      input: %s\n      output: %s\n",
+				capability.Type, capability.BindingKind, capability.InputSchema, capability.ResultSchema, capability.Image, strings.Join(capability.Command, " "), capability.InputPath, capability.OutputPath)
+			if len(capability.Env) > 0 {
+				fmt.Fprintln(stdout, "      env:")
+				for _, name := range sortedStringMapKeys(capability.Env) {
+					fmt.Fprintf(stdout, "        %s: %s\n", name, capability.Env[name])
+				}
+			}
 		}
 		fmt.Fprintln(stdout, "  bindingSchemas:")
 		for _, binding := range bundle.BindingSchemas {
@@ -2985,6 +3017,15 @@ func runBundleExplain(args []string, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+func sortedStringMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func writeBundleJSON(stdout io.Writer, out bundleCommandOutput) error {
