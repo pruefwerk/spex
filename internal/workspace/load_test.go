@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,14 +348,50 @@ func TestLoadResolvedBundlesRejectsMalformedOCIBundleDigest(t *testing.T) {
 	}
 }
 
-func TestLoadResolvedBundlesAcceptsDigestPinnedOCIBundleRefBeforeFetchBoundary(t *testing.T) {
-	_, err := LoadResolvedBundles(t.TempDir(), []BundleRef{{
+func TestLoadResolvedBundlesFetchesDigestPinnedOCIBundleRef(t *testing.T) {
+	oldFetch := fetchOCIBundleRef
+	t.Cleanup(func() { fetchOCIBundleRef = oldFetch })
+	var fetched ociBundleRef
+	fetchOCIBundleRef = func(_ context.Context, ref ociBundleRef, targetDir string) error {
+		fetched = ref
+		if err := os.WriteFile(filepath.Join(targetDir, "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+`), 0o644); err != nil {
+			return err
+		}
+		return nil
+	}
+	source := "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	bundles, err := LoadResolvedBundles(t.TempDir(), []BundleRef{{
 		Name:    "custom",
 		Version: "0.1.0",
-		Source:  "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Source:  source,
 	}})
-	if err == nil || !strings.Contains(err.Error(), "digest-pinned") || !strings.Contains(err.Error(), "OCI bundle fetching is not implemented") {
-		t.Fatalf("expected digest-pinned OCI fetch-boundary error, got %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetched.Repository != "ghcr.io/pruefwerk/spex-bundles/custom" || fetched.Digest != "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("unexpected fetched OCI ref: %+v", fetched)
+	}
+	if len(bundles) != 1 || bundles[0].Source != source || bundles[0].SourceType != "oci" || bundles[0].ResolvedRevision != fetched.Digest || bundles[0].ManifestPath == "" {
+		t.Fatalf("unexpected OCI bundle resolution: %+v", bundles)
 	}
 }
 

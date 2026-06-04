@@ -1,14 +1,29 @@
 package workspace
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content/file"
+	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 var ociBundleDigestPattern = regexp.MustCompile(`^oci://.+@sha256:[a-f0-9]{64}$`)
+
+type ociBundleRef struct {
+	Repository string
+	Digest     string
+}
+
+var fetchOCIBundleRef = fetchOCIBundleRefWithORAS
 
 func LoadBundleProviders(baseDir string, refs []BundleRef) ([]Provider, error) {
 	providers, _, err := LoadBundleProvidersAndCatalogPaths(baseDir, refs)
@@ -68,10 +83,23 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 			continue
 		}
 		if strings.HasPrefix(ref.Source, "oci://") {
-			if err := validateOCIBundleSource(ref.Source); err != nil {
+			ociRef, err := parseOCIBundleSource(ref.Source)
+			if err != nil {
 				return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
 			}
-			return nil, fmt.Errorf("spec.bundleRefs[%d].source %q is digest-pinned, but OCI bundle fetching is not implemented", i, ref.Source)
+			path, err := checkoutOCIBundleRef(baseDir, ref.Source, ociRef)
+			if err != nil {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
+			}
+			bundle, err := loadLocalBundle(baseDir, BundleRef{Name: ref.Name, Version: ref.Version, Source: path})
+			if err != nil {
+				return nil, fmt.Errorf("spec.bundleRefs[%d]: %w", i, err)
+			}
+			bundle.Source = ref.Source
+			bundle.SourceType = "oci"
+			bundle.ResolvedRevision = ociRef.Digest
+			bundles = append(bundles, bundle)
+			continue
 		}
 		if gitRef, ok, err := parseGitFileRef(ref.Source); err != nil {
 			return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
@@ -103,14 +131,66 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 	return bundles, nil
 }
 
-func validateOCIBundleSource(source string) error {
+func parseOCIBundleSource(source string) (ociBundleRef, error) {
 	if !strings.Contains(source, "@sha256:") {
-		return fmt.Errorf("OCI bundle refs must be pinned by digest using @sha256:<64 lowercase hex chars>")
+		return ociBundleRef{}, fmt.Errorf("OCI bundle refs must be pinned by digest using @sha256:<64 lowercase hex chars>")
 	}
 	if !ociBundleDigestPattern.MatchString(source) {
-		return fmt.Errorf("OCI bundle ref digest must use sha256 with 64 lowercase hex chars")
+		return ociBundleRef{}, fmt.Errorf("OCI bundle ref digest must use sha256 with 64 lowercase hex chars")
 	}
-	return nil
+	withoutScheme := strings.TrimPrefix(source, "oci://")
+	at := strings.LastIndex(withoutScheme, "@")
+	if at <= 0 || at == len(withoutScheme)-1 {
+		return ociBundleRef{}, fmt.Errorf("OCI bundle refs must use oci://repository@sha256:<digest>")
+	}
+	return ociBundleRef{
+		Repository: withoutScheme[:at],
+		Digest:     withoutScheme[at+1:],
+	}, nil
+}
+
+func checkoutOCIBundleRef(baseDir, source string, ref ociBundleRef) (string, error) {
+	cacheRoot := os.Getenv("SPEX_OCI_BUNDLE_CACHE_DIR")
+	if cacheRoot == "" {
+		cacheRoot = filepath.Join(baseDir, ".spex", "oci-bundles")
+	}
+	sum := sha256.Sum256([]byte(source))
+	cacheDir := filepath.Join(cacheRoot, hex.EncodeToString(sum[:])[:16])
+	if _, err := os.Stat(filepath.Join(cacheDir, "bundle.yaml")); err == nil {
+		return cacheDir, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := fetchOCIBundleRef(context.Background(), ref, cacheDir); err != nil {
+		_ = os.RemoveAll(cacheDir)
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "bundle.yaml")); err != nil {
+		_ = os.RemoveAll(cacheDir)
+		return "", fmt.Errorf("OCI bundle %s did not contain bundle.yaml at artifact root", ref.Repository)
+	}
+	return cacheDir, nil
+}
+
+func fetchOCIBundleRefWithORAS(ctx context.Context, ref ociBundleRef, targetDir string) error {
+	repo, err := remote.NewRepository(ref.Repository)
+	if err != nil {
+		return err
+	}
+	repo.Client = retry.DefaultClient
+	store, err := file.New(targetDir)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	_, err = oras.Copy(ctx, repo, ref.Digest, store, ref.Digest, oras.DefaultCopyOptions)
+	return err
 }
 
 func loadLocalBundleProvider(baseDir string, ref BundleRef) (Provider, []string, error) {
