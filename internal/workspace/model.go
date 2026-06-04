@@ -328,13 +328,14 @@ type BundleRef struct {
 }
 
 type ResolvedBundle struct {
-	Name         string
-	Version      string
-	Source       string
-	SourceType   string
-	ManifestPath string
-	CatalogPaths []string
-	Provider     Provider
+	Name             string
+	Version          string
+	Source           string
+	SourceType       string
+	ResolvedRevision string
+	ManifestPath     string
+	CatalogPaths     []string
+	Provider         Provider
 }
 
 type IntegrationBundle struct {

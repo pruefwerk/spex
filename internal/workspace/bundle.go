@@ -77,6 +77,11 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 			}
 			bundle.Source = ref.Source
 			bundle.SourceType = "git"
+			revision, err := runGitOutput(path, "rev-parse", "HEAD")
+			if err != nil {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
+			}
+			bundle.ResolvedRevision = revision
 			bundles = append(bundles, bundle)
 			continue
 		}

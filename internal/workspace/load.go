@@ -1132,6 +1132,11 @@ func checkoutGitFileRef(baseDir string, ref gitFileRef) (string, error) {
 }
 
 func runGit(dir string, args ...string) error {
+	_, err := runGitOutput(dir, args...)
+	return err
+}
+
+func runGitOutput(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -1145,9 +1150,9 @@ func runGit(dir string, args ...string) error {
 		if message == "" {
 			message = err.Error()
 		}
-		return fmt.Errorf("git %s: %s", strings.Join(args, " "), message)
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), message)
 	}
-	return nil
+	return strings.TrimSpace(capture.String()), nil
 }
 
 type limitedCommandCapture struct {

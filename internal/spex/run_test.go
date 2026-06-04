@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pruefwerk/spex/internal/workspace"
+	"gopkg.in/yaml.v3"
 )
 
 func TestVersionJSON(t *testing.T) {
@@ -3979,6 +3980,43 @@ spec:
 	capability := parsed.Bundles[0].Capabilities[0]
 	if capability.Type != "custom.echo" || !capability.InputSchema || capability.InputSchemaRef != "inline" || !capability.ResultSchema || capability.ResultSchemaRef != "inline" || capability.Env["CUSTOM_TOKEN"] != "secretRef:credentials.token" || capability.Env["CUSTOM_URI"] != "fromBinding:uri" {
 		t.Fatalf("bundle explain json capability mismatch: %+v\n%s", capability, stdout.String())
+	}
+
+	stdout.Reset()
+	if err := Run([]string{"bundle", "lock", "--suite", filepath.Join(dir, "suite.yaml"), "--out", "-"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var lock struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+		Bundles    []struct {
+			Name           string `yaml:"name"`
+			Version        string `yaml:"version"`
+			Source         string `yaml:"source"`
+			SourceType     string `yaml:"sourceType"`
+			ManifestDigest string `yaml:"manifestDigest"`
+			Capabilities   []struct {
+				Type       string            `yaml:"type"`
+				ProbeImage string            `yaml:"probeImage"`
+				Env        map[string]string `yaml:"env"`
+			} `yaml:"capabilities"`
+			BindingSchemas []struct {
+				Kind string `yaml:"kind"`
+			} `yaml:"bindingSchemas"`
+		} `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal(stdout.Bytes(), &lock); err != nil {
+		t.Fatalf("bundle lock yaml is invalid: %v\n%s", err, stdout.String())
+	}
+	if lock.APIVersion != "spex.bundle-lock.v0.1" || lock.Kind != "IntegrationBundleLock" || len(lock.Bundles) != 1 {
+		t.Fatalf("bundle lock shape mismatch: %+v\n%s", lock, stdout.String())
+	}
+	locked := lock.Bundles[0]
+	if locked.Name != "custom" || locked.Version != "0.1.0" || locked.Source != "bundles/custom" || locked.SourceType != "local" || !strings.HasPrefix(locked.ManifestDigest, "sha256:") || len(locked.Capabilities) != 1 || len(locked.BindingSchemas) != 1 {
+		t.Fatalf("bundle lock bundle mismatch: %+v\n%s", locked, stdout.String())
+	}
+	if locked.Capabilities[0].Type != "custom.echo" || locked.Capabilities[0].ProbeImage != "custom-probe:dev" || locked.Capabilities[0].Env["CUSTOM_TOKEN"] != "secretRef:credentials.token" {
+		t.Fatalf("bundle lock capability mismatch: %+v\n%s", locked.Capabilities[0], stdout.String())
 	}
 }
 

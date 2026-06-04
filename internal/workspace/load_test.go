@@ -313,6 +313,9 @@ spec:
 	if bundle.Name != "custom" || bundle.Version != "0.1.0" || bundle.SourceType != "git" || bundle.Source == "" || bundle.ManifestPath == filepath.Join(bundleRepo, "custom", "bundle.yaml") {
 		t.Fatalf("unexpected resolved bundle: %+v", bundle)
 	}
+	if bundle.ResolvedRevision == "" {
+		t.Fatalf("resolved git bundle revision is empty: %+v", bundle)
+	}
 	inputs, err := LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath, CatalogBundle{}, resolved.Providers)
 	if err != nil {
 		t.Fatal(err)
