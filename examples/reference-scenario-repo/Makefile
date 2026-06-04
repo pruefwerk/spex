@@ -8,6 +8,7 @@ RUN_ID ?= reference-ci
 PROBE_IMAGE ?= spex-probe:dev
 PROBE_IMAGE_PULL_POLICY ?= IfNotPresent
 KUBE_CONTEXT ?= kind-kind
+BUNDLE_LOCK ?=
 
 .PHONY: help validate plan explain catalog catalog-docs compile production-check ci live clean
 
@@ -41,6 +42,7 @@ compile:
 
 production-check:
 	cd $(ROOT) && mkdir -p $(REPORTS)
+	@if [ -n "$(BUNDLE_LOCK)" ]; then cd $(ROOT) && $(SPEX) bundle verify --suite $(SUITE) --lock $(BUNDLE_LOCK); fi
 	cd $(ROOT) && $(SPEX) doctor --suite $(SUITE) --skip-host-tools --require-pinned-git-refs --scan-artifacts $(REPORTS) --scan-artifacts $(OUT) --format json > $(REPORTS)/production-check.json
 
 ci: validate plan explain catalog catalog-docs compile

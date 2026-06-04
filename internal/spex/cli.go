@@ -3773,6 +3773,7 @@ SUITE ?= suite.yaml
 OUT ?= generated/device-acceptance
 PRODUCTION_ARTIFACTS ?= reports generated
 REQUIRE_PINNED_IMAGES ?= false
+BUNDLE_LOCK ?=
 
 .PHONY: help doctor doctor-json production-check validate plan explain catalog catalog-docs compile ci run clean schemas
 
@@ -3801,6 +3802,7 @@ doctor-json:
 	$(SPEX) doctor --suite $(SUITE) --format json > reports/doctor.json
 
 production-check:
+	@if [ -n "$(BUNDLE_LOCK)" ]; then $(SPEX) bundle verify --suite $(SUITE) --lock $(BUNDLE_LOCK); fi
 	$(SPEX) doctor --suite $(SUITE) --skip-host-tools --require-pinned-git-refs $(if $(filter true,$(REQUIRE_PINNED_IMAGES)),--require-pinned-images,) $(foreach dir,$(PRODUCTION_ARTIFACTS),--scan-artifacts $(dir)) --format json
 
 validate:
@@ -3862,6 +3864,7 @@ set -eu
 : "${OUT:=generated/ci}"
 : "${SPEX_PRODUCTION_CHECK:=false}"
 : "${SPEX_REQUIRE_PINNED_IMAGES:=false}"
+: "${SPEX_BUNDLE_LOCK:=}"
 
 if ! command -v "$SPEX" >/dev/null 2>&1; then
   echo "missing spex binary. Set SPEX=/path/to/spex or install it on PATH." >&2
@@ -3890,6 +3893,9 @@ if [ "$SPEX_PRODUCTION_CHECK" = "true" ]; then
   PINNED_IMAGE_ARG=
   if [ "$SPEX_REQUIRE_PINNED_IMAGES" = "true" ]; then
     PINNED_IMAGE_ARG=--require-pinned-images
+  fi
+  if [ -n "$SPEX_BUNDLE_LOCK" ]; then
+    "$SPEX" bundle verify --suite "$SUITE" --lock "$SPEX_BUNDLE_LOCK"
   fi
   "$SPEX" doctor --suite "$SUITE" --skip-host-tools --require-pinned-git-refs $PINNED_IMAGE_ARG --scan-artifacts reports --scan-artifacts "$OUT" --format json > reports/production-check.json
 fi

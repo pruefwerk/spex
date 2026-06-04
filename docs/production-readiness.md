@@ -10,6 +10,7 @@ spex is production-candidate software. Treat production use as gated until these
 - Project CI runs `make reference-scenario-check` to prove the separate scenario repository workflow remains usable.
 - Release-candidate CI runs `make production-candidate-check` before a live proof is attempted.
 - CI runs `spex doctor --skip-host-tools --require-pinned-git-refs` so external `bindingRef`, `integrationProfileRef`, and `catalogRefs` do not use mutable refs such as `@main` or `@master`.
+- Scenario repositories that use local or Git integration bundles commit a bundle lock file and run `spex bundle verify --suite suite.yaml --lock spex.bundle-lock.yaml`, or set `BUNDLE_LOCK`/`SPEX_BUNDLE_LOCK` in the provided production gates.
 - Production scenario repositories using registry-hosted probe images run `spex doctor --require-pinned-images` so target binding probe images and non-built-in bundle probe images are pinned by a valid `@sha256:<64 hex chars>` digest.
 - CI runs `spex doctor --scan-artifacts reports --scan-artifacts generated` after compile/run with `SPEX_*` secret environment variables present.
 - Live CI jobs delete generated kubeconfig files before artifact upload and run `spex doctor --scan-artifacts` against live output with the same representative secret values used during the run.
@@ -52,7 +53,8 @@ Until a `v1` schema is introduced, treat schema changes as release-candidate com
 7. A failed-run artifact bundle has been inspected for useful remediation data.
 8. Secret leakage scan passes with realistic secret environment variables.
 9. Remote refs are pinned to immutable tags or commit SHAs.
-10. Registry-hosted probe images are pinned by digest.
+10. Bundle locks are verified when local or Git bundles are used.
+11. Registry-hosted probe images are pinned by digest.
 
 ## Reference Documents
 
