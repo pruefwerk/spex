@@ -315,6 +315,7 @@ type ResolvedScenarioSuite struct {
 	BindingPath            string
 	IntegrationProfilePath string
 	CatalogPaths           []string
+	Bundles                []ResolvedBundle
 	Providers              []Provider
 	ScenarioPaths          []string
 	ScenarioRefs           []ResolvedScenarioRef
@@ -324,6 +325,16 @@ type BundleRef struct {
 	Name    string `yaml:"name"`
 	Version string `yaml:"version"`
 	Source  string `yaml:"source"`
+}
+
+type ResolvedBundle struct {
+	Name         string
+	Version      string
+	Source       string
+	SourceType   string
+	ManifestPath string
+	CatalogPaths []string
+	Provider     Provider
 }
 
 type IntegrationBundle struct {

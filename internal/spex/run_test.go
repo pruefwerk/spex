@@ -3820,6 +3820,27 @@ func TestBundleExplainShowsLocalBundleCapabilities(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "bundles", "custom"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "bundles", "custom", "catalogs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bundles", "custom", "catalogs", "custom-steps.yaml"), []byte(`apiVersion: spex.catalog.v0.1
+kind: StepCatalog
+metadata:
+  name: custom-steps
+spec:
+  steps:
+    - kind: then
+      expression: custom echoes {message}
+      output:
+        operations:
+          - id: echo-{message}
+            type: custom.echo
+            with:
+              bindingRef: custom.main
+              message: "{message}"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "bundles", "custom", "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
 kind: IntegrationBundle
 metadata:
@@ -3850,6 +3871,8 @@ spec:
           path: /custom/output/result.json
   bindingSchemas:
     - kind: custom.connection
+  stepCatalogs:
+    - catalogs/custom-steps.yaml
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -3904,10 +3927,17 @@ spec:
 	}
 	for _, want := range []string{
 		"custom",
+		"version: 0.1.0",
+		"source: bundles/custom",
+		"sourceType: local",
+		"manifest:",
+		"custom-steps.yaml",
 		"custom.echo",
 		"custom.connection",
 		"inputSchema: true",
+		"inputSchemaRef: inline",
 		"resultSchema: true",
+		"resultSchemaRef: inline",
 		"custom-probe:dev",
 		"/custom/input/operation.json",
 		"/custom/output/result.json",
@@ -3924,23 +3954,30 @@ spec:
 	}
 	var parsed struct {
 		Bundles []struct {
-			Name         string `json:"name"`
+			Name         string   `json:"name"`
+			Version      string   `json:"version"`
+			Source       string   `json:"source"`
+			SourceType   string   `json:"sourceType"`
+			ManifestFile string   `json:"manifestFile"`
+			CatalogFiles []string `json:"catalogFiles"`
 			Capabilities []struct {
-				Type         string            `json:"type"`
-				InputSchema  bool              `json:"inputSchema"`
-				ResultSchema bool              `json:"resultSchema"`
-				Env          map[string]string `json:"env"`
+				Type            string            `json:"type"`
+				InputSchema     bool              `json:"inputSchema"`
+				InputSchemaRef  string            `json:"inputSchemaRef"`
+				ResultSchema    bool              `json:"resultSchema"`
+				ResultSchemaRef string            `json:"resultSchemaRef"`
+				Env             map[string]string `json:"env"`
 			} `json:"capabilities"`
 		} `json:"bundles"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
 		t.Fatalf("bundle explain json is invalid: %v\n%s", err, stdout.String())
 	}
-	if len(parsed.Bundles) != 1 || parsed.Bundles[0].Name != "custom" || len(parsed.Bundles[0].Capabilities) != 1 {
+	if len(parsed.Bundles) != 1 || parsed.Bundles[0].Name != "custom" || parsed.Bundles[0].Version != "0.1.0" || parsed.Bundles[0].Source != "bundles/custom" || parsed.Bundles[0].SourceType != "local" || parsed.Bundles[0].ManifestFile == "" || len(parsed.Bundles[0].CatalogFiles) != 1 || len(parsed.Bundles[0].Capabilities) != 1 {
 		t.Fatalf("bundle explain json shape mismatch:\n%s", stdout.String())
 	}
 	capability := parsed.Bundles[0].Capabilities[0]
-	if capability.Type != "custom.echo" || !capability.InputSchema || !capability.ResultSchema || capability.Env["CUSTOM_TOKEN"] != "secretRef:credentials.token" || capability.Env["CUSTOM_URI"] != "fromBinding:uri" {
+	if capability.Type != "custom.echo" || !capability.InputSchema || capability.InputSchemaRef != "inline" || !capability.ResultSchema || capability.ResultSchemaRef != "inline" || capability.Env["CUSTOM_TOKEN"] != "secretRef:credentials.token" || capability.Env["CUSTOM_URI"] != "fromBinding:uri" {
 		t.Fatalf("bundle explain json capability mismatch: %+v\n%s", capability, stdout.String())
 	}
 }

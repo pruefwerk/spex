@@ -627,11 +627,15 @@ func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
 		}
 	}
 	var catalogPaths []string
-	providers, bundleCatalogPaths, err := LoadBundleProvidersAndCatalogPaths(baseDir, suite.Spec.BundleRefs)
+	bundles, err := LoadResolvedBundles(baseDir, suite.Spec.BundleRefs)
 	if err != nil {
 		return ResolvedScenarioSuite{}, err
 	}
-	catalogPaths = append(catalogPaths, bundleCatalogPaths...)
+	var providers []Provider
+	for _, bundle := range bundles {
+		providers = append(providers, bundle.Provider)
+		catalogPaths = append(catalogPaths, bundle.CatalogPaths...)
+	}
 	for i, ref := range suite.Spec.CatalogRefs {
 		catalogPath, err := resolveSuiteRef(baseDir, ref)
 		if err != nil {
@@ -659,6 +663,7 @@ func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
 		BindingPath:            bindingPath,
 		IntegrationProfilePath: integrationProfilePath,
 		CatalogPaths:           catalogPaths,
+		Bundles:                bundles,
 		Providers:              providers,
 		ScenarioPaths:          scenarioPaths,
 		ScenarioRefs:           scenarioRefs,
