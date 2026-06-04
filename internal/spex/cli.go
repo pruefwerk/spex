@@ -141,7 +141,7 @@ Commands:
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
   catalog   list, explain, check, or document reusable catalogs
-  bundle    list, explain, lock, or verify resolved integration bundles
+  bundle    list, explain, lock, verify, or vendor resolved integration bundles
   schema    list or print embedded JSON Schemas
   doctor    run host and suite preflight checks
   release   verify release artifacts
@@ -2875,7 +2875,7 @@ type bundleCapabilitySummary struct {
 
 func runBundle(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("bundle requires subcommand list, explain, lock, or verify")
+		return fmt.Errorf("bundle requires subcommand list, explain, lock, verify, or vendor")
 	}
 	switch args[0] {
 	case "list":
@@ -2886,6 +2886,8 @@ func runBundle(args []string, stdout io.Writer) error {
 		return runBundleLock(args[1:], stdout)
 	case "verify":
 		return runBundleVerify(args[1:], stdout)
+	case "vendor":
+		return runBundleVendor(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown bundle subcommand %q", args[0])
 	}
@@ -3193,6 +3195,120 @@ func runBundleVerify(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "bundle lock verified: %s\n", *lockPath)
 	return nil
+}
+
+func runBundleVendor(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("bundle vendor", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	suitePath := fs.String("suite", "", "suite YAML path")
+	outDir := fs.String("out", "", "vendor output directory")
+	force := fs.Bool("force", false, "overwrite existing vendored bundle directories")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectPositionalArgs(fs, "bundle vendor"); err != nil {
+		return err
+	}
+	if *suitePath == "" {
+		return fmt.Errorf("bundle vendor requires --suite")
+	}
+	if *outDir == "" {
+		return fmt.Errorf("bundle vendor requires --out")
+	}
+	resolved, err := workspace.LoadScenarioSuite(*suitePath)
+	if err != nil {
+		return fmt.Errorf("suite: %w", err)
+	}
+	written := 0
+	for _, bundle := range resolved.Bundles {
+		if bundle.SourceType == "builtin" {
+			continue
+		}
+		if bundle.ManifestPath == "" {
+			return fmt.Errorf("bundle %q cannot be vendored: manifest path is empty", bundle.Name)
+		}
+		sourceDir := filepath.Dir(bundle.ManifestPath)
+		targetDir := filepath.Join(*outDir, vendoredBundleDirName(bundle))
+		if err := vendorBundleDir(sourceDir, targetDir, *force); err != nil {
+			return fmt.Errorf("bundle %q: %w", bundle.Name, err)
+		}
+		fmt.Fprintf(stdout, "bundle vendored: %s -> %s\n", bundle.Name, targetDir)
+		written++
+	}
+	if written == 0 {
+		fmt.Fprintln(stdout, "bundle vendor: no external bundles to vendor")
+		return nil
+	}
+	fmt.Fprintf(stdout, "bundle vendor complete: %d bundle(s)\n", written)
+	return nil
+}
+
+func vendoredBundleDirName(bundle workspace.ResolvedBundle) string {
+	if bundle.Version == "" {
+		return bundle.Name
+	}
+	return bundle.Name + "-" + bundle.Version
+}
+
+func vendorBundleDir(sourceDir, targetDir string, force bool) error {
+	if info, err := os.Lstat(targetDir); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("target %s exists and is not a directory", targetDir)
+		}
+		if !force {
+			return fmt.Errorf("target %s already exists; rerun with --force to overwrite", targetDir)
+		}
+		if err := os.RemoveAll(targetDir); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	return filepath.WalkDir(sourceDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := entry.Name()
+		if entry.IsDir() && (name == ".git" || name == ".spex") {
+			return filepath.SkipDir
+		}
+		if path == sourceDir {
+			return nil
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(targetDir, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to vendor symlink %s", path)
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to vendor non-regular file %s", path)
+		}
+		return copyRegularFile(path, target, info.Mode().Perm())
+	})
+}
+
+func copyRegularFile(source, target string, mode os.FileMode) error {
+	content, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(target, content, mode)
 }
 
 func loadBundleLockFile(path string) (bundleLockDocument, error) {

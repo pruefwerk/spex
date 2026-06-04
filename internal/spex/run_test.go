@@ -4043,6 +4043,33 @@ spec:
 	if err == nil || !strings.Contains(err.Error(), "bundle lock mismatch") {
 		t.Fatalf("expected bundle lock mismatch, got %v", err)
 	}
+
+	vendorDir := filepath.Join(dir, "vendor", "bundles")
+	stdout.Reset()
+	if err := Run([]string{"bundle", "vendor", "--suite", filepath.Join(dir, "suite.yaml"), "--out", vendorDir}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	vendoredBundleDir := filepath.Join(vendorDir, "custom-0.1.0")
+	if !strings.Contains(stdout.String(), "bundle vendor complete: 1 bundle(s)") {
+		t.Fatalf("bundle vendor output mismatch:\n%s", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(vendoredBundleDir, "bundle.yaml")); err != nil {
+		t.Fatalf("vendored bundle manifest missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(vendoredBundleDir, "catalogs", "custom-steps.yaml")); err != nil {
+		t.Fatalf("vendored bundle catalog missing: %v", err)
+	}
+	err = Run([]string{"bundle", "vendor", "--suite", filepath.Join(dir, "suite.yaml"), "--out", vendorDir}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected vendor overwrite refusal, got %v", err)
+	}
+	stdout.Reset()
+	if err := Run([]string{"bundle", "vendor", "--suite", filepath.Join(dir, "suite.yaml"), "--out", vendorDir, "--force"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "bundle vendor complete: 1 bundle(s)") {
+		t.Fatalf("bundle vendor force output mismatch:\n%s", stdout.String())
+	}
 }
 
 func TestBundleExplainShowsBuiltInBundleCapabilities(t *testing.T) {
