@@ -66,7 +66,7 @@ spex bundle verify --suite suite.yaml --lock spex.bundle-lock.yaml
 spex bundle vendor --suite suite.yaml --out vendor/spex-bundles
 ```
 
-`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths. `bundle lock` writes the resolved bundle inventory, including local file digests, Git revisions, capability schema refs, and probe image digests when images are pinned. `bundle verify` compares a suite's currently resolved bundles with a committed lock file and fails on drift. `bundle vendor` copies resolved local and Git bundle directories into a repo-local vendor directory for reviewable reuse.
+`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths. `bundle lock` writes the resolved bundle inventory, including local file digests, Git revisions, capability schema refs, and probe image digests when images are pinned. `bundle verify` compares a suite's currently resolved bundles with a committed lock file and fails on drift. `bundle vendor` copies resolved local and Git bundle directories into a repo-local vendor directory for reviewable reuse. Set `BUNDLE_LOCK=spex.bundle-lock.yaml` in Make-based production gates, or `SPEX_BUNDLE_LOCK=spex.bundle-lock.yaml` in generated CI scripts, to make lock verification part of the production check.
 
 Suites can reference built-in bundles or local bundle directories:
 

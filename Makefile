@@ -12,6 +12,7 @@ RELEASE_CHECK_DISTDIR ?= $(CURDIR)/.release-check
 SMOKE_DIR ?= $(CURDIR)/.tmp/smoke
 PRODUCTION_ARTIFACTS ?= reports generated
 REQUIRE_PINNED_IMAGES ?= false
+BUNDLE_LOCK ?=
 PREFIX ?= /usr/local
 DESTDIR ?=
 VERSION ?= 0.1.0-dev
@@ -124,6 +125,7 @@ release-archive-check:
 	test -f $(RELEASE_CHECK_DISTDIR)/$(ARCHIVE_NAME).tar.gz.sha256
 
 production-check:
+	@if [ -n "$(BUNDLE_LOCK)" ]; then $(GO_RUN) ./cmd/spex bundle verify --suite $(SUITE) --lock $(BUNDLE_LOCK); fi
 	$(GO_RUN) ./cmd/spex doctor --suite $(SUITE) --skip-host-tools --require-pinned-git-refs $(if $(filter true,$(REQUIRE_PINNED_IMAGES)),--require-pinned-images,) $(foreach dir,$(wildcard $(PRODUCTION_ARTIFACTS)),--scan-artifacts $(dir)) --format json
 
 reference-scenario-check:

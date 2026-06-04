@@ -5654,6 +5654,8 @@ func TestInitScenarioRepoWritesEditorSchemas(t *testing.T) {
 		"doctor-json:",
 		"$(SPEX) doctor --suite $(SUITE) --format json > reports/doctor.json",
 		"production-check:",
+		"BUNDLE_LOCK",
+		"bundle verify --suite $(SUITE) --lock $(BUNDLE_LOCK)",
 		"REQUIRE_PINNED_IMAGES",
 		"--skip-host-tools",
 		"--require-pinned-git-refs",
@@ -5685,6 +5687,8 @@ func TestInitScenarioRepoWritesEditorSchemas(t *testing.T) {
 	for _, want := range []string{
 		"SPEX_PRODUCTION_CHECK",
 		"SPEX_REQUIRE_PINNED_IMAGES",
+		"SPEX_BUNDLE_LOCK",
+		`bundle verify --suite "$SUITE" --lock "$SPEX_BUNDLE_LOCK"`,
 		"reports/production-check.json",
 		"--require-pinned-git-refs",
 		"--require-pinned-images",
