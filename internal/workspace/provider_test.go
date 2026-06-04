@@ -78,6 +78,59 @@ func TestProviderRegistryRejectsCapabilityWithWrongProviderPrefix(t *testing.T) 
 	}
 }
 
+func TestProviderRegistryRejectsInvalidProbeEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		envName string
+		source  ProbeEnvSource
+		want    string
+	}{
+		{
+			name:    "invalid env name",
+			envName: "custom-token",
+			source:  ProbeEnvSource{SecretRef: "credentials.token"},
+			want:    "must be a valid environment variable name",
+		},
+		{
+			name:    "missing source",
+			envName: "CUSTOM_TOKEN",
+			source:  ProbeEnvSource{},
+			want:    "must declare exactly one source",
+		},
+		{
+			name:    "multiple sources",
+			envName: "CUSTOM_TOKEN",
+			source:  ProbeEnvSource{Value: "token", SecretRef: "credentials.token"},
+			want:    "must declare exactly one source",
+		},
+		{
+			name:    "invalid from binding path",
+			envName: "CUSTOM_URI",
+			source:  ProbeEnvSource{FromBinding: "credentials-ref"},
+			want:    "must be a dotted binding path",
+		},
+		{
+			name:    "invalid secret ref",
+			envName: "CUSTOM_TOKEN",
+			source:  ProbeEnvSource{SecretRef: "credentials"},
+			want:    "must be a dotted secret reference",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := NewProviderRegistry()
+			provider := testProvider("custom", "custom.echo", "custom.connection")
+			provider.Capabilities[0].Probe.Env = map[string]ProbeEnvSource{
+				tt.envName: tt.source,
+			}
+			err := registry.Register(provider)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q error, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
 func TestBuiltInProviderRegistryResolvesCurrentOperationTypes(t *testing.T) {
 	registry, err := NewBuiltInProviderRegistry()
 	if err != nil {

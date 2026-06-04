@@ -4921,7 +4921,7 @@ func TestSchemaListAndShow(t *testing.T) {
 			}
 		}
 		if name == "integration-bundle" {
-			for _, want := range []string{`"IntegrationBundle"`, `"capabilities"`, `"probeInvocation"`, `"qualifiedName"`} {
+			for _, want := range []string{`"IntegrationBundle"`, `"capabilities"`, `"probeInvocation"`, `"qualifiedName"`, `"probeEnvSource"`, `"oneOf"`, `"propertyNames"`} {
 				if !strings.Contains(schemaOut.String(), want) {
 					t.Fatalf("integration-bundle schema missing %s:\n%s", want, schemaOut.String())
 				}
