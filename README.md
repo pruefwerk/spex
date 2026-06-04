@@ -116,7 +116,7 @@ spec:
     - kind: custom.connection
 ```
 
-Git bundle sources use the same pinned `git::repo//path@ref` syntax as suite refs and record the resolved Git revision in `bundle explain` and `bundle lock`. OCI bundle sources must be digest-pinned as `oci://...@sha256:<64 lowercase hex chars>`; tag-only OCI refs fail early, and fetching OCI bundle artifacts is reserved for the later registry client implementation. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
+Git bundle sources use the same pinned `git::repo//path@ref` syntax as suite refs and record the resolved Git revision in `bundle explain` and `bundle lock`. OCI bundle sources must be digest-pinned as `oci://...@sha256:<64 lowercase hex chars>`; tag-only OCI refs fail early, and digest-pinned artifacts are fetched through the OCI registry client into `.spex/oci-bundles` or `SPEX_OCI_BUNDLE_CACHE_DIR`. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
 
 For local and external bundles, the bundle probe image is the runtime boundary and can be implemented in any language. spex only requires the lowered operation file input and normalized result envelope output described in `docs/probe-contract.md`. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding for local demos and first-party compatibility.
 
