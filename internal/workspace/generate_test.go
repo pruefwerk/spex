@@ -898,6 +898,125 @@ spec:
 	}
 }
 
+func TestGenerateWorkspaceFailsWhenBundleProbeEnvDoesNotResolve(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         map[string]ProbeEnvSource
+		bindingWith map[string]any
+		secrets     map[string]Secret
+		want        string
+	}{
+		{
+			name: "missing binding field",
+			env: map[string]ProbeEnvSource{
+				"CUSTOM_URI": {FromBinding: "uri"},
+			},
+			bindingWith: map[string]any{"credentialsRef": "custom-credentials"},
+			secrets: map[string]Secret{
+				"custom-credentials": customProbeSecret(),
+			},
+			want: `operation "echo-message" probe env "CUSTOM_URI" fromBinding "uri" did not resolve to a string`,
+		},
+		{
+			name: "unknown secret",
+			env: map[string]ProbeEnvSource{
+				"CUSTOM_TOKEN": {SecretRef: "credentials.token"},
+			},
+			bindingWith: map[string]any{"uri": "custom://service", "credentialsRef": "missing-credentials"},
+			secrets:     map[string]Secret{},
+			want:        `operation "echo-message" probe env "CUSTOM_TOKEN" secretRef "credentials.token" references unknown secret "missing-credentials"`,
+		},
+		{
+			name: "missing secret key",
+			env: map[string]ProbeEnvSource{
+				"CUSTOM_TOKEN": {SecretRef: "credentials.token"},
+			},
+			bindingWith: map[string]any{"uri": "custom://service", "credentialsRef": "custom-credentials"},
+			secrets: map[string]Secret{
+				"custom-credentials": {
+					Type: "kubernetesSecret",
+					Name: "custom-probe-credentials",
+					Keys: map[string]string{"other": "other"},
+				},
+			},
+			want: `operation "echo-message" probe env "CUSTOM_TOKEN" secretRef "credentials.token" references missing secret key "token"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputs := customBundleEnvInputs(tt.env, tt.bindingWith, tt.secrets)
+			err := Generate(filepath.Join(t.TempDir(), "out"), inputs)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q error, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func customBundleEnvInputs(env map[string]ProbeEnvSource, bindingWith map[string]any, secrets map[string]Secret) Inputs {
+	return Inputs{
+		ScenarioName: "custom-check",
+		Namespace:    "spex-test",
+		RunID:        "run-fixed-test",
+		Providers: []Provider{
+			{
+				Name: "custom",
+				Capabilities: []Capability{
+					{
+						Type:        "custom.echo",
+						BindingKind: "custom.connection",
+						Probe: ProbeInvocationSpec{
+							Image:   "ghcr.io/pruefwerk/spex-probe-custom-echo:0.1.0",
+							Command: []string{"custom", "run"},
+							Input:   ProbeIO{Mode: "operationFile", Path: "/custom/input/operation.json"},
+							Output:  ProbeIO{Path: "/custom/output/result.json"},
+							Env:     env,
+						},
+					},
+				},
+				BindingSchemas: []BindingSchema{{Kind: "custom.connection"}},
+			},
+		},
+		Scenario: Scenario{
+			Spec: ScenarioSpec{
+				Defaults: Defaults{Timeout: "5s", PollInterval: "100ms"},
+				Operations: []Operation{
+					{
+						ID:   "echo-message",
+						Type: "custom.echo",
+						With: map[string]any{
+							bindingRefKey: "custom.main",
+							"message":     "hello",
+						},
+					},
+				},
+			},
+		},
+		Binding: TargetBinding{
+			Spec: BindingSpec{
+				Namespace: "spex-test",
+				RBAC:      RBAC{Create: true},
+				Secrets:   secrets,
+				Bindings: []GenericBinding{
+					{
+						Name: "custom.main",
+						Kind: "custom.connection",
+						With: bindingWith,
+					},
+				},
+			},
+		},
+	}
+}
+
+func customProbeSecret() Secret {
+	return Secret{
+		Type: "kubernetesSecret",
+		Name: "custom-probe-credentials",
+		Keys: map[string]string{"token": "token"},
+	}
+}
+
 func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")

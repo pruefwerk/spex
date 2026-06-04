@@ -45,6 +45,9 @@ func Generate(out string, in Inputs) error {
 	if in.RepoRoot != "" {
 		repoRoot = in.RepoRoot
 	}
+	if err := validateProbeEnvResolution(in); err != nil {
+		return err
+	}
 	integrationProfileDir := repoRoot
 	if in.IntegrationProfilePath != "" {
 		integrationProfileDir = filepath.Dir(in.IntegrationProfilePath)
@@ -293,6 +296,77 @@ func loweredOperationFiles(in Inputs) (map[string]string, error) {
 
 func loweredOperationFileName(operationID string) string {
 	return DNSLabel(operationID) + ".operation.json"
+}
+
+func validateProbeEnvResolution(in Inputs) error {
+	registry, err := NewProviderRegistryWithProviders(in.Providers)
+	if err != nil {
+		return err
+	}
+	operations, err := LowerOperations(in, registry)
+	if err != nil {
+		return err
+	}
+	for _, operation := range operations {
+		capability, ok := registry.ResolveCapability(operation.OperationType)
+		if !ok {
+			return fmt.Errorf("operation %q uses unregistered operation type %q", operation.OperationID, operation.OperationType)
+		}
+		if err := validateOperationProbeEnvResolution(in, operation, capability.Capability.Probe.Env); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOperationProbeEnvResolution(in Inputs, operation LoweredOperation, envSpec map[string]ProbeEnvSource) error {
+	if len(envSpec) == 0 {
+		return nil
+	}
+	var names []string
+	for name := range envSpec {
+		names = append(names, name)
+	}
+	sortStrings(names)
+	for _, name := range names {
+		source := envSpec[name]
+		switch {
+		case source.Value != "":
+			continue
+		case source.FromBinding != "":
+			if _, ok := stringFromAnyPath(operation.Binding.With, source.FromBinding); !ok {
+				return fmt.Errorf("operation %q probe env %q fromBinding %q did not resolve to a string", operation.OperationID, name, source.FromBinding)
+			}
+		case source.SecretRef != "":
+			if err := validateSecretEnvResolution(in, operation, name, source.SecretRef); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateSecretEnvResolution(in Inputs, operation LoweredOperation, envName, secretRef string) error {
+	refName, keyName, ok := strings.Cut(secretRef, ".")
+	if !ok || refName == "" || keyName == "" {
+		return fmt.Errorf("operation %q probe env %q secretRef %q is invalid", operation.OperationID, envName, secretRef)
+	}
+	secretBindingRef := refName + "Ref"
+	if refName == "credentials" {
+		secretBindingRef = "credentialsRef"
+	}
+	secretName, ok := stringFromAnyPath(operation.Binding.With, secretBindingRef)
+	if !ok || secretName == "" {
+		return fmt.Errorf("operation %q probe env %q secretRef %q binding field %q did not resolve to a string", operation.OperationID, envName, secretRef, secretBindingRef)
+	}
+	secret, ok := in.Binding.Spec.Secrets[secretName]
+	if !ok || secret.Name == "" {
+		return fmt.Errorf("operation %q probe env %q secretRef %q references unknown secret %q", operation.OperationID, envName, secretRef, secretName)
+	}
+	if secret.Keys[keyName] == "" {
+		return fmt.Errorf("operation %q probe env %q secretRef %q references missing secret key %q", operation.OperationID, envName, secretRef, keyName)
+	}
+	return nil
 }
 
 func lowerRedpandaSnapshotOperation(in Inputs, registry *ProviderRegistry) (LoweredOperation, error) {
