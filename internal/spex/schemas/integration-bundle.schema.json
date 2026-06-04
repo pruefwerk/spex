@@ -113,6 +113,7 @@
         "output": { "$ref": "#/$defs/probeIO" },
         "env": {
           "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
           "additionalProperties": { "$ref": "#/$defs/probeEnvSource" }
         }
       }
@@ -129,9 +130,14 @@
     "probeEnvSource": {
       "type": "object",
       "additionalProperties": false,
+      "oneOf": [
+        { "required": ["fromBinding"] },
+        { "required": ["secretRef"] },
+        { "required": ["value"] }
+      ],
       "properties": {
-        "fromBinding": { "type": "string", "minLength": 1 },
-        "secretRef": { "type": "string", "minLength": 1 },
+        "fromBinding": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$" },
+        "secretRef": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$" },
         "value": { "type": "string" }
       }
     },

@@ -3,9 +3,12 @@ package workspace
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var operationTypePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[A-Za-z][A-Za-z0-9_.-]*$`)
+var probeEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var probeEnvPathPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$`)
 
 type GenericOperation struct {
 	ID        string         `json:"id" yaml:"id"`
@@ -218,6 +221,37 @@ func validateCapability(providerName string, capability Capability) error {
 	}
 	if len(capability.Probe.Command) == 0 {
 		return fmt.Errorf("provider %q capability %q requires probe command", providerName, capability.Type)
+	}
+	if err := validateProbeEnv(providerName, capability.Type, capability.Probe.Env); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateProbeEnv(providerName, capabilityType string, env map[string]ProbeEnvSource) error {
+	for name, source := range env {
+		if !probeEnvNamePattern.MatchString(name) {
+			return fmt.Errorf("provider %q capability %q probe env name %q must be a valid environment variable name", providerName, capabilityType, name)
+		}
+		sources := 0
+		if source.Value != "" {
+			sources++
+		}
+		if source.FromBinding != "" {
+			sources++
+			if !probeEnvPathPattern.MatchString(source.FromBinding) {
+				return fmt.Errorf("provider %q capability %q probe env %q fromBinding %q must be a dotted binding path", providerName, capabilityType, name, source.FromBinding)
+			}
+		}
+		if source.SecretRef != "" {
+			sources++
+			if !strings.Contains(source.SecretRef, ".") || !probeEnvPathPattern.MatchString(source.SecretRef) {
+				return fmt.Errorf("provider %q capability %q probe env %q secretRef %q must be a dotted secret reference", providerName, capabilityType, name, source.SecretRef)
+			}
+		}
+		if sources != 1 {
+			return fmt.Errorf("provider %q capability %q probe env %q must declare exactly one source", providerName, capabilityType, name)
+		}
 	}
 	return nil
 }
