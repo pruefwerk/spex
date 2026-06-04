@@ -9,6 +9,9 @@ spec:
   execution:
     repetitions: 100
     concurrency: 10
+    rateLimit:
+      starts: 25
+      per: 1s
     failFast: false
     maxFailures: 10
     isolation:

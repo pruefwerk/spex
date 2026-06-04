@@ -3770,7 +3770,8 @@ spec:
     repetitions: 100
     concurrency: 10
     rateLimit:
-      perSecond: 25
+      starts: 25
+      per: 1s
     failFast: false
     maxFailures: 10
     isolation:
@@ -3786,9 +3787,12 @@ spec:
 		}
 		var parsed struct {
 			Execution struct {
-				Repetitions           int   `json:"repetitions"`
-				Concurrency           int   `json:"concurrency"`
-				RateLimitPerSecond    int   `json:"rateLimitPerSecond"`
+				Repetitions int `json:"repetitions"`
+				Concurrency int `json:"concurrency"`
+				RateLimit   *struct {
+					Starts int    `json:"starts"`
+					Per    string `json:"per"`
+				} `json:"rateLimit"`
 				FailFast              *bool `json:"failFast"`
 				MaxFailures           int   `json:"maxFailures"`
 				NamespacePerIteration bool  `json:"namespacePerIteration"`
@@ -3797,7 +3801,7 @@ spec:
 		if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
 			t.Fatalf("suite %s json is invalid: %v\n%s", command, err, stdout.String())
 		}
-		if parsed.Execution.Repetitions != 100 || parsed.Execution.Concurrency != 10 || parsed.Execution.RateLimitPerSecond != 25 || parsed.Execution.FailFast == nil || *parsed.Execution.FailFast || parsed.Execution.MaxFailures != 10 || !parsed.Execution.NamespacePerIteration {
+		if parsed.Execution.Repetitions != 100 || parsed.Execution.Concurrency != 10 || parsed.Execution.RateLimit == nil || parsed.Execution.RateLimit.Starts != 25 || parsed.Execution.RateLimit.Per != "1s" || parsed.Execution.FailFast == nil || *parsed.Execution.FailFast || parsed.Execution.MaxFailures != 10 || !parsed.Execution.NamespacePerIteration {
 			t.Fatalf("suite %s execution mismatch: %+v\n%s", command, parsed.Execution, stdout.String())
 		}
 	}
@@ -3806,7 +3810,7 @@ spec:
 	if err := Run([]string{"suite", "plan", "--suite", suite}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"execution:", "repetitions: 100", "concurrency: 10", "rateLimitPerSecond: 25", "failFast: false", "maxFailures: 10", "namespacePerIteration: true"} {
+	for _, want := range []string{"execution:", "repetitions: 100", "concurrency: 10", "rateLimit: 25 per 1s", "failFast: false", "maxFailures: 10", "namespacePerIteration: true"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("suite plan text missing %q:\n%s", want, stdout.String())
 		}
@@ -5459,6 +5463,52 @@ spec:
 	}
 	if !strings.Contains(stdout.String(), "suite passed: 2 scenario(s)") {
 		t.Fatalf("stdout missing repeated suite count:\n%s", stdout.String())
+	}
+}
+
+func TestSuiteRunAcceptsRateLimitedIterations(t *testing.T) {
+	root := repoRoot(t)
+	restore := chdir(t, root)
+	defer restore()
+	dir := t.TempDir()
+	suite := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suite, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: rate-limited-suite
+spec:
+  bindingRef: `+filepath.ToSlash(filepath.Join(root, "examples", "bindings", "local-dev.yaml"))+`
+  scenarios:
+    - `+filepath.ToSlash(filepath.Join(root, "examples", "scenarios", "mqtt-ingestion-basic.yaml"))+`
+  execution:
+    repetitions: 2
+    concurrency: 2
+    rateLimit:
+      starts: 1000
+      per: 1s
+    isolation:
+      namespacePerIteration: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := writeFakeKubectl(t, 0, "")
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"suite", "run", "--suite", suite, "--out", filepath.Join(dir, "out"), "--run-id", "suite-test", "--command", fake}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "suite passed: 2 scenario(s)") {
+		t.Fatalf("stdout missing repeated suite count:\n%s", stdout.String())
+	}
+}
+
+func TestSuiteRateLimiterWaitsBetweenStarts(t *testing.T) {
+	limiter := newSuiteRateLimiter(workspace.SuiteRateLimit{Starts: 10, Per: "1s"})
+	started := time.Now()
+	limiter.Wait()
+	limiter.Wait()
+	elapsed := time.Since(started)
+	if elapsed < 75*time.Millisecond {
+		t.Fatalf("rate-limiter wait was too short: %s", elapsed)
 	}
 }
 

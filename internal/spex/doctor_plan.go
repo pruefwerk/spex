@@ -611,12 +611,17 @@ type suitePlanSecretRef struct {
 }
 
 type suiteExecution struct {
-	Repetitions           int   `json:"repetitions,omitempty"`
-	Concurrency           int   `json:"concurrency,omitempty"`
-	RateLimitPerSecond    int   `json:"rateLimitPerSecond,omitempty"`
-	FailFast              *bool `json:"failFast,omitempty"`
-	MaxFailures           int   `json:"maxFailures,omitempty"`
-	NamespacePerIteration bool  `json:"namespacePerIteration,omitempty"`
+	Repetitions           int                      `json:"repetitions,omitempty"`
+	Concurrency           int                      `json:"concurrency,omitempty"`
+	RateLimit             *suiteExecutionRateLimit `json:"rateLimit,omitempty"`
+	FailFast              *bool                    `json:"failFast,omitempty"`
+	MaxFailures           int                      `json:"maxFailures,omitempty"`
+	NamespacePerIteration bool                     `json:"namespacePerIteration,omitempty"`
+}
+
+type suiteExecutionRateLimit struct {
+	Starts int    `json:"starts"`
+	Per    string `json:"per"`
 }
 
 func runSuitePlan(args []string, stdout io.Writer) error {
@@ -729,7 +734,7 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 
 func suiteExecutionFor(resolved workspace.ResolvedScenarioSuite) *suiteExecution {
 	execution := resolved.Suite.Spec.Execution
-	if execution.Repetitions == 0 && execution.Concurrency == 0 && execution.RateLimit.PerSecond == 0 && execution.FailFast == nil && execution.MaxFailures == 0 && !execution.Isolation.NamespacePerIteration {
+	if execution.Repetitions == 0 && execution.Concurrency == 0 && execution.RateLimit.Starts == 0 && execution.FailFast == nil && execution.MaxFailures == 0 && !execution.Isolation.NamespacePerIteration {
 		if !resolved.Suite.Spec.FailFast {
 			return nil
 		}
@@ -738,10 +743,12 @@ func suiteExecutionFor(resolved workspace.ResolvedScenarioSuite) *suiteExecution
 	out := suiteExecution{
 		Repetitions:           execution.Repetitions,
 		Concurrency:           execution.Concurrency,
-		RateLimitPerSecond:    execution.RateLimit.PerSecond,
 		FailFast:              execution.FailFast,
 		MaxFailures:           execution.MaxFailures,
 		NamespacePerIteration: execution.Isolation.NamespacePerIteration,
+	}
+	if execution.RateLimit.Starts > 0 {
+		out.RateLimit = &suiteExecutionRateLimit{Starts: execution.RateLimit.Starts, Per: execution.RateLimit.Per}
 	}
 	if out.FailFast == nil && resolved.Suite.Spec.FailFast {
 		out.FailFast = &resolved.Suite.Spec.FailFast
@@ -757,8 +764,8 @@ func writeSuiteExecution(stdout io.Writer, execution suiteExecution) {
 	if execution.Concurrency > 0 {
 		fmt.Fprintf(stdout, "  concurrency: %d\n", execution.Concurrency)
 	}
-	if execution.RateLimitPerSecond > 0 {
-		fmt.Fprintf(stdout, "  rateLimitPerSecond: %d\n", execution.RateLimitPerSecond)
+	if execution.RateLimit != nil {
+		fmt.Fprintf(stdout, "  rateLimit: %d per %s\n", execution.RateLimit.Starts, execution.RateLimit.Per)
 	}
 	if execution.FailFast != nil {
 		fmt.Fprintf(stdout, "  failFast: %t\n", *execution.FailFast)

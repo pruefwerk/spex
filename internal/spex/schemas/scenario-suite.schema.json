@@ -76,7 +76,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "perSecond": { "type": "integer", "minimum": 0 }
+            "starts": { "type": "integer", "minimum": 0 },
+            "per": { "type": "string", "minLength": 1 }
           }
         },
         "failFast": { "type": "boolean" },

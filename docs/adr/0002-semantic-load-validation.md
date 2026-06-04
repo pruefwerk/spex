@@ -26,7 +26,8 @@ spec:
     repetitions: 100
     concurrency: 10
     rateLimit:
-      perSecond: 25
+      starts: 25
+      per: 1s
     failFast: false
     maxFailures: 10
 ```
@@ -67,7 +68,8 @@ The first implementation adds:
 - suite report aggregation for executed, skipped, and failed iterations
 - early-stop reporting for `failFast` and `maxFailures`
 - bounded concurrent suite execution when `namespacePerIteration` isolation is enabled
+- optional start-rate limiting for repeated suite runs
 
 ## Follow-Up Work
 
-- Add optional rate limiting after repetition/concurrency behavior is proven.
+- Add richer load-run summary views after real project usage shows which aggregates matter.
