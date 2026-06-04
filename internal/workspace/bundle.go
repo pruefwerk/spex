@@ -13,6 +13,8 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
@@ -23,7 +25,10 @@ type ociBundleRef struct {
 	Digest     string
 }
 
-var fetchOCIBundleRef = fetchOCIBundleRefWithORAS
+var (
+	fetchOCIBundleRef    = fetchOCIBundleRefWithORAS
+	newOCIRegistryClient = newOCIRegistryClientFromDocker
+)
 
 func LoadBundleProviders(baseDir string, refs []BundleRef) ([]Provider, error) {
 	providers, _, err := LoadBundleProvidersAndCatalogPaths(baseDir, refs)
@@ -183,7 +188,11 @@ func fetchOCIBundleRefWithORAS(ctx context.Context, ref ociBundleRef, targetDir 
 	if err != nil {
 		return err
 	}
-	repo.Client = retry.DefaultClient
+	client, err := newOCIRegistryClient()
+	if err != nil {
+		return err
+	}
+	repo.Client = client
 	store, err := file.New(targetDir)
 	if err != nil {
 		return err
@@ -191,6 +200,18 @@ func fetchOCIBundleRefWithORAS(ctx context.Context, ref ociBundleRef, targetDir 
 	defer store.Close()
 	_, err = oras.Copy(ctx, repo, ref.Digest, store, ref.Digest, oras.DefaultCopyOptions)
 	return err
+}
+
+func newOCIRegistryClientFromDocker() (remote.Client, error) {
+	store, err := credentials.NewStoreFromDocker(credentials.StoreOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return &auth.Client{
+		Client:     retry.DefaultClient,
+		Cache:      auth.DefaultCache,
+		Credential: credentials.Credential(store),
+	}, nil
 }
 
 func loadLocalBundleProvider(baseDir string, ref BundleRef) (Provider, []string, error) {
