@@ -61,9 +61,10 @@ Inspect resolved integration bundles:
 ```sh
 spex bundle list --suite suite.yaml
 spex bundle explain --suite suite.yaml
+spex bundle lock --suite suite.yaml --out spex.bundle-lock.yaml
 ```
 
-`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths.
+`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths. `bundle lock` writes the resolved bundle inventory, including local file digests, Git revisions, capability schema refs, and probe image digests when images are pinned.
 
 Suites can reference built-in bundles or local bundle directories:
 
@@ -113,7 +114,7 @@ spec:
     - kind: custom.connection
 ```
 
-Git bundle sources use the same pinned `git::repo//path@ref` syntax as suite refs. OCI bundle sources are reserved for the locked external-bundle model and intentionally fail before bundle locking is implemented. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
+Git bundle sources use the same pinned `git::repo//path@ref` syntax as suite refs and record the resolved Git revision in `bundle explain` and `bundle lock`. OCI bundle sources remain reserved for the locked external-bundle model and intentionally fail before OCI digest enforcement is implemented. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
 
 For local and external bundles, the bundle probe image is the runtime boundary and can be implemented in any language. spex only requires the lowered operation file input and normalized result envelope output described in `docs/probe-contract.md`. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding for local demos and first-party compatibility.
 

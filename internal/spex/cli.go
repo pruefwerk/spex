@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -139,7 +140,7 @@ Commands:
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
   catalog   list, explain, check, or document reusable catalogs
-  bundle    list or explain resolved integration bundles
+  bundle    list, explain, or lock resolved integration bundles
   schema    list or print embedded JSON Schemas
   doctor    run host and suite preflight checks
   release   verify release artifacts
@@ -2846,14 +2847,15 @@ type bundleCommandOutput struct {
 }
 
 type bundleSummary struct {
-	Name           string                    `json:"name"`
-	Version        string                    `json:"version,omitempty"`
-	Source         string                    `json:"source,omitempty"`
-	SourceType     string                    `json:"sourceType,omitempty"`
-	ManifestFile   string                    `json:"manifestFile,omitempty"`
-	CatalogFiles   []string                  `json:"catalogFiles,omitempty"`
-	Capabilities   []bundleCapabilitySummary `json:"capabilities"`
-	BindingSchemas []string                  `json:"bindingSchemas"`
+	Name             string                    `json:"name"`
+	Version          string                    `json:"version,omitempty"`
+	Source           string                    `json:"source,omitempty"`
+	SourceType       string                    `json:"sourceType,omitempty"`
+	ResolvedRevision string                    `json:"resolvedRevision,omitempty"`
+	ManifestFile     string                    `json:"manifestFile,omitempty"`
+	CatalogFiles     []string                  `json:"catalogFiles,omitempty"`
+	Capabilities     []bundleCapabilitySummary `json:"capabilities"`
+	BindingSchemas   []string                  `json:"bindingSchemas"`
 }
 
 type bundleCapabilitySummary struct {
@@ -2872,13 +2874,15 @@ type bundleCapabilitySummary struct {
 
 func runBundle(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("bundle requires subcommand list or explain")
+		return fmt.Errorf("bundle requires subcommand list, explain, or lock")
 	}
 	switch args[0] {
 	case "list":
 		return runBundleList(args[1:], stdout)
 	case "explain":
 		return runBundleExplain(args[1:], stdout)
+	case "lock":
+		return runBundleLock(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown bundle subcommand %q", args[0])
 	}
@@ -2928,6 +2932,7 @@ func bundleSummaryForResolvedBundle(bundle workspace.ResolvedBundle) bundleSumma
 	summary.Version = bundle.Version
 	summary.Source = bundle.Source
 	summary.SourceType = bundle.SourceType
+	summary.ResolvedRevision = bundle.ResolvedRevision
 	summary.ManifestFile = bundle.ManifestPath
 	summary.CatalogFiles = bundle.CatalogPaths
 	return summary
@@ -3035,6 +3040,9 @@ func runBundleExplain(args []string, stdout io.Writer) error {
 		if bundle.SourceType != "" {
 			fmt.Fprintf(stdout, "  sourceType: %s\n", bundle.SourceType)
 		}
+		if bundle.ResolvedRevision != "" {
+			fmt.Fprintf(stdout, "  resolvedRevision: %s\n", bundle.ResolvedRevision)
+		}
 		if bundle.ManifestFile != "" {
 			fmt.Fprintf(stdout, "  manifest: %s\n", bundle.ManifestFile)
 		}
@@ -3061,6 +3069,185 @@ func runBundleExplain(args []string, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+type bundleLockDocument struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Bundles    []bundleLockEntry `yaml:"bundles"`
+}
+
+type bundleLockEntry struct {
+	Name             string                    `yaml:"name"`
+	Version          string                    `yaml:"version,omitempty"`
+	Source           string                    `yaml:"source"`
+	SourceType       string                    `yaml:"sourceType"`
+	ResolvedRevision string                    `yaml:"resolvedRevision,omitempty"`
+	ManifestFile     string                    `yaml:"manifestFile,omitempty"`
+	ManifestDigest   string                    `yaml:"manifestDigest,omitempty"`
+	CatalogFiles     []string                  `yaml:"catalogFiles,omitempty"`
+	BindingSchemas   []bundleBindingSchemaLock `yaml:"bindingSchemas,omitempty"`
+	Capabilities     []bundleCapabilityLock    `yaml:"capabilities"`
+}
+
+type bundleBindingSchemaLock struct {
+	Kind   string           `yaml:"kind"`
+	Schema bundleSchemaLock `yaml:"schema,omitempty"`
+}
+
+type bundleCapabilityLock struct {
+	Type             string            `yaml:"type"`
+	BindingKind      string            `yaml:"bindingKind"`
+	InputSchema      bundleSchemaLock  `yaml:"inputSchema,omitempty"`
+	ResultSchema     bundleSchemaLock  `yaml:"resultSchema,omitempty"`
+	ProbeImage       string            `yaml:"probeImage,omitempty"`
+	ProbeImageDigest string            `yaml:"probeImageDigest,omitempty"`
+	Command          []string          `yaml:"command,omitempty"`
+	InputPath        string            `yaml:"inputPath,omitempty"`
+	OutputPath       string            `yaml:"outputPath,omitempty"`
+	Env              map[string]string `yaml:"env,omitempty"`
+}
+
+type bundleSchemaLock struct {
+	Ref    string `yaml:"ref,omitempty"`
+	Digest string `yaml:"digest,omitempty"`
+}
+
+func runBundleLock(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("bundle lock", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	suitePath := fs.String("suite", "", "suite YAML path")
+	outPath := fs.String("out", "", "lock file output path, or - for stdout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectPositionalArgs(fs, "bundle lock"); err != nil {
+		return err
+	}
+	if *suitePath == "" {
+		return fmt.Errorf("bundle lock requires --suite")
+	}
+	if *outPath == "" {
+		return fmt.Errorf("bundle lock requires --out")
+	}
+	resolved, err := workspace.LoadScenarioSuite(*suitePath)
+	if err != nil {
+		return fmt.Errorf("suite: %w", err)
+	}
+	doc, err := bundleLockForResolvedBundles(resolved.Bundles)
+	if err != nil {
+		return err
+	}
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	if *outPath == "-" {
+		_, err = stdout.Write(content)
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(*outPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(*outPath, content, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "bundle lock written: %s\n", *outPath)
+	return nil
+}
+
+func bundleLockForResolvedBundles(bundles []workspace.ResolvedBundle) (bundleLockDocument, error) {
+	doc := bundleLockDocument{
+		APIVersion: "spex.bundle-lock.v0.1",
+		Kind:       "IntegrationBundleLock",
+	}
+	for _, bundle := range bundles {
+		entry := bundleLockEntry{
+			Name:             bundle.Name,
+			Version:          bundle.Version,
+			Source:           bundle.Source,
+			SourceType:       bundle.SourceType,
+			ResolvedRevision: bundle.ResolvedRevision,
+			ManifestFile:     bundle.ManifestPath,
+			CatalogFiles:     bundle.CatalogPaths,
+		}
+		if bundle.ManifestPath != "" {
+			digest, err := sha256FileDigest(bundle.ManifestPath)
+			if err != nil {
+				return bundleLockDocument{}, err
+			}
+			entry.ManifestDigest = digest
+		}
+		manifestDir := filepath.Dir(bundle.ManifestPath)
+		for _, binding := range bundle.Provider.BindingSchemas {
+			schema, err := bundleSchemaLockForRef(manifestDir, binding.Schema)
+			if err != nil {
+				return bundleLockDocument{}, err
+			}
+			entry.BindingSchemas = append(entry.BindingSchemas, bundleBindingSchemaLock{
+				Kind:   binding.Kind,
+				Schema: schema,
+			})
+		}
+		for _, capability := range bundle.Provider.Capabilities {
+			inputSchema, err := bundleSchemaLockForRef(manifestDir, capability.InputSchema)
+			if err != nil {
+				return bundleLockDocument{}, err
+			}
+			resultSchema, err := bundleSchemaLockForRef(manifestDir, capability.ResultSchema)
+			if err != nil {
+				return bundleLockDocument{}, err
+			}
+			entry.Capabilities = append(entry.Capabilities, bundleCapabilityLock{
+				Type:             capability.Type,
+				BindingKind:      capability.BindingKind,
+				InputSchema:      inputSchema,
+				ResultSchema:     resultSchema,
+				ProbeImage:       capability.Probe.Image,
+				ProbeImageDigest: probeImageDigest(capability.Probe.Image),
+				Command:          capability.Probe.Command,
+				InputPath:        capability.Probe.Input.Path,
+				OutputPath:       capability.Probe.Output.Path,
+				Env:              bundleEnvSummary(capability.Probe.Env),
+			})
+		}
+		doc.Bundles = append(doc.Bundles, entry)
+	}
+	return doc, nil
+}
+
+func bundleSchemaLockForRef(baseDir string, ref workspace.SchemaRef) (bundleSchemaLock, error) {
+	out := bundleSchemaLock{Ref: bundleSchemaRefSummary(ref)}
+	if ref.Path == "" || baseDir == "." {
+		return out, nil
+	}
+	path := ref.Path
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(baseDir, path)
+	}
+	digest, err := sha256FileDigest(path)
+	if err != nil {
+		return bundleSchemaLock{}, err
+	}
+	out.Digest = digest
+	return out, nil
+}
+
+func sha256FileDigest(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(content)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func probeImageDigest(image string) string {
+	at := strings.LastIndex(image, "@sha256:")
+	if at < 0 {
+		return ""
+	}
+	return image[at+1:]
 }
 
 func sortedStringMapKeys(values map[string]string) []string {
