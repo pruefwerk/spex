@@ -2,12 +2,15 @@ package workspace
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 func TestLoadInputsAcceptsLocalEnvFileSecretMaterialization(t *testing.T) {
@@ -450,6 +453,36 @@ func TestLoadResolvedBundlesCleansOCIBundleCacheWhenRootManifestIsMissing(t *tes
 	}
 	if _, statErr := os.Stat(targetDir); !os.IsNotExist(statErr) {
 		t.Fatalf("expected cache dir cleanup after invalid OCI artifact, stat err=%v", statErr)
+	}
+}
+
+func TestNewOCIRegistryClientUsesDockerCredentials(t *testing.T) {
+	dockerConfig := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dockerConfig)
+	encoded := base64.StdEncoding.EncodeToString([]byte("octo:s3cr3t"))
+	if err := os.WriteFile(filepath.Join(dockerConfig, "config.json"), []byte(`{
+  "auths": {
+    "ghcr.io": {
+      "auth": "`+encoded+`"
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client, err := newOCIRegistryClientFromDocker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authClient, ok := client.(*auth.Client)
+	if !ok {
+		t.Fatalf("OCI registry client type = %T, want *auth.Client", client)
+	}
+	cred, err := authClient.Credential(context.Background(), "ghcr.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Username != "octo" || cred.Password != "s3cr3t" {
+		t.Fatalf("unexpected Docker credential: %+v", cred)
 	}
 }
 
