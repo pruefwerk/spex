@@ -260,7 +260,7 @@ spec:
   integrationProfileRef: git::https://github.com/pruefwerk/platform-test-targets.git//integration/local-kind.yaml@v1.2.3
 ```
 
-For CI, use immutable tags or commit SHAs instead of mutable branches. `spex doctor --suite suite.yaml --require-pinned-git-refs` fails mutable external refs such as `@main`, `@master`, `@develop`, and `@dev`. Without `--require-pinned-git-refs`, those refs are reported as warnings. Git checkouts are cached under `.spex/git` by default, or under `SPEX_GIT_CACHE_DIR` when set.
+For CI, use immutable tags or commit SHAs instead of mutable branches. `spex doctor --suite suite.yaml --require-pinned-git-refs` fails mutable external refs such as `@main`, `@master`, `@develop`, and `@dev`. Without `--require-pinned-git-refs`, those refs are reported as warnings. `spex doctor --require-pinned-images` also checks non-built-in bundle probe images. Git checkouts are cached under `.spex/git` by default, or under `SPEX_GIT_CACHE_DIR` when set.
 
 The explicit form also works with `ssh://`, `https://`, and `file://` repository URLs.
 

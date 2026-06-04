@@ -137,6 +137,12 @@ func runDoctor(args []string, stdout io.Writer) error {
 							out.Status = "failed"
 						}
 					}
+					for _, check := range bundlePinnedImageChecks(resolved.Bundles) {
+						out.Checks = append(out.Checks, check)
+						if check.Status == "failed" {
+							out.Status = "failed"
+						}
+					}
 				}
 			}
 			if resolved.IntegrationProfilePath != "" {
@@ -208,6 +214,29 @@ func pinnedImageChecks(inputs []workspace.Inputs) []doctorCheck {
 			continue
 		}
 		checks = append(checks, doctorCheck{Name: name, Status: "passed", Message: image})
+	}
+	return checks
+}
+
+func bundlePinnedImageChecks(bundles []workspace.ResolvedBundle) []doctorCheck {
+	var checks []doctorCheck
+	for _, bundle := range bundles {
+		if bundle.SourceType == "builtin" {
+			continue
+		}
+		for _, capability := range bundle.Provider.Capabilities {
+			image := strings.TrimSpace(capability.Probe.Image)
+			name := "bundleImageRef:" + bundle.Name + ":" + capability.Type
+			if image == "" {
+				checks = append(checks, doctorCheck{Name: name, Status: "failed", Message: "bundle probe image is empty"})
+				continue
+			}
+			if !pinnedImageDigestPattern.MatchString(image) {
+				checks = append(checks, doctorCheck{Name: name, Status: "failed", Message: fmt.Sprintf("%s is not pinned by a valid sha256 digest", image)})
+				continue
+			}
+			checks = append(checks, doctorCheck{Name: name, Status: "passed", Message: image})
+		}
 	}
 	return checks
 }

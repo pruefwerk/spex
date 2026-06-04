@@ -4768,6 +4768,58 @@ func TestDoctorPinnedImageChecksRequireDigest(t *testing.T) {
 	}
 }
 
+func TestDoctorBundlePinnedImageChecksRequireDigest(t *testing.T) {
+	bundles := []workspace.ResolvedBundle{
+		{
+			Name:       "custom",
+			SourceType: "local",
+			Provider: workspace.Provider{Capabilities: []workspace.Capability{
+				{
+					Type: "custom.echo",
+					Probe: workspace.ProbeInvocationSpec{
+						Image: "registry.example.com/custom-probe:1.2.3",
+					},
+				},
+			}},
+		},
+		{
+			Name:       "redis",
+			SourceType: "builtin",
+			Provider: workspace.Provider{Capabilities: []workspace.Capability{
+				{
+					Type: "redis.get",
+					Probe: workspace.ProbeInvocationSpec{
+						Image: "spex-probe:dev",
+					},
+				},
+			}},
+		},
+		{
+			Name:       "external",
+			SourceType: "git",
+			Provider: workspace.Provider{Capabilities: []workspace.Capability{
+				{
+					Type: "external.run",
+					Probe: workspace.ProbeInvocationSpec{
+						Image: "registry.example.com/external-probe@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					},
+				},
+			}},
+		},
+	}
+
+	checks := bundlePinnedImageChecks(bundles)
+	if !hasDoctorCheck(checks, "bundleImageRef:custom:custom.echo", "failed") {
+		t.Fatalf("expected local bundle tagged image failure, got %+v", checks)
+	}
+	if hasDoctorCheck(checks, "bundleImageRef:redis:redis.get", "failed") || hasDoctorCheck(checks, "bundleImageRef:redis:redis.get", "passed") {
+		t.Fatalf("expected built-in bundle image to be skipped, got %+v", checks)
+	}
+	if !hasDoctorCheck(checks, "bundleImageRef:external:external.run", "passed") {
+		t.Fatalf("expected pinned Git bundle image pass, got %+v", checks)
+	}
+}
+
 func TestCatalogExpressionsCanOverlap(t *testing.T) {
 	cases := []struct {
 		name string
