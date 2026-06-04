@@ -1,4 +1,4 @@
-.PHONY: test dependency-check install-vulncheck vulncheck security-check verify build install release release-check release-archive release-archive-check production-check production-candidate-check reference-scenario-check live-proof-kind live-proof-keycloak probe-image redis-probe-image influxdb-probe-image spex-status compile-example compile-example-keycloak compile-example-kind compile-example-kind-keycloak compile-suite-example validate-suite-example run-example-noop clean-example smoke-probes smoke-integration-script integration-example integration-example-keycloak integration-example-kind-keycloak
+.PHONY: test dependency-check install-vulncheck vulncheck security-check verify build install release release-check release-archive release-archive-check production-check production-candidate-check reference-scenario-check live-proof-kind live-proof-keycloak live-proof-oci-bundle probe-image redis-probe-image influxdb-probe-image spex-status compile-example compile-example-keycloak compile-example-kind compile-example-kind-keycloak compile-suite-example validate-suite-example run-example-noop clean-example smoke-probes smoke-integration-script integration-example integration-example-keycloak integration-example-kind-keycloak
 
 GO_RUN ?= env GOCACHE=$(CURDIR)/.cache/go-build go run
 GO_BUILD ?= env GOCACHE=$(CURDIR)/.cache/go-build go build
@@ -140,6 +140,9 @@ live-proof-kind: probe-image
 live-proof-keycloak: probe-image
 	BINDING=examples/bindings/local-dev-keycloak.yaml INTEGRATION_PROFILE=examples/integration/local-kind-keycloak-profile.yaml WORKSPACE=generated/mqtt-ingestion-basic-keycloak-live KUBE_CONTEXT=kind-kind PROBE_IMAGE=$${PROBE_IMAGE:-spex-probe:dev} PROBE_IMAGE_PULL_POLICY=IfNotPresent scripts/integration_live.sh
 
+live-proof-oci-bundle:
+	scripts/oci_bundle_live_proof.sh
+
 probe-image:
 	docker build -f examples/integration/probe/Dockerfile -t $${PROBE_IMAGE:-spex-probe:dev} .
 
@@ -183,6 +186,7 @@ smoke-probes:
 
 smoke-integration-script:
 	sh -n scripts/integration_live.sh
+	sh -n scripts/oci_bundle_live_proof.sh
 	mkdir -p $(SMOKE_DIR)
 	scripts/spex_status.sh >/tmp/spex-status-smoke.out; grep -Eq "live proof: (ready to attempt|complete)" /tmp/spex-status-smoke.out
 	$(GO_RUN) ./cmd/spex suite validate --suite examples/suites/mqtt-local.yaml
@@ -218,7 +222,7 @@ smoke-integration-script:
 	if $(GO_RUN) ./cmd/spex validate --scenario examples/scenarios/mqtt-ingestion-basic.yaml --binding examples/bindings/local-dev.yaml --integration-profile examples/integration/local-kind-profile.yaml --kube-context kind-other >/tmp/spex-profile-context-smoke.out 2>&1; then exit 1; fi; grep -q 'requires kubeContext "kind-kind"' /tmp/spex-profile-context-smoke.out
 	INTEGRATION_CONFIG=$(SMOKE_DIR)/missing-config.env scripts/integration_live.sh >/tmp/spex-config-smoke.out 2>&1; test $$? -eq 2; grep -q "INTEGRATION_CONFIG does not exist" /tmp/spex-config-smoke.out
 	INTEGRATION_CONFIG=examples/integration/local-kind.env.example INTEGRATION_RUN_KUTTL=false KUBECTL=true scripts/integration_live.sh >/tmp/spex-config-example-smoke.out; grep -q "workspace compiled:" /tmp/spex-config-example-smoke.out
-	INTEGRATION_PROFILE=$(SMOKE_DIR)/missing-profile.yaml scripts/integration_live.sh >/tmp/spex-profile-smoke.out 2>&1; test $$? -eq 2; grep -q "INTEGRATION_PROFILE does not exist" /tmp/spex-profile-smoke.out
+	INTEGRATION_PROFILE=$(SMOKE_DIR)/missing-profile.yaml KUBECTL=true scripts/integration_live.sh >/tmp/spex-profile-smoke.out 2>&1; test $$? -eq 2; grep -q "INTEGRATION_PROFILE does not exist" /tmp/spex-profile-smoke.out
 	printf '%s\n' 'KUBECTL=/bin/true$$(touch /tmp/spex-eval-smoke)' >/tmp/spex-eval-smoke.env; rm -f /tmp/spex-eval-smoke; INTEGRATION_CONFIG=/tmp/spex-eval-smoke.env scripts/integration_live.sh >/tmp/spex-eval-smoke.out 2>&1; test $$? -eq 2; test ! -e /tmp/spex-eval-smoke
 	printf '%s\n' 'apiVersion: spex.integration.v0.1' 'kind: IntegrationProfile' 'spec:' '  setup:' '    commands:' '      - command: helm install placeholder oci://registry.example.com/platform/graphql-api' >/tmp/spex-placeholder-profile.yaml; INTEGRATION_PROFILE=/tmp/spex-placeholder-profile.yaml KUBECTL=true scripts/integration_live.sh >/tmp/spex-placeholder-profile-smoke.out 2>&1; test $$? -eq 2; grep -q "contains placeholder chart/image coordinates" /tmp/spex-placeholder-profile-smoke.out
 	SPEX_MQTT_USERNAME= SPEX_MQTT_PASSWORD= SPEX_GRAPHQL_TOKEN= INTEGRATION_PROFILE=examples/integration/local-kind-profile.yaml KUBE_CONTEXT=kind-kind KUBECTL=true scripts/integration_live.sh >/tmp/spex-profile-env-smoke.out 2>&1; test $$? -eq 2; grep -q 'SPEX_.* is not set' /tmp/spex-profile-env-smoke.out

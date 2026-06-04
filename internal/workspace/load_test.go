@@ -486,6 +486,25 @@ func TestNewOCIRegistryClientUsesDockerCredentials(t *testing.T) {
 	}
 }
 
+func TestNewOCIRepositoryUsesPlainHTTPOnlyWhenEnabled(t *testing.T) {
+	ref := ociBundleRef{Repository: "localhost:5000/spex-bundles/custom", Digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+	repo, err := newOCIRepository(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.PlainHTTP {
+		t.Fatalf("PlainHTTP enabled without SPEX_OCI_BUNDLE_PLAIN_HTTP=true")
+	}
+	t.Setenv("SPEX_OCI_BUNDLE_PLAIN_HTTP", "true")
+	repo, err = newOCIRepository(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repo.PlainHTTP {
+		t.Fatalf("PlainHTTP not enabled with SPEX_OCI_BUNDLE_PLAIN_HTTP=true")
+	}
+}
+
 func writeMinimalBundleManifest(t *testing.T, targetDir, name, version string) error {
 	t.Helper()
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {

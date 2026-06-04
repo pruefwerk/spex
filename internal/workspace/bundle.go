@@ -184,7 +184,7 @@ func checkoutOCIBundleRef(baseDir, source string, ref ociBundleRef) (string, err
 }
 
 func fetchOCIBundleRefWithORAS(ctx context.Context, ref ociBundleRef, targetDir string) error {
-	repo, err := remote.NewRepository(ref.Repository)
+	repo, err := newOCIRepository(ref)
 	if err != nil {
 		return err
 	}
@@ -200,6 +200,15 @@ func fetchOCIBundleRefWithORAS(ctx context.Context, ref ociBundleRef, targetDir 
 	defer store.Close()
 	_, err = oras.Copy(ctx, repo, ref.Digest, store, ref.Digest, oras.DefaultCopyOptions)
 	return err
+}
+
+func newOCIRepository(ref ociBundleRef) (*remote.Repository, error) {
+	repo, err := remote.NewRepository(ref.Repository)
+	if err != nil {
+		return nil, err
+	}
+	repo.PlainHTTP = strings.EqualFold(os.Getenv("SPEX_OCI_BUNDLE_PLAIN_HTTP"), "true")
+	return repo, nil
 }
 
 func newOCIRegistryClientFromDocker() (remote.Client, error) {
