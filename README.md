@@ -121,10 +121,12 @@ First-party provider probes can also be built as standalone images. For example:
 
 ```sh
 make redis-probe-image
+make influxdb-probe-image
 ```
 
 This builds `spex-probe-redis:dev` from `examples/integration/probe-redis/Dockerfile`.
-The release archive includes the matching `spex-probe-redis` binary for building or wrapping that probe without the aggregate `spex-probe` entrypoint.
+This builds `spex-probe-influxdb:dev` from `examples/integration/probe-influxdb/Dockerfile`.
+The release archive includes the matching `spex-probe-redis` and `spex-probe-influxdb` binaries for building or wrapping those probes without the aggregate `spex-probe` entrypoint.
 
 Inspect reusable catalogs:
 

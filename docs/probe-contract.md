@@ -97,6 +97,8 @@ First-party provider probes may be shipped both ways:
 ```text
 spex-probe redis run ...       # aggregate image entrypoint
 spex-probe-redis run ...       # provider-specific image entrypoint
+spex-probe influxdb run ...    # aggregate image entrypoint
+spex-probe-influxdb run ...    # provider-specific image entrypoint
 ```
 
 Both forms consume the same lowered operation file and write the same normalized result envelope. The provider-specific form is the target shape for standalone probe images.

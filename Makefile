@@ -1,4 +1,4 @@
-.PHONY: test dependency-check install-vulncheck vulncheck security-check verify build install release release-check release-archive release-archive-check production-check production-candidate-check reference-scenario-check live-proof-kind live-proof-keycloak probe-image redis-probe-image spex-status compile-example compile-example-keycloak compile-example-kind compile-example-kind-keycloak compile-suite-example validate-suite-example run-example-noop clean-example smoke-probes smoke-integration-script integration-example integration-example-keycloak integration-example-kind-keycloak
+.PHONY: test dependency-check install-vulncheck vulncheck security-check verify build install release release-check release-archive release-archive-check production-check production-candidate-check reference-scenario-check live-proof-kind live-proof-keycloak probe-image redis-probe-image influxdb-probe-image spex-status compile-example compile-example-keycloak compile-example-kind compile-example-kind-keycloak compile-suite-example validate-suite-example run-example-noop clean-example smoke-probes smoke-integration-script integration-example integration-example-keycloak integration-example-kind-keycloak
 
 GO_RUN ?= env GOCACHE=$(CURDIR)/.cache/go-build go run
 GO_BUILD ?= env GOCACHE=$(CURDIR)/.cache/go-build go build
@@ -48,6 +48,7 @@ build:
 	mkdir -p $(BINDIR)
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex ./cmd/spex
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-probe ./cmd/spex-probe
+	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-probe-influxdb ./cmd/spex-probe-influxdb
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-probe-redis ./cmd/spex-probe-redis
 	$(GO_BUILD) -ldflags "$(LDFLAGS)" -o $(BINDIR)/spex-demo-stack ./cmd/spex-demo-stack
 
@@ -55,6 +56,7 @@ install: build
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	install -m 0755 $(BINDIR)/spex $(DESTDIR)$(PREFIX)/bin/spex
 	install -m 0755 $(BINDIR)/spex-probe $(DESTDIR)$(PREFIX)/bin/spex-probe
+	install -m 0755 $(BINDIR)/spex-probe-influxdb $(DESTDIR)$(PREFIX)/bin/spex-probe-influxdb
 	install -m 0755 $(BINDIR)/spex-probe-redis $(DESTDIR)$(PREFIX)/bin/spex-probe-redis
 	install -m 0755 $(BINDIR)/spex-demo-stack $(DESTDIR)$(PREFIX)/bin/spex-demo-stack
 
@@ -62,6 +64,7 @@ release: build
 	mkdir -p $(DISTDIR)
 	install -m 0755 $(BINDIR)/spex $(DISTDIR)/spex
 	install -m 0755 $(BINDIR)/spex-probe $(DISTDIR)/spex-probe
+	install -m 0755 $(BINDIR)/spex-probe-influxdb $(DISTDIR)/spex-probe-influxdb
 	install -m 0755 $(BINDIR)/spex-probe-redis $(DISTDIR)/spex-probe-redis
 	install -m 0755 $(BINDIR)/spex-demo-stack $(DISTDIR)/spex-demo-stack
 	install -m 0644 LICENSE $(DISTDIR)/LICENSE
@@ -95,6 +98,7 @@ release-check:
 	$(MAKE) release DISTDIR=$(RELEASE_CHECK_DISTDIR) VERSION=$(VERSION) COMMIT=$(COMMIT) BUILD_DATE=$(BUILD_DATE)
 	test -f $(RELEASE_CHECK_DISTDIR)/spex
 	test -f $(RELEASE_CHECK_DISTDIR)/spex-probe
+	test -f $(RELEASE_CHECK_DISTDIR)/spex-probe-influxdb
 	test -f $(RELEASE_CHECK_DISTDIR)/spex-probe-redis
 	test -f $(RELEASE_CHECK_DISTDIR)/spex-demo-stack
 	test -f $(RELEASE_CHECK_DISTDIR)/LICENSE
@@ -139,6 +143,9 @@ probe-image:
 
 redis-probe-image:
 	docker build -f examples/integration/probe-redis/Dockerfile -t $${REDIS_PROBE_IMAGE:-spex-probe-redis:dev} .
+
+influxdb-probe-image:
+	docker build -f examples/integration/probe-influxdb/Dockerfile -t $${INFLUXDB_PROBE_IMAGE:-spex-probe-influxdb:dev} .
 
 spex-status:
 	scripts/spex_status.sh
