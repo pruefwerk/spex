@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var ociBundleDigestPattern = regexp.MustCompile(`^oci://.+@sha256:[a-f0-9]{64}$`)
 
 func LoadBundleProviders(baseDir string, refs []BundleRef) ([]Provider, error) {
 	providers, _, err := LoadBundleProvidersAndCatalogPaths(baseDir, refs)
@@ -64,6 +67,12 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 			})
 			continue
 		}
+		if strings.HasPrefix(ref.Source, "oci://") {
+			if err := validateOCIBundleSource(ref.Source); err != nil {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
+			}
+			return nil, fmt.Errorf("spec.bundleRefs[%d].source %q is digest-pinned, but OCI bundle fetching is not implemented", i, ref.Source)
+		}
 		if gitRef, ok, err := parseGitFileRef(ref.Source); err != nil {
 			return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
 		} else if ok {
@@ -85,9 +94,6 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 			bundles = append(bundles, bundle)
 			continue
 		}
-		if strings.HasPrefix(ref.Source, "oci://") {
-			return nil, fmt.Errorf("spec.bundleRefs[%d].source %q is not supported before bundle locking", i, ref.Source)
-		}
 		bundle, err := loadLocalBundle(baseDir, ref)
 		if err != nil {
 			return nil, fmt.Errorf("spec.bundleRefs[%d]: %w", i, err)
@@ -95,6 +101,16 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 		bundles = append(bundles, bundle)
 	}
 	return bundles, nil
+}
+
+func validateOCIBundleSource(source string) error {
+	if !strings.Contains(source, "@sha256:") {
+		return fmt.Errorf("OCI bundle refs must be pinned by digest using @sha256:<64 lowercase hex chars>")
+	}
+	if !ociBundleDigestPattern.MatchString(source) {
+		return fmt.Errorf("OCI bundle ref digest must use sha256 with 64 lowercase hex chars")
+	}
+	return nil
 }
 
 func loadLocalBundleProvider(baseDir string, ref BundleRef) (Provider, []string, error) {

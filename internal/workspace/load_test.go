@@ -325,6 +325,39 @@ spec:
 	}
 }
 
+func TestLoadResolvedBundlesRejectsUnpinnedOCIBundleRef(t *testing.T) {
+	_, err := LoadResolvedBundles(t.TempDir(), []BundleRef{{
+		Name:    "custom",
+		Version: "0.1.0",
+		Source:  "oci://ghcr.io/pruefwerk/spex-bundles/custom:0.1.0",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "must be pinned by digest") {
+		t.Fatalf("expected unpinned OCI bundle error, got %v", err)
+	}
+}
+
+func TestLoadResolvedBundlesRejectsMalformedOCIBundleDigest(t *testing.T) {
+	_, err := LoadResolvedBundles(t.TempDir(), []BundleRef{{
+		Name:    "custom",
+		Version: "0.1.0",
+		Source:  "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:not-a-digest",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "64 lowercase hex chars") {
+		t.Fatalf("expected malformed OCI digest error, got %v", err)
+	}
+}
+
+func TestLoadResolvedBundlesAcceptsDigestPinnedOCIBundleRefBeforeFetchBoundary(t *testing.T) {
+	_, err := LoadResolvedBundles(t.TempDir(), []BundleRef{{
+		Name:    "custom",
+		Version: "0.1.0",
+		Source:  "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "digest-pinned") || !strings.Contains(err.Error(), "OCI bundle fetching is not implemented") {
+		t.Fatalf("expected digest-pinned OCI fetch-boundary error, got %v", err)
+	}
+}
+
 func TestLoadScenarioSuiteResolvesLocalRefsToAbsolutePaths(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
