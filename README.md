@@ -63,7 +63,7 @@ spex bundle list --suite suite.yaml
 spex bundle explain --suite suite.yaml
 ```
 
-`bundle list` shows locally resolved provider bundles. `bundle explain` shows registered capabilities, binding kinds, schema presence, probe images, commands, env mappings, and operation/result paths.
+`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths.
 
 Suites can reference built-in bundles or local bundle directories:
 

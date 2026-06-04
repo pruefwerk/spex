@@ -2847,20 +2847,27 @@ type bundleCommandOutput struct {
 
 type bundleSummary struct {
 	Name           string                    `json:"name"`
+	Version        string                    `json:"version,omitempty"`
+	Source         string                    `json:"source,omitempty"`
+	SourceType     string                    `json:"sourceType,omitempty"`
+	ManifestFile   string                    `json:"manifestFile,omitempty"`
+	CatalogFiles   []string                  `json:"catalogFiles,omitempty"`
 	Capabilities   []bundleCapabilitySummary `json:"capabilities"`
 	BindingSchemas []string                  `json:"bindingSchemas"`
 }
 
 type bundleCapabilitySummary struct {
-	Type         string            `json:"type"`
-	BindingKind  string            `json:"bindingKind"`
-	InputSchema  bool              `json:"inputSchema"`
-	ResultSchema bool              `json:"resultSchema"`
-	Image        string            `json:"image,omitempty"`
-	Command      []string          `json:"command,omitempty"`
-	InputPath    string            `json:"inputPath,omitempty"`
-	OutputPath   string            `json:"outputPath,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
+	Type            string            `json:"type"`
+	BindingKind     string            `json:"bindingKind"`
+	InputSchema     bool              `json:"inputSchema"`
+	InputSchemaRef  string            `json:"inputSchemaRef,omitempty"`
+	ResultSchema    bool              `json:"resultSchema"`
+	ResultSchemaRef string            `json:"resultSchemaRef,omitempty"`
+	Image           string            `json:"image,omitempty"`
+	Command         []string          `json:"command,omitempty"`
+	InputPath       string            `json:"inputPath,omitempty"`
+	OutputPath      string            `json:"outputPath,omitempty"`
+	Env             map[string]string `json:"env,omitempty"`
 }
 
 func runBundle(args []string, stdout io.Writer) error {
@@ -2909,42 +2916,57 @@ func loadBundlesForCommand(command string, args []string) (bundleCommandOutput, 
 		return bundleCommandOutput{}, "", fmt.Errorf("suite: %w", err)
 	}
 	out := bundleCommandOutput{}
-	for _, ref := range resolved.Suite.Spec.BundleRefs {
-		if !strings.HasPrefix(ref.Source, "builtin:") {
-			continue
-		}
-		name := strings.TrimPrefix(ref.Source, "builtin:")
-		provider, ok := workspace.BuiltInProvider(name)
-		if !ok {
-			continue
-		}
-		out.Bundles = append(out.Bundles, bundleSummaryForProvider(provider))
-	}
-	for _, provider := range resolved.Providers {
-		out.Bundles = append(out.Bundles, bundleSummaryForProvider(provider))
+	for _, bundle := range resolved.Bundles {
+		out.Bundles = append(out.Bundles, bundleSummaryForResolvedBundle(bundle))
 	}
 	return out, format, nil
+}
+
+func bundleSummaryForResolvedBundle(bundle workspace.ResolvedBundle) bundleSummary {
+	summary := bundleSummaryForProvider(bundle.Provider)
+	summary.Name = bundle.Name
+	summary.Version = bundle.Version
+	summary.Source = bundle.Source
+	summary.SourceType = bundle.SourceType
+	summary.ManifestFile = bundle.ManifestPath
+	summary.CatalogFiles = bundle.CatalogPaths
+	return summary
 }
 
 func bundleSummaryForProvider(provider workspace.Provider) bundleSummary {
 	summary := bundleSummary{Name: provider.Name}
 	for _, capability := range provider.Capabilities {
 		summary.Capabilities = append(summary.Capabilities, bundleCapabilitySummary{
-			Type:         capability.Type,
-			BindingKind:  capability.BindingKind,
-			InputSchema:  capability.InputSchema.Schema != nil || capability.InputSchema.Name != "" || capability.InputSchema.Path != "",
-			ResultSchema: capability.ResultSchema.Schema != nil || capability.ResultSchema.Name != "" || capability.ResultSchema.Path != "",
-			Image:        capability.Probe.Image,
-			Command:      capability.Probe.Command,
-			InputPath:    capability.Probe.Input.Path,
-			OutputPath:   capability.Probe.Output.Path,
-			Env:          bundleEnvSummary(capability.Probe.Env),
+			Type:            capability.Type,
+			BindingKind:     capability.BindingKind,
+			InputSchema:     capability.InputSchema.Schema != nil || capability.InputSchema.Name != "" || capability.InputSchema.Path != "",
+			InputSchemaRef:  bundleSchemaRefSummary(capability.InputSchema),
+			ResultSchema:    capability.ResultSchema.Schema != nil || capability.ResultSchema.Name != "" || capability.ResultSchema.Path != "",
+			ResultSchemaRef: bundleSchemaRefSummary(capability.ResultSchema),
+			Image:           capability.Probe.Image,
+			Command:         capability.Probe.Command,
+			InputPath:       capability.Probe.Input.Path,
+			OutputPath:      capability.Probe.Output.Path,
+			Env:             bundleEnvSummary(capability.Probe.Env),
 		})
 	}
 	for _, binding := range provider.BindingSchemas {
 		summary.BindingSchemas = append(summary.BindingSchemas, binding.Kind)
 	}
 	return summary
+}
+
+func bundleSchemaRefSummary(ref workspace.SchemaRef) string {
+	switch {
+	case ref.Path != "":
+		return ref.Path
+	case ref.Name != "":
+		return ref.Name
+	case ref.Schema != nil:
+		return "inline"
+	default:
+		return ""
+	}
 }
 
 func bundleEnvSummary(env map[string]workspace.ProbeEnvSource) map[string]string {
@@ -2981,7 +3003,11 @@ func runBundleList(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "bundles:")
 	for _, bundle := range out.Bundles {
-		fmt.Fprintf(stdout, "  - %s (%d capability(s))\n", bundle.Name, len(bundle.Capabilities))
+		source := bundle.SourceType
+		if source == "" {
+			source = "unknown"
+		}
+		fmt.Fprintf(stdout, "  - %s (%s, %d capability(s))\n", bundle.Name, source, len(bundle.Capabilities))
 	}
 	return nil
 }
@@ -3000,10 +3026,28 @@ func runBundleExplain(args []string, stdout io.Writer) error {
 	}
 	for _, bundle := range out.Bundles {
 		fmt.Fprintf(stdout, "%s\n", bundle.Name)
+		if bundle.Version != "" {
+			fmt.Fprintf(stdout, "  version: %s\n", bundle.Version)
+		}
+		if bundle.Source != "" {
+			fmt.Fprintf(stdout, "  source: %s\n", bundle.Source)
+		}
+		if bundle.SourceType != "" {
+			fmt.Fprintf(stdout, "  sourceType: %s\n", bundle.SourceType)
+		}
+		if bundle.ManifestFile != "" {
+			fmt.Fprintf(stdout, "  manifest: %s\n", bundle.ManifestFile)
+		}
+		if len(bundle.CatalogFiles) > 0 {
+			fmt.Fprintln(stdout, "  catalogs:")
+			for _, path := range bundle.CatalogFiles {
+				fmt.Fprintf(stdout, "    - %s\n", path)
+			}
+		}
 		fmt.Fprintln(stdout, "  capabilities:")
 		for _, capability := range bundle.Capabilities {
-			fmt.Fprintf(stdout, "    - %s\n      bindingKind: %s\n      inputSchema: %t\n      resultSchema: %t\n      image: %s\n      command: %s\n      input: %s\n      output: %s\n",
-				capability.Type, capability.BindingKind, capability.InputSchema, capability.ResultSchema, capability.Image, strings.Join(capability.Command, " "), capability.InputPath, capability.OutputPath)
+			fmt.Fprintf(stdout, "    - %s\n      bindingKind: %s\n      inputSchema: %t\n      inputSchemaRef: %s\n      resultSchema: %t\n      resultSchemaRef: %s\n      image: %s\n      command: %s\n      input: %s\n      output: %s\n",
+				capability.Type, capability.BindingKind, capability.InputSchema, capability.InputSchemaRef, capability.ResultSchema, capability.ResultSchemaRef, capability.Image, strings.Join(capability.Command, " "), capability.InputPath, capability.OutputPath)
 			if len(capability.Env) > 0 {
 				fmt.Fprintln(stdout, "      env:")
 				for _, name := range sortedStringMapKeys(capability.Env) {
