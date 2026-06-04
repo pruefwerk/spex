@@ -571,6 +571,7 @@ type suitePlanOutput struct {
 	BindingFile            string               `json:"bindingFile"`
 	IntegrationProfileFile string               `json:"integrationProfileFile,omitempty"`
 	CatalogFiles           []string             `json:"catalogFiles,omitempty"`
+	Execution              *suiteExecution      `json:"execution,omitempty"`
 	Providers              []suiteProvider      `json:"providers,omitempty"`
 	WorkspaceRoot          string               `json:"workspaceRoot"`
 	ReportDir              string               `json:"reportDir"`
@@ -609,6 +610,14 @@ type suitePlanSecretRef struct {
 	Keys []string `json:"keys"`
 }
 
+type suiteExecution struct {
+	Repetitions        int   `json:"repetitions,omitempty"`
+	Concurrency        int   `json:"concurrency,omitempty"`
+	RateLimitPerSecond int   `json:"rateLimitPerSecond,omitempty"`
+	FailFast           *bool `json:"failFast,omitempty"`
+	MaxFailures        int   `json:"maxFailures,omitempty"`
+}
+
 func runSuitePlan(args []string, stdout io.Writer) error {
 	flags, format, err := parseSuitePlanFlags(args)
 	if err != nil {
@@ -629,6 +638,7 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 		BindingFile:            resolved.BindingPath,
 		IntegrationProfileFile: resolved.IntegrationProfilePath,
 		CatalogFiles:           resolved.CatalogPaths,
+		Execution:              suiteExecutionFor(resolved),
 		WorkspaceRoot:          outRoot,
 		ReportDir:              suiteReportDir(resolved, flags, outRoot),
 	}
@@ -685,6 +695,9 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "workspaceRoot: %s\n", plan.WorkspaceRoot)
 	fmt.Fprintf(stdout, "reportDir: %s\n", plan.ReportDir)
+	if plan.Execution != nil {
+		writeSuiteExecution(stdout, *plan.Execution)
+	}
 	if len(plan.HelmApps) > 0 {
 		fmt.Fprintln(stdout, "helmApps:")
 		for _, app := range plan.HelmApps {
@@ -711,6 +724,46 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "  - %s (%s) namespace=%s operations=%d\n", scenario.Name, scenario.File, scenario.Namespace, len(scenario.Operations))
 	}
 	return nil
+}
+
+func suiteExecutionFor(resolved workspace.ResolvedScenarioSuite) *suiteExecution {
+	execution := resolved.Suite.Spec.Execution
+	if execution.Repetitions == 0 && execution.Concurrency == 0 && execution.RateLimit.PerSecond == 0 && execution.FailFast == nil && execution.MaxFailures == 0 {
+		if !resolved.Suite.Spec.FailFast {
+			return nil
+		}
+		return &suiteExecution{FailFast: &resolved.Suite.Spec.FailFast}
+	}
+	out := suiteExecution{
+		Repetitions:        execution.Repetitions,
+		Concurrency:        execution.Concurrency,
+		RateLimitPerSecond: execution.RateLimit.PerSecond,
+		FailFast:           execution.FailFast,
+		MaxFailures:        execution.MaxFailures,
+	}
+	if out.FailFast == nil && resolved.Suite.Spec.FailFast {
+		out.FailFast = &resolved.Suite.Spec.FailFast
+	}
+	return &out
+}
+
+func writeSuiteExecution(stdout io.Writer, execution suiteExecution) {
+	fmt.Fprintln(stdout, "execution:")
+	if execution.Repetitions > 0 {
+		fmt.Fprintf(stdout, "  repetitions: %d\n", execution.Repetitions)
+	}
+	if execution.Concurrency > 0 {
+		fmt.Fprintf(stdout, "  concurrency: %d\n", execution.Concurrency)
+	}
+	if execution.RateLimitPerSecond > 0 {
+		fmt.Fprintf(stdout, "  rateLimitPerSecond: %d\n", execution.RateLimitPerSecond)
+	}
+	if execution.FailFast != nil {
+		fmt.Fprintf(stdout, "  failFast: %t\n", *execution.FailFast)
+	}
+	if execution.MaxFailures > 0 {
+		fmt.Fprintf(stdout, "  maxFailures: %d\n", execution.MaxFailures)
+	}
 }
 
 func parseSuitePlanFlags(args []string) (suiteFlags, string, error) {

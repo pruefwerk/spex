@@ -36,6 +36,7 @@
         },
         "workspaceDir": { "type": "string" },
         "failFast": { "type": "boolean" },
+        "execution": { "$ref": "#/$defs/execution" },
         "reports": {
           "type": "object",
           "additionalProperties": false,
@@ -63,6 +64,23 @@
           "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
           "uniqueItems": true
         }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repetitions": { "type": "integer", "minimum": 0 },
+        "concurrency": { "type": "integer", "minimum": 0 },
+        "rateLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "perSecond": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "failFast": { "type": "boolean" },
+        "maxFailures": { "type": "integer", "minimum": 0 }
       }
     },
     "bundleRef": {

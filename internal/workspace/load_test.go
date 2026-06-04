@@ -582,6 +582,61 @@ spec:
 	}
 }
 
+func TestLoadScenarioSuiteAcceptsExecutionControls(t *testing.T) {
+	dir := t.TempDir()
+	_, _ = writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
+	suitePath := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suitePath, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: semantic-load-suite
+spec:
+  bindingRef: binding.yaml
+  scenarios:
+    - scenario.yaml
+  execution:
+    repetitions: 100
+    concurrency: 10
+    rateLimit:
+      perSecond: 25
+    failFast: false
+    maxFailures: 10
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := LoadScenarioSuite(suitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := resolved.Suite.Spec.Execution
+	if execution.Repetitions != 100 || execution.Concurrency != 10 || execution.RateLimit.PerSecond != 25 || execution.FailFast == nil || *execution.FailFast || execution.MaxFailures != 10 {
+		t.Fatalf("execution controls mismatch: %+v", execution)
+	}
+}
+
+func TestLoadScenarioSuiteRejectsConcurrencyWithoutRepetitions(t *testing.T) {
+	dir := t.TempDir()
+	_, _ = writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
+	suitePath := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suitePath, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: invalid-load-suite
+spec:
+  bindingRef: binding.yaml
+  scenarios:
+    - scenario.yaml
+  execution:
+    concurrency: 10
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadScenarioSuite(suitePath)
+	if err == nil || !strings.Contains(err.Error(), "spec.execution.concurrency requires spec.execution.repetitions greater than 1") {
+		t.Fatalf("expected concurrency validation error, got %v", err)
+	}
+}
+
 func TestLoadInputsRejectsCredentialsInURLs(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://user:pass@emqx.platform.svc.cluster.local:1883")
