@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -4069,6 +4071,133 @@ spec:
 	}
 	if !strings.Contains(stdout.String(), "bundle vendor complete: 1 bundle(s)") {
 		t.Fatalf("bundle vendor force output mismatch:\n%s", stdout.String())
+	}
+}
+
+func TestBundleCommandsResolveCachedOCIBundle(t *testing.T) {
+	dir := t.TempDir()
+	cacheRoot := filepath.Join(dir, "oci-cache")
+	t.Setenv("SPEX_OCI_BUNDLE_CACHE_DIR", cacheRoot)
+	source := "oci://ghcr.io/pruefwerk/spex-bundles/custom@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	sum := sha256.Sum256([]byte(source))
+	cacheDir := filepath.Join(cacheRoot, hex.EncodeToString(sum[:])[:16])
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      probe:
+        image: registry.example.com/custom-probe@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: custom-oci-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: custom
+      version: 0.1.0
+      source: `+source+`
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-check
+spec:
+  operations:
+    - id: echo-message
+      type: custom.echo
+      with:
+        bindingRef: custom.main
+        message: hello
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  namespace: spex-test
+  bindings:
+    - name: custom.main
+      kind: custom.connection
+      with:
+        uri: custom://service
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"bundle", "explain", "--suite", filepath.Join(dir, "suite.yaml"), "--format", "json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var explained struct {
+		Bundles []struct {
+			Name             string `json:"name"`
+			Source           string `json:"source"`
+			SourceType       string `json:"sourceType"`
+			ResolvedRevision string `json:"resolvedRevision"`
+			ManifestFile     string `json:"manifestFile"`
+		} `json:"bundles"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &explained); err != nil {
+		t.Fatalf("bundle explain json is invalid: %v\n%s", err, stdout.String())
+	}
+	if len(explained.Bundles) != 1 || explained.Bundles[0].Name != "custom" || explained.Bundles[0].Source != source || explained.Bundles[0].SourceType != "oci" || explained.Bundles[0].ResolvedRevision != "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" || explained.Bundles[0].ManifestFile != filepath.Join(cacheDir, "bundle.yaml") {
+		t.Fatalf("unexpected OCI bundle explain output: %+v\n%s", explained, stdout.String())
+	}
+
+	stdout.Reset()
+	if err := Run([]string{"bundle", "lock", "--suite", filepath.Join(dir, "suite.yaml"), "--out", "-"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var lock struct {
+		Bundles []struct {
+			Source           string `yaml:"source"`
+			SourceType       string `yaml:"sourceType"`
+			ResolvedRevision string `yaml:"resolvedRevision"`
+			ManifestDigest   string `yaml:"manifestDigest"`
+		} `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal(stdout.Bytes(), &lock); err != nil {
+		t.Fatalf("bundle lock yaml is invalid: %v\n%s", err, stdout.String())
+	}
+	if len(lock.Bundles) != 1 || lock.Bundles[0].Source != source || lock.Bundles[0].SourceType != "oci" || lock.Bundles[0].ResolvedRevision != explained.Bundles[0].ResolvedRevision || !strings.HasPrefix(lock.Bundles[0].ManifestDigest, "sha256:") {
+		t.Fatalf("unexpected OCI bundle lock output: %+v\n%s", lock, stdout.String())
+	}
+
+	vendorDir := filepath.Join(dir, "vendor", "bundles")
+	stdout.Reset()
+	if err := Run([]string{"bundle", "vendor", "--suite", filepath.Join(dir, "suite.yaml"), "--out", vendorDir}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "bundle vendor complete: 1 bundle(s)") {
+		t.Fatalf("bundle vendor output mismatch:\n%s", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(vendorDir, "custom-0.1.0", "bundle.yaml")); err != nil {
+		t.Fatalf("vendored OCI bundle manifest missing: %v", err)
 	}
 }
 
