@@ -1,0 +1,15 @@
+apiVersion: spex.catalog.v0.1
+kind: StepCatalog
+metadata:
+  name: custom-echo-steps
+spec:
+  steps:
+    - kind: then
+      expression: custom echo returns {message}
+      output:
+        operations:
+          - id: custom-echo-{message}
+            type: custom.echo
+            with:
+              bindingRef: custom.main
+              message: "{message}"

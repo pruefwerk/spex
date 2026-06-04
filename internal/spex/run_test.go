@@ -4011,6 +4011,147 @@ spec:
 	}
 }
 
+func TestSuiteValidateLoadsBundleStepCatalogs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "bundles", "custom", "catalogs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bundles", "custom", "bundle.yaml"), []byte(`apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: custom
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: custom.echo
+      bindingKind: custom.connection
+      inputSchema:
+        schema:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+      resultSchema:
+        schema:
+          type: object
+      probe:
+        image: custom-probe:dev
+        command: ["custom", "run"]
+        input:
+          mode: operationFile
+          path: /custom/input/operation.json
+        output:
+          path: /custom/output/result.json
+  bindingSchemas:
+    - kind: custom.connection
+  stepCatalogs:
+    - catalogs/custom-steps.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bundles", "custom", "catalogs", "custom-steps.yaml"), []byte(`apiVersion: spex.catalog.v0.1
+kind: StepCatalog
+metadata:
+  name: custom-steps
+spec:
+  steps:
+    - kind: then
+      expression: custom echoes {message}
+      output:
+        operations:
+          - id: echo-{message}
+            type: custom.echo
+            with:
+              bindingRef: custom.main
+              message: "{message}"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: custom-suite
+spec:
+  bindingRef: binding.yaml
+  bundleRefs:
+    - name: custom
+      version: 0.1.0
+      source: bundles/custom
+  scenarios:
+    - scenario.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-check
+spec:
+  stepInvocations:
+    - kind: then
+      text: custom echoes hello
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "binding.yaml"), []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  bindings:
+    - name: custom.main
+      kind: custom.connection
+      with:
+        uri: custom://service
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"suite", "validate", "--suite", filepath.Join(dir, "suite.yaml")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "suite validation passed: 1 scenario(s)") {
+		t.Fatalf("suite validate output mismatch:\n%s", stdout.String())
+	}
+
+	stdout.Reset()
+	if err := Run([]string{"suite", "explain", "--suite", filepath.Join(dir, "suite.yaml"), "--format", "json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		CatalogFiles []string `json:"catalogFiles"`
+		Scenarios    []struct {
+			Operations []struct {
+				ID          string `json:"id"`
+				Type        string `json:"type"`
+				Provider    string `json:"provider"`
+				BindingName string `json:"bindingName"`
+			} `json:"operations"`
+		} `json:"scenarios"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		t.Fatalf("suite explain json is invalid: %v\n%s", err, stdout.String())
+	}
+	if len(parsed.CatalogFiles) != 1 || !strings.HasSuffix(parsed.CatalogFiles[0], filepath.Join("bundles", "custom", "catalogs", "custom-steps.yaml")) {
+		t.Fatalf("bundle catalog path missing from suite explain: %+v\n%s", parsed.CatalogFiles, stdout.String())
+	}
+	if len(parsed.Scenarios) != 1 || len(parsed.Scenarios[0].Operations) != 1 {
+		t.Fatalf("bundle step catalog did not expand operation:\n%s", stdout.String())
+	}
+	operation := parsed.Scenarios[0].Operations[0]
+	if operation.ID != "echo-hello" || operation.Type != "custom.echo" || operation.Provider != "custom" || operation.BindingName != "custom.main" {
+		t.Fatalf("expanded operation mismatch: %+v\n%s", operation, stdout.String())
+	}
+}
+
 func TestSuiteValidateRejectsUnknownBuiltInBundleRef(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte(`apiVersion: spex.suite.v0.1

@@ -41,3 +41,5 @@ spec:
           properties:
             endpoint:
               type: string
+  stepCatalogs:
+    - catalogs/custom-echo-steps.yaml

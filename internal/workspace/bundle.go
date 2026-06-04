@@ -8,74 +8,85 @@ import (
 )
 
 func LoadBundleProviders(baseDir string, refs []BundleRef) ([]Provider, error) {
+	providers, _, err := LoadBundleProvidersAndCatalogPaths(baseDir, refs)
+	return providers, err
+}
+
+func LoadBundleProvidersAndCatalogPaths(baseDir string, refs []BundleRef) ([]Provider, []string, error) {
 	var providers []Provider
+	var catalogPaths []string
 	seen := map[string]struct{}{}
 	for i, ref := range refs {
 		if ref.Name == "" {
-			return nil, fmt.Errorf("spec.bundleRefs[%d].name is required", i)
+			return nil, nil, fmt.Errorf("spec.bundleRefs[%d].name is required", i)
 		}
 		if !idPattern.MatchString(ref.Name) {
-			return nil, fmt.Errorf("spec.bundleRefs[%d].name must match %s", i, idPattern.String())
+			return nil, nil, fmt.Errorf("spec.bundleRefs[%d].name must match %s", i, idPattern.String())
 		}
 		if _, ok := seen[ref.Name]; ok {
-			return nil, fmt.Errorf("spec.bundleRefs[%d].name %q is duplicated", i, ref.Name)
+			return nil, nil, fmt.Errorf("spec.bundleRefs[%d].name %q is duplicated", i, ref.Name)
 		}
 		seen[ref.Name] = struct{}{}
 		if ref.Source == "" {
-			return nil, fmt.Errorf("spec.bundleRefs[%d].source is required", i)
+			return nil, nil, fmt.Errorf("spec.bundleRefs[%d].source is required", i)
 		}
 		if strings.HasPrefix(ref.Source, "builtin:") {
 			name := strings.TrimPrefix(ref.Source, "builtin:")
 			if name == "" {
-				return nil, fmt.Errorf("spec.bundleRefs[%d].source must name a built-in provider after builtin:", i)
+				return nil, nil, fmt.Errorf("spec.bundleRefs[%d].source must name a built-in provider after builtin:", i)
 			}
 			if name != ref.Name {
-				return nil, fmt.Errorf("spec.bundleRefs[%d].source %q does not match bundleRef name %q", i, ref.Source, ref.Name)
+				return nil, nil, fmt.Errorf("spec.bundleRefs[%d].source %q does not match bundleRef name %q", i, ref.Source, ref.Name)
 			}
 			if _, ok := BuiltInProvider(name); !ok {
-				return nil, fmt.Errorf("spec.bundleRefs[%d].source references unknown built-in provider %q", i, name)
+				return nil, nil, fmt.Errorf("spec.bundleRefs[%d].source references unknown built-in provider %q", i, name)
 			}
 			continue
 		}
 		if strings.HasPrefix(ref.Source, "git::") || strings.HasPrefix(ref.Source, "oci://") {
-			return nil, fmt.Errorf("spec.bundleRefs[%d].source %q is not supported before bundle locking", i, ref.Source)
+			return nil, nil, fmt.Errorf("spec.bundleRefs[%d].source %q is not supported before bundle locking", i, ref.Source)
 		}
-		provider, err := loadLocalBundleProvider(baseDir, ref)
+		provider, paths, err := loadLocalBundleProvider(baseDir, ref)
 		if err != nil {
-			return nil, fmt.Errorf("spec.bundleRefs[%d]: %w", i, err)
+			return nil, nil, fmt.Errorf("spec.bundleRefs[%d]: %w", i, err)
 		}
 		providers = append(providers, provider)
+		catalogPaths = append(catalogPaths, paths...)
 	}
-	return providers, nil
+	return providers, catalogPaths, nil
 }
 
-func loadLocalBundleProvider(baseDir string, ref BundleRef) (Provider, error) {
+func loadLocalBundleProvider(baseDir string, ref BundleRef) (Provider, []string, error) {
 	path := ref.Source
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(baseDir, path)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return Provider{}, err
+		return Provider{}, nil, err
 	}
 	if info.IsDir() {
 		path = filepath.Join(path, "bundle.yaml")
 		if _, err := os.Stat(path); err != nil {
-			return Provider{}, err
+			return Provider{}, nil, err
 		}
 	}
 	bundle, err := loadYAML[IntegrationBundle](path)
 	if err != nil {
-		return Provider{}, err
+		return Provider{}, nil, err
 	}
 	if err := validateIntegrationBundle(ref, bundle); err != nil {
-		return Provider{}, err
+		return Provider{}, nil, err
+	}
+	catalogPaths, err := resolveBundleCatalogPaths(filepath.Dir(path), bundle)
+	if err != nil {
+		return Provider{}, nil, err
 	}
 	return Provider{
 		Name:           bundle.Metadata.Name,
 		Capabilities:   bundle.Spec.Capabilities,
 		BindingSchemas: bundle.Spec.BindingSchemas,
-	}, nil
+	}, catalogPaths, nil
 }
 
 func validateIntegrationBundle(ref BundleRef, bundle IntegrationBundle) error {
@@ -111,5 +122,34 @@ func validateIntegrationBundle(ref BundleRef, bundle IntegrationBundle) error {
 			return fmt.Errorf("spec.capabilities[%d].probe.output.path is required", i)
 		}
 	}
+	for i, ref := range bundle.Spec.StepCatalogs {
+		if strings.TrimSpace(ref) == "" {
+			return fmt.Errorf("spec.stepCatalogs[%d] is required", i)
+		}
+	}
+	for i, ref := range bundle.Spec.FlowCatalogs {
+		if strings.TrimSpace(ref) == "" {
+			return fmt.Errorf("spec.flowCatalogs[%d] is required", i)
+		}
+	}
 	return nil
+}
+
+func resolveBundleCatalogPaths(baseDir string, bundle IntegrationBundle) ([]string, error) {
+	var paths []string
+	for i, ref := range bundle.Spec.StepCatalogs {
+		path := resolveSuiteFile(baseDir, ref)
+		if _, err := os.Stat(path); err != nil {
+			return nil, fmt.Errorf("spec.stepCatalogs[%d]: %w", i, err)
+		}
+		paths = append(paths, path)
+	}
+	for i, ref := range bundle.Spec.FlowCatalogs {
+		path := resolveSuiteFile(baseDir, ref)
+		if _, err := os.Stat(path); err != nil {
+			return nil, fmt.Errorf("spec.flowCatalogs[%d]: %w", i, err)
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
