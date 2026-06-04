@@ -1285,6 +1285,7 @@ func genericProbeJob(in Inputs, scenarioSlug string, ordinal int, operationID, o
 	serviceAccountName := probeServiceAccountName(in)
 	inputMountPath := probeIODir(probe.Input, "/spex/input")
 	outputMountPath := probeIODir(probe.Output, "/spex/output")
+	env := probeEnv(in, operationID, operationType, probe, args)
 	return fmt.Sprintf(`apiVersion: batch/v1
 kind: Job
 metadata:
@@ -1332,7 +1333,7 @@ spec:
         - name: operation-output
           emptyDir: {}
 `, yamlString(name), yamlString(in.Namespace), scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, activeDeadlineSeconds(args),
-		scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, yamlString(serviceAccountName), yamlString(image), yamlString(imagePullPolicy), secretEnv(in, args), yamlArgs(args),
+		scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, yamlString(serviceAccountName), yamlString(image), yamlString(imagePullPolicy), env, yamlArgs(args),
 		yamlString(inputMountPath), yamlString(outputMountPath), yamlString(operationsConfigMapName(scenarioSlug)))
 }
 
@@ -1807,6 +1808,126 @@ func shellQuote(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func probeEnv(in Inputs, operationID, operationType string, probe ProbeInvocationSpec, args []string) string {
+	if len(probe.Env) > 0 {
+		if env := declarativeProbeEnv(in, operationID, operationType, probe.Env); env != "" {
+			return env
+		}
+	}
+	return secretEnv(in, args)
+}
+
+func declarativeProbeEnv(in Inputs, operationID, operationType string, envSpec map[string]ProbeEnvSource) string {
+	if len(envSpec) == 0 {
+		return ""
+	}
+	operation, ok := loweredOperationForEnv(in, operationID, operationType)
+	if !ok {
+		return ""
+	}
+	var names []string
+	for name := range envSpec {
+		names = append(names, name)
+	}
+	sortStrings(names)
+	var entries []string
+	for _, name := range names {
+		source := envSpec[name]
+		switch {
+		case source.Value != "":
+			entries = append(entries, fmt.Sprintf(`            - name: %s
+              value: %s
+`, yamlString(name), yamlString(source.Value)))
+		case source.FromBinding != "":
+			if value, ok := stringFromAnyPath(operation.Binding.With, source.FromBinding); ok {
+				entries = append(entries, fmt.Sprintf(`            - name: %s
+              value: %s
+`, yamlString(name), yamlString(value)))
+			}
+		case source.SecretRef != "":
+			if entry := declarativeSecretEnvEntry(in, operation, name, source.SecretRef); entry != "" {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("          env:\n")
+	for _, entry := range entries {
+		b.WriteString(entry)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func loweredOperationForEnv(in Inputs, operationID, operationType string) (LoweredOperation, bool) {
+	registry, err := NewProviderRegistryWithProviders(in.Providers)
+	if err != nil {
+		return LoweredOperation{}, false
+	}
+	operations, err := LowerOperations(in, registry)
+	if err != nil {
+		return LoweredOperation{}, false
+	}
+	for _, operation := range operations {
+		if operation.OperationID == operationID && operation.OperationType == operationType {
+			return operation, true
+		}
+	}
+	return LoweredOperation{}, false
+}
+
+func declarativeSecretEnvEntry(in Inputs, operation LoweredOperation, envName, secretRef string) string {
+	refName, keyName, ok := strings.Cut(secretRef, ".")
+	if !ok || refName == "" || keyName == "" {
+		return ""
+	}
+	secretBindingRef := refName + "Ref"
+	if refName == "credentials" {
+		secretBindingRef = "credentialsRef"
+	}
+	secretName, ok := stringFromAnyPath(operation.Binding.With, secretBindingRef)
+	if !ok || secretName == "" {
+		return ""
+	}
+	secret := in.Binding.Spec.Secrets[secretName]
+	key := secret.Keys[keyName]
+	if secret.Name == "" || key == "" {
+		return ""
+	}
+	return fmt.Sprintf(`            - name: %s
+              valueFrom:
+                secretKeyRef:
+                  name: %s
+                  key: %s
+`, yamlString(envName), yamlString(secret.Name), yamlString(key))
+}
+
+func stringFromAnyPath(values map[string]any, path string) (string, bool) {
+	current := any(values)
+	for _, part := range strings.Split(path, ".") {
+		switch typed := current.(type) {
+		case map[string]any:
+			next, ok := typed[part]
+			if !ok {
+				return "", false
+			}
+			current = next
+		case map[string]string:
+			next, ok := typed[part]
+			if !ok {
+				return "", false
+			}
+			current = next
+		default:
+			return "", false
+		}
+	}
+	value, ok := current.(string)
+	return value, ok
 }
 
 func secretEnv(in Inputs, args []string) string {

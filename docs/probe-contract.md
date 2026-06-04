@@ -61,6 +61,13 @@ The bundle capability declares where the result file is written:
 probe:
   output:
     path: /spex/output/result.json
+  env:
+    CUSTOM_URI:
+      fromBinding: uri
+    CUSTOM_TOKEN:
+      secretRef: credentials.token
+    CUSTOM_MODE:
+      value: strict
 ```
 
 spex owns the envelope fields. Provider schemas validate only `operation.with` and `result`.
@@ -91,6 +98,8 @@ spex renders a standard Kubernetes Job and appends these flags:
 ```
 
 For local or external bundles, the bundle probe image is the runtime boundary and takes precedence over the aggregate target binding probe image. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding.
+
+Declarative env entries are resolved by spex core. `value` emits a literal value, `fromBinding` reads a string field from the resolved operation binding, and `secretRef: credentials.<key>` reads `<key>` from the binding's `credentialsRef` secret.
 
 First-party provider probes may be shipped both ways:
 
