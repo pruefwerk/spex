@@ -888,6 +888,19 @@ spec:
 	if strings.Contains(string(job), `image: "spex-probe:aggregate"`) {
 		t.Fatalf("bundle provider job used aggregate image instead of bundle probe image:\n%s", string(job))
 	}
+	stepMap, err := os.ReadFile(filepath.Join(out, "step-map.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`resultSchema:`,
+		`required:`,
+		`message`,
+	} {
+		if !strings.Contains(string(stepMap), want) {
+			t.Fatalf("bundle provider step map missing %q:\n%s", want, string(stepMap))
+		}
+	}
 	operation, err := os.ReadFile(filepath.Join(out, "rendered", "operations", "echo-message.operation.json"))
 	if err != nil {
 		t.Fatal(err)

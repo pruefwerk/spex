@@ -115,12 +115,13 @@ type jobStatus struct {
 }
 
 type stepMapStep struct {
-	Ordinal        int               `yaml:"ordinal"`
-	OperationID    string            `yaml:"operationId"`
-	OperationType  string            `yaml:"operationType"`
-	JobName        string            `yaml:"jobName"`
-	PodSelector    map[string]string `yaml:"podSelector"`
-	GeneratedFiles []string          `yaml:"generatedFiles"`
+	Ordinal        int                   `yaml:"ordinal"`
+	OperationID    string                `yaml:"operationId"`
+	OperationType  string                `yaml:"operationType"`
+	ResultSchema   *workspace.JSONSchema `yaml:"resultSchema"`
+	JobName        string                `yaml:"jobName"`
+	PodSelector    map[string]string     `yaml:"podSelector"`
+	GeneratedFiles []string              `yaml:"generatedFiles"`
 }
 
 type stepMapFile struct {
@@ -550,14 +551,19 @@ func validateNormalizedProbeResult(result probeResult, step stepMapStep) error {
 		}
 	}
 	if result.Status == "passed" {
-		if err := validateNormalizedProbeResultPayload(result); err != nil {
+		if err := validateNormalizedProbeResultPayload(result, step); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateNormalizedProbeResultPayload(result probeResult) error {
+func validateNormalizedProbeResultPayload(result probeResult, step stepMapStep) error {
+	if step.ResultSchema != nil {
+		return workspace.ValidateCapabilityResult(result.OperationID, result.OperationType, workspace.Capability{
+			ResultSchema: workspace.SchemaRef{Schema: step.ResultSchema},
+		}, result.Result)
+	}
 	registry, err := workspace.NewBuiltInProviderRegistry()
 	if err != nil {
 		return err

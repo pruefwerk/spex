@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type generationPlan struct {
@@ -992,9 +994,30 @@ spec:
 	for _, step := range plan.Steps {
 		applyFile := filepath.ToSlash(filepath.Join("kuttl", plan.ScenarioSlug, step.ApplyFile))
 		assertFile := filepath.ToSlash(filepath.Join("kuttl", plan.ScenarioSlug, step.AssertFile))
-		b.WriteString(fmt.Sprintf("    - ordinal: %d\n      operationId: %s\n      operationType: %s\n      jobName: %s\n      podSelector:\n        spex/run-id: %s\n        spex/operation-id: %s\n        spex/step-ordinal: %s\n      generatedFiles:\n        - %s\n        - %s\n", step.Ordinal, yamlString(step.OperationID), yamlString(step.Type), yamlString(jobName(plan.ScenarioSlug, step.Ordinal, step.OperationID)), yamlString(in.RunID), yamlString(DNSLabel(step.OperationID)), yamlString(twoDigitOrdinal(step.Ordinal)), yamlString(applyFile), yamlString(assertFile)))
+		b.WriteString(fmt.Sprintf("    - ordinal: %d\n      operationId: %s\n      operationType: %s\n%s      jobName: %s\n      podSelector:\n        spex/run-id: %s\n        spex/operation-id: %s\n        spex/step-ordinal: %s\n      generatedFiles:\n        - %s\n        - %s\n", step.Ordinal, yamlString(step.OperationID), yamlString(step.Type), stepResultSchemaYAML(in, step.Type), yamlString(jobName(plan.ScenarioSlug, step.Ordinal, step.OperationID)), yamlString(in.RunID), yamlString(DNSLabel(step.OperationID)), yamlString(twoDigitOrdinal(step.Ordinal)), yamlString(applyFile), yamlString(assertFile)))
 	}
 	return b.String()
+}
+
+func stepResultSchemaYAML(in Inputs, operationType string) string {
+	capability := capabilityForOperationType(operationType, in.Providers)
+	if capability.ResultSchema.Schema == nil {
+		return ""
+	}
+	content, err := yaml.Marshal(capability.ResultSchema.Schema)
+	if err != nil {
+		return ""
+	}
+	return "      resultSchema:\n" + indentBy(string(content), 8)
+}
+
+func indentBy(content string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func catalogFilesYAML(paths []string) string {

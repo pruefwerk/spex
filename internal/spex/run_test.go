@@ -3236,6 +3236,30 @@ func TestReportIgnoresNormalizedProbeResultWithInvalidProviderResult(t *testing.
 	}
 }
 
+func TestReportValidatesNormalizedProbeResultAgainstStepMapResultSchema(t *testing.T) {
+	err := validateNormalizedProbeResult(probeResult{
+		OperationID:   "echo-message",
+		OperationType: "custom.echo",
+		Provider:      "custom",
+		Status:        "passed",
+		Result:        map[string]any{},
+		Evidence:      []probeEvidenceEnvelope{},
+		Diagnostics:   []probeDiagnostic{},
+	}, stepMapStep{
+		OperationID: "echo-message",
+		ResultSchema: &workspace.JSONSchema{
+			Type:     "object",
+			Required: []string{"message"},
+			Properties: map[string]workspace.JSONSchema{
+				"message": {Type: "string"},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "result.message is required") {
+		t.Fatalf("expected custom result schema validation error, got %v", err)
+	}
+}
+
 func TestReportIgnoresSymlinkProbeResult(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses symlinks")
