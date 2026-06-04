@@ -64,7 +64,23 @@ func LoadResolvedBundles(baseDir string, refs []BundleRef) ([]ResolvedBundle, er
 			})
 			continue
 		}
-		if strings.HasPrefix(ref.Source, "git::") || strings.HasPrefix(ref.Source, "oci://") {
+		if gitRef, ok, err := parseGitFileRef(ref.Source); err != nil {
+			return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
+		} else if ok {
+			path, err := checkoutGitFileRef(baseDir, gitRef)
+			if err != nil {
+				return nil, fmt.Errorf("spec.bundleRefs[%d].source: %w", i, err)
+			}
+			bundle, err := loadLocalBundle(baseDir, BundleRef{Name: ref.Name, Version: ref.Version, Source: path})
+			if err != nil {
+				return nil, fmt.Errorf("spec.bundleRefs[%d]: %w", i, err)
+			}
+			bundle.Source = ref.Source
+			bundle.SourceType = "git"
+			bundles = append(bundles, bundle)
+			continue
+		}
+		if strings.HasPrefix(ref.Source, "oci://") {
 			return nil, fmt.Errorf("spec.bundleRefs[%d].source %q is not supported before bundle locking", i, ref.Source)
 		}
 		bundle, err := loadLocalBundle(baseDir, ref)
