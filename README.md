@@ -116,7 +116,23 @@ spec:
     - kind: custom.connection
 ```
 
-Git bundle sources use the same pinned `git::repo//path@ref` syntax as suite refs and record the resolved Git revision in `bundle explain` and `bundle lock`. OCI bundle sources must be digest-pinned as `oci://...@sha256:<64 lowercase hex chars>`; tag-only OCI refs fail early, and digest-pinned artifacts are fetched through the OCI registry client into `.spex/oci-bundles` or `SPEX_OCI_BUNDLE_CACHE_DIR`. OCI registry authentication uses the local Docker credential configuration selected by `DOCKER_CONFIG`, or `$HOME/.docker/config.json` when `DOCKER_CONFIG` is unset. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, and `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference.
+Git bundle sources use the same pinned `git::repo//path@ref` syntax as suite refs and record the resolved Git revision in `bundle explain` and `bundle lock`. OCI bundle sources must be digest-pinned as `oci://...@sha256:<64 lowercase hex chars>`; tag-only OCI refs fail early, and digest-pinned artifacts are fetched through the OCI registry client into `.spex/oci-bundles` or `SPEX_OCI_BUNDLE_CACHE_DIR`. OCI registry authentication uses the local Docker credential configuration selected by `DOCKER_CONFIG`, or `$HOME/.docker/config.json` when `DOCKER_CONFIG` is unset. See `examples/suites/redis-builtin-bundle.example.yaml` for a built-in bundle reference, `examples/bundles/custom-echo/bundle.yaml` plus `examples/suites/custom-bundle-local.example.yaml` for a complete local bundle manifest and suite reference, and `examples/suites/custom-bundle-oci.example.yaml` for the digest-pinned OCI reference shape.
+
+OCI bundle artifacts must contain `bundle.yaml` at the artifact root, with any schema and catalog files at the relative paths declared by the manifest. One compatible publish flow is:
+
+```sh
+(cd examples/bundles/custom-echo && \
+oras push ghcr.io/pruefwerk/spex-bundles/custom-echo:0.1.0 \
+  bundle.yaml:application/vnd.pruefwerk.spex.bundle.manifest.v0.1+yaml \
+  catalogs/custom-echo-steps.yaml:application/vnd.pruefwerk.spex.catalog.v0.1+yaml \
+  schemas/custom-echo-input.schema.yaml:application/schema+yaml \
+  schemas/custom-echo-result.schema.yaml:application/schema+yaml \
+  schemas/custom-connection.schema.yaml:application/schema+yaml)
+
+oras resolve ghcr.io/pruefwerk/spex-bundles/custom-echo:0.1.0
+```
+
+Use the returned digest in `bundleRefs[].source`; do not reference mutable OCI tags from suites.
 
 For local and external bundles, the bundle probe image is the runtime boundary and can be implemented in any language. spex only requires the lowered operation file input and normalized result envelope output described in `docs/probe-contract.md`. Built-in providers may still use the aggregate `spex-probe` image configured by the target binding for local demos and first-party compatibility.
 
