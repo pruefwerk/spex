@@ -57,13 +57,16 @@ External tools can generate load. spex remains responsible for deterministic sce
 
 ## Current Milestone
 
-The first implementation adds a validated `spec.execution` contract to scenario suites and surfaces it in suite planning and explanation output.
+The first implementation adds:
 
-Runner scheduling remains unchanged until the next milestone.
+- a validated `spec.execution` contract to scenario suites
+- suite planning and explanation visibility for execution controls
+- deterministic iteration run IDs for repeated `suite run`
+- sequential repeated suite execution
+- repeated-run suite report metadata
 
 ## Follow-Up Work
 
-- Generate deterministic iteration IDs for repeated suite execution.
-- Add bounded repetition and concurrency to `suite run`.
+- Add safe concurrency after namespace/resource isolation is explicit.
 - Add failure aggregation fields to suite reports.
 - Add optional rate limiting after repetition/concurrency behavior is proven.

@@ -5211,6 +5211,97 @@ func TestSuiteRunWritesJUnitReport(t *testing.T) {
 	}
 }
 
+func TestSuiteRunRepeatsScenariosWithDeterministicIterationIDs(t *testing.T) {
+	root := repoRoot(t)
+	restore := chdir(t, root)
+	defer restore()
+	dir := t.TempDir()
+	suite := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suite, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: repeated-suite
+spec:
+  bindingRef: `+filepath.ToSlash(filepath.Join(root, "examples", "bindings", "local-dev.yaml"))+`
+  scenarios:
+    - `+filepath.ToSlash(filepath.Join(root, "examples", "scenarios", "mqtt-ingestion-basic.yaml"))+`
+  execution:
+    repetitions: 2
+  workspaceDir: generated/repeated-suite
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	fake := writeFakeKubectl(t, 0, "")
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"suite", "run", "--suite", suite, "--out", out, "--run-id", "suite-test", "--command", fake}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(out, "mqtt-ingestion-basic-iter-001"),
+		filepath.Join(out, "mqtt-ingestion-basic-iter-002"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected repeated workspace %s: %v", path, err)
+		}
+	}
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{filepath.Join(out, "mqtt-ingestion-basic-iter-001", "step-map.yaml"), "suite-test-01-iter-001"},
+		{filepath.Join(out, "mqtt-ingestion-basic-iter-002", "step-map.yaml"), "suite-test-01-iter-002"},
+	} {
+		content, err := os.ReadFile(tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), tc.want) {
+			t.Fatalf("%s missing run ID %q:\n%s", tc.path, tc.want, string(content))
+		}
+	}
+	report, err := os.ReadFile(filepath.Join(out, "reports", "suite-run-report.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"tests: 2", "repetitions: 2", "mqtt-ingestion-basic-iter-001", "mqtt-ingestion-basic-iter-002"} {
+		if !strings.Contains(string(report), want) {
+			t.Fatalf("suite report missing %q:\n%s", want, string(report))
+		}
+	}
+	if !strings.Contains(stdout.String(), "suite passed: 2 scenario(s)") {
+		t.Fatalf("stdout missing repeated suite count:\n%s", stdout.String())
+	}
+}
+
+func TestSuiteRunRejectsConcurrentSemanticLoadUntilIsolationExists(t *testing.T) {
+	root := repoRoot(t)
+	restore := chdir(t, root)
+	defer restore()
+	dir := t.TempDir()
+	suite := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suite, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: concurrent-suite
+spec:
+  bindingRef: `+filepath.ToSlash(filepath.Join(root, "examples", "bindings", "local-dev.yaml"))+`
+  scenarios:
+    - `+filepath.ToSlash(filepath.Join(root, "examples", "scenarios", "mqtt-ingestion-basic.yaml"))+`
+  execution:
+    repetitions: 2
+    concurrency: 2
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := writeFakeKubectl(t, 0, "")
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"suite", "run", "--suite", suite, "--out", filepath.Join(dir, "out"), "--run-id", "suite-test", "--command", fake}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "spec.execution.concurrency greater than 1 is not enabled") {
+		t.Fatalf("expected concurrency guard error, got %v", err)
+	}
+}
+
 func TestSuiteRunHonorsConfiguredReportDirWithoutOutOverride(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "acceptance-tests")
 	var stdout, stderr bytes.Buffer

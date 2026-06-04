@@ -1973,11 +1973,16 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	if err := os.RemoveAll(outRoot); err != nil {
 		return err
 	}
-	workspaces, err := generateSuiteWorkspaces(outRoot, resolved, inputs, stdout)
+	runInputs, err := suiteRunInputs(resolved, inputs)
 	if err != nil {
 		return err
 	}
-	failFast := flags.failFast || resolved.Suite.Spec.FailFast
+	workspaces, err := generateSuiteWorkspaces(outRoot, resolved, runInputs, stdout)
+	if err != nil {
+		return err
+	}
+	failFast := suiteFailFast(resolved, flags)
+	maxFailures := resolved.Suite.Spec.Execution.MaxFailures
 	var failed []string
 	for _, workspacePath := range workspaces {
 		runArgs := []string{"--workspace", workspacePath, "--command", flags.command}
@@ -1989,7 +1994,7 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 		}
 		if err := runWorkspace(runArgs, stdout, stderr); err != nil {
 			failed = append(failed, filepath.Base(workspacePath))
-			if failFast {
+			if failFast || (maxFailures > 0 && len(failed) >= maxFailures) {
 				break
 			}
 		}
@@ -2005,6 +2010,45 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "suite passed: %d scenario(s)\n", len(workspaces))
 	return nil
+}
+
+func suiteRunInputs(resolved workspace.ResolvedScenarioSuite, inputs []workspace.Inputs) ([]workspace.Inputs, error) {
+	execution := resolved.Suite.Spec.Execution
+	if execution.Concurrency > 1 {
+		return nil, fmt.Errorf("spec.execution.concurrency greater than 1 is not enabled for suite run yet")
+	}
+	if execution.RateLimit.PerSecond > 0 {
+		return nil, fmt.Errorf("spec.execution.rateLimit.perSecond is not enabled for suite run yet")
+	}
+	repetitions := execution.Repetitions
+	if repetitions == 0 {
+		repetitions = 1
+	}
+	var out []workspace.Inputs
+	for iteration := 1; iteration <= repetitions; iteration++ {
+		for _, input := range inputs {
+			next := input
+			if repetitions > 1 {
+				next.RunID = iterationRunID(input.RunID, iteration)
+			}
+			out = append(out, next)
+		}
+	}
+	return out, nil
+}
+
+func suiteFailFast(resolved workspace.ResolvedScenarioSuite, flags suiteFlags) bool {
+	if flags.failFast {
+		return true
+	}
+	if resolved.Suite.Spec.Execution.FailFast != nil {
+		return *resolved.Suite.Spec.Execution.FailFast
+	}
+	return resolved.Suite.Spec.FailFast
+}
+
+func iterationRunID(base string, iteration int) string {
+	return fmt.Sprintf("%s-iter-%03d", base, iteration)
 }
 
 type junitTestsuites struct {
@@ -2055,6 +2099,7 @@ type suiteRunReportSpec struct {
 	SuiteFile     string `yaml:"suiteFile" json:"suiteFile"`
 	WorkspaceRoot string `yaml:"workspaceRoot" json:"workspaceRoot"`
 	ReportDir     string `yaml:"reportDir" json:"reportDir"`
+	Repetitions   int    `yaml:"repetitions,omitempty" json:"repetitions,omitempty"`
 }
 
 type suiteRunScenarioRef struct {
@@ -2147,6 +2192,7 @@ func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRo
 			SuiteFile:     resolved.Path,
 			WorkspaceRoot: outRoot,
 			ReportDir:     reportDir,
+			Repetitions:   resolved.Suite.Spec.Execution.Repetitions,
 		},
 	}
 	for _, workspacePath := range workspaces {
@@ -2563,6 +2609,9 @@ func generateSuiteWorkspaces(outRoot string, resolved workspace.ResolvedScenario
 	used := map[string]struct{}{}
 	for i, input := range inputs {
 		name := workspace.DNSLabel(input.ScenarioName)
+		if iterationSuffix := iterationSuffixFromRunID(input.RunID); iterationSuffix != "" {
+			name = workspace.DNSLabel(name + "-" + iterationSuffix)
+		}
 		if _, ok := used[name]; ok {
 			name = fmt.Sprintf("%s-%02d", name, i+1)
 		}
@@ -2575,6 +2624,14 @@ func generateSuiteWorkspaces(outRoot string, resolved workspace.ResolvedScenario
 		workspaces = append(workspaces, workspacePath)
 	}
 	return workspaces, nil
+}
+
+func iterationSuffixFromRunID(runID string) string {
+	index := strings.LastIndex(runID, "-iter-")
+	if index < 0 {
+		return ""
+	}
+	return runID[index+1:]
 }
 
 func validateOutputDir(path string) error {
