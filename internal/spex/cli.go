@@ -1984,7 +1984,9 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	failFast := suiteFailFast(resolved, flags)
 	maxFailures := resolved.Suite.Spec.Execution.MaxFailures
 	var failed []string
-	for _, workspacePath := range workspaces {
+	outcomes := make([]suiteRunWorkspaceOutcome, 0, len(workspaces))
+	stopReason := ""
+	for i, workspacePath := range workspaces {
 		runArgs := []string{"--workspace", workspacePath, "--command", flags.command}
 		if flags.retainRuntime {
 			runArgs = append(runArgs, "--retain-runtime-resources")
@@ -1992,20 +1994,34 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 		if flags.collectResources {
 			runArgs = append(runArgs, "--collect-resource-usage")
 		}
+		outcome := suiteRunWorkspaceOutcome{Workspace: workspacePath, Execution: "executed"}
 		if err := runWorkspace(runArgs, stdout, stderr); err != nil {
 			failed = append(failed, filepath.Base(workspacePath))
 			if failFast || (maxFailures > 0 && len(failed) >= maxFailures) {
+				if failFast {
+					stopReason = "failFast"
+				} else {
+					stopReason = "maxFailures"
+				}
+				outcomes = append(outcomes, outcome)
+				for _, skipped := range workspaces[i+1:] {
+					outcomes = append(outcomes, suiteRunWorkspaceOutcome{
+						Workspace: skipped,
+						Execution: "skipped",
+					})
+				}
 				break
 			}
 		}
+		outcomes = append(outcomes, outcome)
 	}
 	if len(failed) > 0 {
-		if err := writeSuiteReports(resolved, flags, outRoot, workspaces); err != nil {
+		if err := writeSuiteReports(resolved, flags, outRoot, outcomes, stopReason); err != nil {
 			return fmt.Errorf("suite failed: %s; report write failed: %w", strings.Join(failed, ", "), err)
 		}
 		return fmt.Errorf("suite failed: %s", strings.Join(failed, ", "))
 	}
-	if err := writeSuiteReports(resolved, flags, outRoot, workspaces); err != nil {
+	if err := writeSuiteReports(resolved, flags, outRoot, outcomes, stopReason); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "suite passed: %d scenario(s)\n", len(workspaces))
@@ -2069,11 +2085,21 @@ type junitTestcase struct {
 	Name    string        `xml:"name,attr"`
 	Class   string        `xml:"classname,attr"`
 	Failure *junitFailure `xml:"failure,omitempty"`
+	Skipped *junitSkipped `xml:"skipped,omitempty"`
 }
 
 type junitFailure struct {
 	Message string `xml:"message,attr"`
 	Body    string `xml:",chardata"`
+}
+
+type junitSkipped struct {
+	Message string `xml:"message,attr"`
+}
+
+type suiteRunWorkspaceOutcome struct {
+	Workspace string
+	Execution string
 }
 
 type suiteRunReport struct {
@@ -2090,9 +2116,12 @@ type suiteRunReportMeta struct {
 }
 
 type suiteRunReportStatus struct {
-	Result   string `yaml:"result" json:"result"`
-	Tests    int    `yaml:"tests" json:"tests"`
-	Failures int    `yaml:"failures" json:"failures"`
+	Result     string `yaml:"result" json:"result"`
+	Tests      int    `yaml:"tests" json:"tests"`
+	Executed   int    `yaml:"executed" json:"executed"`
+	Skipped    int    `yaml:"skipped" json:"skipped"`
+	Failures   int    `yaml:"failures" json:"failures"`
+	StopReason string `yaml:"stopReason,omitempty" json:"stopReason,omitempty"`
 }
 
 type suiteRunReportSpec struct {
@@ -2100,30 +2129,32 @@ type suiteRunReportSpec struct {
 	WorkspaceRoot string `yaml:"workspaceRoot" json:"workspaceRoot"`
 	ReportDir     string `yaml:"reportDir" json:"reportDir"`
 	Repetitions   int    `yaml:"repetitions,omitempty" json:"repetitions,omitempty"`
+	MaxFailures   int    `yaml:"maxFailures,omitempty" json:"maxFailures,omitempty"`
 }
 
 type suiteRunScenarioRef struct {
 	Name           string  `yaml:"name" json:"name"`
 	Result         string  `yaml:"result" json:"result"`
+	Execution      string  `yaml:"execution" json:"execution"`
 	Workspace      string  `yaml:"workspace" json:"workspace"`
 	Report         string  `yaml:"report" json:"report"`
 	FailureMessage *string `yaml:"failureMessage,omitempty" json:"failureMessage,omitempty"`
 }
 
-func writeSuiteReports(resolved workspace.ResolvedScenarioSuite, flags suiteFlags, outRoot string, workspaces []string) error {
+func writeSuiteReports(resolved workspace.ResolvedScenarioSuite, flags suiteFlags, outRoot string, outcomes []suiteRunWorkspaceOutcome, stopReason string) error {
 	reportDir := suiteReportDir(resolved, flags, outRoot)
 	if suiteWantsFormat(resolved, "yaml") {
-		if err := writeSuiteYAML(resolved, reportDir, outRoot, workspaces); err != nil {
+		if err := writeSuiteYAML(resolved, reportDir, outRoot, outcomes, stopReason); err != nil {
 			return err
 		}
 	}
 	if suiteWantsFormat(resolved, "json") {
-		if err := writeSuiteJSON(resolved, reportDir, outRoot, workspaces); err != nil {
+		if err := writeSuiteJSON(resolved, reportDir, outRoot, outcomes, stopReason); err != nil {
 			return err
 		}
 	}
 	if suiteWantsFormat(resolved, "junit") {
-		return writeSuiteJUnit(reportDir, workspaces)
+		return writeSuiteJUnit(reportDir, outcomes)
 	}
 	return nil
 }
@@ -2153,8 +2184,8 @@ func suiteReportDir(resolved workspace.ResolvedScenarioSuite, flags suiteFlags, 
 	return filepath.Join(filepath.Dir(resolved.Path), resolved.Suite.Spec.Reports.OutputDir)
 }
 
-func writeSuiteYAML(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot string, workspaces []string) error {
-	report := buildSuiteReport(resolved, reportDir, outRoot, workspaces)
+func writeSuiteYAML(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot string, outcomes []suiteRunWorkspaceOutcome, stopReason string) error {
+	report := buildSuiteReport(resolved, reportDir, outRoot, outcomes, stopReason)
 	content, err := yaml.Marshal(report)
 	if err != nil {
 		return err
@@ -2165,8 +2196,8 @@ func writeSuiteYAML(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot
 	return writeReportFile(filepath.Join(reportDir, "suite-run-report.yaml"), content)
 }
 
-func writeSuiteJSON(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot string, workspaces []string) error {
-	report := buildSuiteReport(resolved, reportDir, outRoot, workspaces)
+func writeSuiteJSON(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot string, outcomes []suiteRunWorkspaceOutcome, stopReason string) error {
+	report := buildSuiteReport(resolved, reportDir, outRoot, outcomes, stopReason)
 	content, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return err
@@ -2177,7 +2208,7 @@ func writeSuiteJSON(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot
 	return writeReportFile(filepath.Join(reportDir, "suite-run-report.json"), content)
 }
 
-func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot string, workspaces []string) suiteRunReport {
+func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRoot string, outcomes []suiteRunWorkspaceOutcome, stopReason string) suiteRunReport {
 	report := suiteRunReport{
 		APIVersion: "spex.suite.report.v0.1",
 		Kind:       "SuiteRunReport",
@@ -2185,29 +2216,39 @@ func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRo
 			Name: resolved.Suite.Metadata.Name,
 		},
 		Status: suiteRunReportStatus{
-			Result: "passed",
-			Tests:  len(workspaces),
+			Result:     "passed",
+			Tests:      len(outcomes),
+			StopReason: stopReason,
 		},
 		Spec: suiteRunReportSpec{
 			SuiteFile:     resolved.Path,
 			WorkspaceRoot: outRoot,
 			ReportDir:     reportDir,
 			Repetitions:   resolved.Suite.Spec.Execution.Repetitions,
+			MaxFailures:   resolved.Suite.Spec.Execution.MaxFailures,
 		},
 	}
-	for _, workspacePath := range workspaces {
+	for _, outcome := range outcomes {
+		workspacePath := outcome.Workspace
 		scenarioReportPath := filepath.Join(workspacePath, "reports", "scenario-run-report.yaml")
-		name, status, message := readReportSummary(scenarioReportPath)
+		name, status, message := "", "skipped", "scenario was not executed because the suite stopped early"
+		if outcome.Execution != "skipped" {
+			name, status, message = readReportSummary(scenarioReportPath)
+			report.Status.Executed++
+		} else {
+			report.Status.Skipped++
+		}
 		if name == "" {
 			name = filepath.Base(workspacePath)
 		}
 		scenario := suiteRunScenarioRef{
 			Name:      name,
 			Result:    status,
+			Execution: outcome.Execution,
 			Workspace: workspacePath,
 			Report:    scenarioReportPath,
 		}
-		if status != "passed" {
+		if outcome.Execution != "skipped" && status != "passed" {
 			report.Status.Failures++
 			report.Status.Result = "failed"
 			scenario.FailureMessage = &message
@@ -2217,17 +2258,23 @@ func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRo
 	return report
 }
 
-func writeSuiteJUnit(reportDir string, workspaces []string) error {
+func writeSuiteJUnit(reportDir string, outcomes []suiteRunWorkspaceOutcome) error {
 	result := junitTestsuites{}
-	suite := junitTestsuite{Name: "spex", Tests: len(workspaces)}
-	for _, workspacePath := range workspaces {
+	suite := junitTestsuite{Name: "spex", Tests: len(outcomes)}
+	for _, outcome := range outcomes {
+		workspacePath := outcome.Workspace
 		reportPath := filepath.Join(workspacePath, "reports", "scenario-run-report.yaml")
-		name, status, message := readReportSummary(reportPath)
+		name, status, message := "", "skipped", "scenario was not executed because the suite stopped early"
+		if outcome.Execution != "skipped" {
+			name, status, message = readReportSummary(reportPath)
+		}
 		if name == "" {
 			name = filepath.Base(workspacePath)
 		}
 		tc := junitTestcase{Name: name, Class: "spex.scenario"}
-		if status != "passed" {
+		if outcome.Execution == "skipped" {
+			tc.Skipped = &junitSkipped{Message: message}
+		} else if status != "passed" {
 			suite.Failures++
 			tc.Failure = &junitFailure{Message: message, Body: message}
 		}

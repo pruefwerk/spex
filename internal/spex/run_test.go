@@ -5274,6 +5274,106 @@ spec:
 	}
 }
 
+func TestSuiteRunReportsSkippedIterationsAfterFailFast(t *testing.T) {
+	root := repoRoot(t)
+	restore := chdir(t, root)
+	defer restore()
+	dir := t.TempDir()
+	suite := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suite, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: repeated-suite
+spec:
+  bindingRef: `+filepath.ToSlash(filepath.Join(root, "examples", "bindings", "local-dev.yaml"))+`
+  scenarios:
+    - `+filepath.ToSlash(filepath.Join(root, "examples", "scenarios", "mqtt-ingestion-basic.yaml"))+`
+  execution:
+    repetitions: 3
+    failFast: true
+  workspaceDir: generated/repeated-suite
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	fake := writeFakeKubectl(t, 1, "forced failure\n")
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"suite", "run", "--suite", suite, "--out", out, "--run-id", "suite-test", "--command", fake}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "suite failed: mqtt-ingestion-basic-iter-001") {
+		t.Fatalf("expected failFast suite failure, got %v", err)
+	}
+	report, err := os.ReadFile(filepath.Join(out, "reports", "suite-run-report.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"result: failed",
+		"tests: 3",
+		"executed: 1",
+		"skipped: 2",
+		"failures: 1",
+		"stopReason: failFast",
+		"execution: executed",
+		"execution: skipped",
+	} {
+		if !strings.Contains(string(report), want) {
+			t.Fatalf("suite report missing %q:\n%s", want, string(report))
+		}
+	}
+	junit, err := os.ReadFile(filepath.Join(out, "reports", "suite-junit.xml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(junit), `<testsuites tests="3" failures="1">`) || !strings.Contains(string(junit), `<skipped message="scenario was not executed because the suite stopped early"></skipped>`) {
+		t.Fatalf("suite JUnit did not mark skipped iterations:\n%s", string(junit))
+	}
+}
+
+func TestSuiteRunReportsSkippedIterationsAfterMaxFailures(t *testing.T) {
+	root := repoRoot(t)
+	restore := chdir(t, root)
+	defer restore()
+	dir := t.TempDir()
+	suite := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suite, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: repeated-suite
+spec:
+  bindingRef: `+filepath.ToSlash(filepath.Join(root, "examples", "bindings", "local-dev.yaml"))+`
+  scenarios:
+    - `+filepath.ToSlash(filepath.Join(root, "examples", "scenarios", "mqtt-ingestion-basic.yaml"))+`
+  execution:
+    repetitions: 3
+    maxFailures: 1
+  workspaceDir: generated/repeated-suite
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	fake := writeFakeKubectl(t, 1, "forced failure\n")
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"suite", "run", "--suite", suite, "--out", out, "--run-id", "suite-test", "--command", fake}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "suite failed: mqtt-ingestion-basic-iter-001") {
+		t.Fatalf("expected maxFailures suite failure, got %v", err)
+	}
+	report, err := os.ReadFile(filepath.Join(out, "reports", "suite-run-report.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"executed: 1",
+		"skipped: 2",
+		"failures: 1",
+		"stopReason: maxFailures",
+		"maxFailures: 1",
+	} {
+		if !strings.Contains(string(report), want) {
+			t.Fatalf("suite report missing %q:\n%s", want, string(report))
+		}
+	}
+}
+
 func TestSuiteRunRejectsConcurrentSemanticLoadUntilIsolationExists(t *testing.T) {
 	root := repoRoot(t)
 	restore := chdir(t, root)

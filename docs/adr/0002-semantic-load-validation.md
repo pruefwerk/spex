@@ -64,9 +64,10 @@ The first implementation adds:
 - deterministic iteration run IDs for repeated `suite run`
 - sequential repeated suite execution
 - repeated-run suite report metadata
+- suite report aggregation for executed, skipped, and failed iterations
+- early-stop reporting for `failFast` and `maxFailures`
 
 ## Follow-Up Work
 
 - Add safe concurrency after namespace/resource isolation is explicit.
-- Add failure aggregation fields to suite reports.
 - Add optional rate limiting after repetition/concurrency behavior is proven.
