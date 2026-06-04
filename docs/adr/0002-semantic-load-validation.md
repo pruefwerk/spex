@@ -66,8 +66,8 @@ The first implementation adds:
 - repeated-run suite report metadata
 - suite report aggregation for executed, skipped, and failed iterations
 - early-stop reporting for `failFast` and `maxFailures`
+- bounded concurrent suite execution when `namespacePerIteration` isolation is enabled
 
 ## Follow-Up Work
 
-- Add safe concurrency after namespace/resource isolation is explicit.
 - Add optional rate limiting after repetition/concurrency behavior is proven.

@@ -743,6 +743,9 @@ func validateSuiteExecution(execution SuiteExecution) error {
 	if execution.Concurrency > 0 && execution.Repetitions <= 1 {
 		return fmt.Errorf("spec.execution.concurrency requires spec.execution.repetitions greater than 1")
 	}
+	if execution.Concurrency > 1 && !execution.Isolation.NamespacePerIteration {
+		return fmt.Errorf("spec.execution.concurrency greater than 1 requires spec.execution.isolation.namespacePerIteration")
+	}
 	if execution.RateLimit.PerSecond > 0 && execution.Repetitions <= 1 {
 		return fmt.Errorf("spec.execution.rateLimit.perSecond requires spec.execution.repetitions greater than 1")
 	}

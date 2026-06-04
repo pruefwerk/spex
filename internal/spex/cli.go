@@ -1983,38 +1983,7 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	}
 	failFast := suiteFailFast(resolved, flags)
 	maxFailures := resolved.Suite.Spec.Execution.MaxFailures
-	var failed []string
-	outcomes := make([]suiteRunWorkspaceOutcome, 0, len(workspaces))
-	stopReason := ""
-	for i, workspacePath := range workspaces {
-		runArgs := []string{"--workspace", workspacePath, "--command", flags.command}
-		if flags.retainRuntime {
-			runArgs = append(runArgs, "--retain-runtime-resources")
-		}
-		if flags.collectResources {
-			runArgs = append(runArgs, "--collect-resource-usage")
-		}
-		outcome := suiteRunWorkspaceOutcome{Workspace: workspacePath, Execution: "executed"}
-		if err := runWorkspace(runArgs, stdout, stderr); err != nil {
-			failed = append(failed, filepath.Base(workspacePath))
-			if failFast || (maxFailures > 0 && len(failed) >= maxFailures) {
-				if failFast {
-					stopReason = "failFast"
-				} else {
-					stopReason = "maxFailures"
-				}
-				outcomes = append(outcomes, outcome)
-				for _, skipped := range workspaces[i+1:] {
-					outcomes = append(outcomes, suiteRunWorkspaceOutcome{
-						Workspace: skipped,
-						Execution: "skipped",
-					})
-				}
-				break
-			}
-		}
-		outcomes = append(outcomes, outcome)
-	}
+	outcomes, failed, stopReason := runSuiteWorkspaces(workspaces, flags, resolved.Suite.Spec.Execution.Concurrency, failFast, maxFailures, stdout, stderr)
 	if len(failed) > 0 {
 		if err := writeSuiteReports(resolved, flags, outRoot, outcomes, stopReason); err != nil {
 			return fmt.Errorf("suite failed: %s; report write failed: %w", strings.Join(failed, ", "), err)
@@ -2030,9 +1999,6 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 
 func suiteRunInputs(resolved workspace.ResolvedScenarioSuite, inputs []workspace.Inputs) ([]workspace.Inputs, error) {
 	execution := resolved.Suite.Spec.Execution
-	if execution.Concurrency > 1 {
-		return nil, fmt.Errorf("spec.execution.concurrency greater than 1 is not enabled for suite run yet")
-	}
 	if execution.RateLimit.PerSecond > 0 {
 		return nil, fmt.Errorf("spec.execution.rateLimit.perSecond is not enabled for suite run yet")
 	}
@@ -2046,11 +2012,139 @@ func suiteRunInputs(resolved workspace.ResolvedScenarioSuite, inputs []workspace
 			next := input
 			if repetitions > 1 {
 				next.RunID = iterationRunID(input.RunID, iteration)
+				if execution.Isolation.NamespacePerIteration {
+					next.Namespace = iterationNamespace(input.Namespace, iteration)
+					next.Binding.Spec.Namespace = next.Namespace
+				}
 			}
 			out = append(out, next)
 		}
 	}
 	return out, nil
+}
+
+func runSuiteWorkspaces(workspaces []string, flags suiteFlags, concurrency int, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	if concurrency > len(workspaces) && len(workspaces) > 0 {
+		concurrency = len(workspaces)
+	}
+	if concurrency <= 1 {
+		return runSuiteWorkspacesSequential(workspaces, flags, failFast, maxFailures, stdout, stderr)
+	}
+	return runSuiteWorkspacesConcurrent(workspaces, flags, concurrency, failFast, maxFailures, stdout, stderr)
+}
+
+func runSuiteWorkspacesSequential(workspaces []string, flags suiteFlags, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
+	var failed []string
+	outcomes := make([]suiteRunWorkspaceOutcome, 0, len(workspaces))
+	stopReason := ""
+	for i, workspacePath := range workspaces {
+		outcome := suiteRunWorkspaceOutcome{Workspace: workspacePath, Execution: "executed"}
+		if err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr); err != nil {
+			failed = append(failed, filepath.Base(workspacePath))
+			if failFast || (maxFailures > 0 && len(failed) >= maxFailures) {
+				stopReason = suiteStopReason(failFast)
+				outcomes = append(outcomes, outcome)
+				for _, skipped := range workspaces[i+1:] {
+					outcomes = append(outcomes, suiteRunWorkspaceOutcome{Workspace: skipped, Execution: "skipped"})
+				}
+				return outcomes, failed, stopReason
+			}
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	return outcomes, failed, stopReason
+}
+
+type suiteWorkspaceResult struct {
+	Index  int
+	Failed bool
+}
+
+func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurrency int, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
+	outcomes := make([]suiteRunWorkspaceOutcome, len(workspaces))
+	results := make(chan suiteWorkspaceResult, concurrency)
+	var writerMu sync.Mutex
+	stdout = lockedWriter{mu: &writerMu, writer: stdout}
+	stderr = lockedWriter{mu: &writerMu, writer: stderr}
+	next := 0
+	running := 0
+	failures := 0
+	stopReason := ""
+	stopped := false
+	start := func(index int) {
+		running++
+		workspacePath := workspaces[index]
+		go func() {
+			err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr)
+			results <- suiteWorkspaceResult{Index: index, Failed: err != nil}
+		}()
+	}
+	for next < len(workspaces) && running < concurrency {
+		start(next)
+		next++
+	}
+	for running > 0 {
+		result := <-results
+		running--
+		outcomes[result.Index] = suiteRunWorkspaceOutcome{Workspace: workspaces[result.Index], Execution: "executed"}
+		if result.Failed {
+			failures++
+			if !stopped && (failFast || (maxFailures > 0 && failures >= maxFailures)) {
+				stopped = true
+				stopReason = suiteStopReason(failFast)
+			}
+		}
+		for !stopped && next < len(workspaces) && running < concurrency {
+			start(next)
+			next++
+		}
+	}
+	for i := next; i < len(workspaces); i++ {
+		outcomes[i] = suiteRunWorkspaceOutcome{Workspace: workspaces[i], Execution: "skipped"}
+	}
+	var failed []string
+	for _, outcome := range outcomes {
+		if outcome.Execution != "executed" {
+			continue
+		}
+		_, status, _ := readReportSummary(filepath.Join(outcome.Workspace, "reports", "scenario-run-report.yaml"))
+		if status != "passed" {
+			failed = append(failed, filepath.Base(outcome.Workspace))
+		}
+	}
+	return outcomes, failed, stopReason
+}
+
+type lockedWriter struct {
+	mu     *sync.Mutex
+	writer io.Writer
+}
+
+func (w lockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
+}
+
+func suiteWorkspaceRunArgs(workspacePath string, flags suiteFlags) []string {
+	runArgs := []string{"--workspace", workspacePath, "--command", flags.command}
+	if flags.retainRuntime {
+		runArgs = append(runArgs, "--retain-runtime-resources")
+	}
+	if flags.collectResources {
+		runArgs = append(runArgs, "--collect-resource-usage")
+	}
+	return runArgs
+}
+
+func suiteStopReason(failFast bool) string {
+	if failFast {
+		return "failFast"
+	}
+	return "maxFailures"
 }
 
 func suiteFailFast(resolved workspace.ResolvedScenarioSuite, flags suiteFlags) bool {
@@ -2065,6 +2159,16 @@ func suiteFailFast(resolved workspace.ResolvedScenarioSuite, flags suiteFlags) b
 
 func iterationRunID(base string, iteration int) string {
 	return fmt.Sprintf("%s-iter-%03d", base, iteration)
+}
+
+func iterationNamespace(base string, iteration int) string {
+	suffix := fmt.Sprintf("iter-%03d", iteration)
+	baseLabel := workspace.DNSLabel(base)
+	maxBaseLen := 63 - len(suffix) - 1
+	if len(baseLabel) > maxBaseLen {
+		baseLabel = strings.TrimRight(baseLabel[:maxBaseLen], "-")
+	}
+	return workspace.DNSLabel(baseLabel + "-" + suffix)
 }
 
 type junitTestsuites struct {

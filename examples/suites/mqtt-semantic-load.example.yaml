@@ -8,8 +8,10 @@ spec:
     - ../scenarios/mqtt-ingestion-basic.yaml
   execution:
     repetitions: 100
-    concurrency: 1
+    concurrency: 10
     failFast: false
     maxFailures: 10
+    isolation:
+      namespacePerIteration: true
   workspaceDir: ../generated/mqtt-semantic-load
   failFast: false

@@ -601,6 +601,8 @@ spec:
       perSecond: 25
     failFast: false
     maxFailures: 10
+    isolation:
+      namespacePerIteration: true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +611,7 @@ spec:
 		t.Fatal(err)
 	}
 	execution := resolved.Suite.Spec.Execution
-	if execution.Repetitions != 100 || execution.Concurrency != 10 || execution.RateLimit.PerSecond != 25 || execution.FailFast == nil || *execution.FailFast || execution.MaxFailures != 10 {
+	if execution.Repetitions != 100 || execution.Concurrency != 10 || execution.RateLimit.PerSecond != 25 || execution.FailFast == nil || *execution.FailFast || execution.MaxFailures != 10 || !execution.Isolation.NamespacePerIteration {
 		t.Fatalf("execution controls mismatch: %+v", execution)
 	}
 }
@@ -634,6 +636,30 @@ spec:
 	_, err := LoadScenarioSuite(suitePath)
 	if err == nil || !strings.Contains(err.Error(), "spec.execution.concurrency requires spec.execution.repetitions greater than 1") {
 		t.Fatalf("expected concurrency validation error, got %v", err)
+	}
+}
+
+func TestLoadScenarioSuiteRejectsConcurrencyWithoutIsolation(t *testing.T) {
+	dir := t.TempDir()
+	_, _ = writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
+	suitePath := filepath.Join(dir, "suite.yaml")
+	if err := os.WriteFile(suitePath, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: invalid-load-suite
+spec:
+  bindingRef: binding.yaml
+  scenarios:
+    - scenario.yaml
+  execution:
+    repetitions: 2
+    concurrency: 2
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadScenarioSuite(suitePath)
+	if err == nil || !strings.Contains(err.Error(), "spec.execution.concurrency greater than 1 requires spec.execution.isolation.namespacePerIteration") {
+		t.Fatalf("expected concurrency isolation validation error, got %v", err)
 	}
 }
 

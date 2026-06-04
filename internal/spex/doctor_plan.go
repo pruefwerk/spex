@@ -611,11 +611,12 @@ type suitePlanSecretRef struct {
 }
 
 type suiteExecution struct {
-	Repetitions        int   `json:"repetitions,omitempty"`
-	Concurrency        int   `json:"concurrency,omitempty"`
-	RateLimitPerSecond int   `json:"rateLimitPerSecond,omitempty"`
-	FailFast           *bool `json:"failFast,omitempty"`
-	MaxFailures        int   `json:"maxFailures,omitempty"`
+	Repetitions           int   `json:"repetitions,omitempty"`
+	Concurrency           int   `json:"concurrency,omitempty"`
+	RateLimitPerSecond    int   `json:"rateLimitPerSecond,omitempty"`
+	FailFast              *bool `json:"failFast,omitempty"`
+	MaxFailures           int   `json:"maxFailures,omitempty"`
+	NamespacePerIteration bool  `json:"namespacePerIteration,omitempty"`
 }
 
 func runSuitePlan(args []string, stdout io.Writer) error {
@@ -728,18 +729,19 @@ func runSuitePlan(args []string, stdout io.Writer) error {
 
 func suiteExecutionFor(resolved workspace.ResolvedScenarioSuite) *suiteExecution {
 	execution := resolved.Suite.Spec.Execution
-	if execution.Repetitions == 0 && execution.Concurrency == 0 && execution.RateLimit.PerSecond == 0 && execution.FailFast == nil && execution.MaxFailures == 0 {
+	if execution.Repetitions == 0 && execution.Concurrency == 0 && execution.RateLimit.PerSecond == 0 && execution.FailFast == nil && execution.MaxFailures == 0 && !execution.Isolation.NamespacePerIteration {
 		if !resolved.Suite.Spec.FailFast {
 			return nil
 		}
 		return &suiteExecution{FailFast: &resolved.Suite.Spec.FailFast}
 	}
 	out := suiteExecution{
-		Repetitions:        execution.Repetitions,
-		Concurrency:        execution.Concurrency,
-		RateLimitPerSecond: execution.RateLimit.PerSecond,
-		FailFast:           execution.FailFast,
-		MaxFailures:        execution.MaxFailures,
+		Repetitions:           execution.Repetitions,
+		Concurrency:           execution.Concurrency,
+		RateLimitPerSecond:    execution.RateLimit.PerSecond,
+		FailFast:              execution.FailFast,
+		MaxFailures:           execution.MaxFailures,
+		NamespacePerIteration: execution.Isolation.NamespacePerIteration,
 	}
 	if out.FailFast == nil && resolved.Suite.Spec.FailFast {
 		out.FailFast = &resolved.Suite.Spec.FailFast
@@ -763,6 +765,9 @@ func writeSuiteExecution(stdout io.Writer, execution suiteExecution) {
 	}
 	if execution.MaxFailures > 0 {
 		fmt.Fprintf(stdout, "  maxFailures: %d\n", execution.MaxFailures)
+	}
+	if execution.NamespacePerIteration {
+		fmt.Fprintln(stdout, "  namespacePerIteration: true")
 	}
 }
 
