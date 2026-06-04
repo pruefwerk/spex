@@ -734,8 +734,23 @@ func validateSuiteExecution(execution SuiteExecution) error {
 	if execution.Concurrency < 0 {
 		return fmt.Errorf("spec.execution.concurrency must be greater than or equal to 0")
 	}
-	if execution.RateLimit.PerSecond < 0 {
-		return fmt.Errorf("spec.execution.rateLimit.perSecond must be greater than or equal to 0")
+	if execution.RateLimit.Starts < 0 {
+		return fmt.Errorf("spec.execution.rateLimit.starts must be greater than or equal to 0")
+	}
+	if execution.RateLimit.Starts > 0 && execution.RateLimit.Per == "" {
+		return fmt.Errorf("spec.execution.rateLimit.per is required when spec.execution.rateLimit.starts is set")
+	}
+	if execution.RateLimit.Starts == 0 && execution.RateLimit.Per != "" {
+		return fmt.Errorf("spec.execution.rateLimit.starts is required when spec.execution.rateLimit.per is set")
+	}
+	if execution.RateLimit.Per != "" {
+		duration, err := time.ParseDuration(execution.RateLimit.Per)
+		if err != nil {
+			return fmt.Errorf("spec.execution.rateLimit.per must be a Go duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("spec.execution.rateLimit.per must be greater than 0")
+		}
 	}
 	if execution.MaxFailures < 0 {
 		return fmt.Errorf("spec.execution.maxFailures must be greater than or equal to 0")
@@ -746,8 +761,8 @@ func validateSuiteExecution(execution SuiteExecution) error {
 	if execution.Concurrency > 1 && !execution.Isolation.NamespacePerIteration {
 		return fmt.Errorf("spec.execution.concurrency greater than 1 requires spec.execution.isolation.namespacePerIteration")
 	}
-	if execution.RateLimit.PerSecond > 0 && execution.Repetitions <= 1 {
-		return fmt.Errorf("spec.execution.rateLimit.perSecond requires spec.execution.repetitions greater than 1")
+	if execution.RateLimit.Starts > 0 && execution.Repetitions <= 1 {
+		return fmt.Errorf("spec.execution.rateLimit requires spec.execution.repetitions greater than 1")
 	}
 	return nil
 }

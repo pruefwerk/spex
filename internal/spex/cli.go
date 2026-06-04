@@ -1983,7 +1983,7 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	}
 	failFast := suiteFailFast(resolved, flags)
 	maxFailures := resolved.Suite.Spec.Execution.MaxFailures
-	outcomes, failed, stopReason := runSuiteWorkspaces(workspaces, flags, resolved.Suite.Spec.Execution.Concurrency, failFast, maxFailures, stdout, stderr)
+	outcomes, failed, stopReason := runSuiteWorkspaces(workspaces, flags, resolved.Suite.Spec.Execution.Concurrency, resolved.Suite.Spec.Execution.RateLimit, failFast, maxFailures, stdout, stderr)
 	if len(failed) > 0 {
 		if err := writeSuiteReports(resolved, flags, outRoot, outcomes, stopReason); err != nil {
 			return fmt.Errorf("suite failed: %s; report write failed: %w", strings.Join(failed, ", "), err)
@@ -1999,9 +1999,6 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 
 func suiteRunInputs(resolved workspace.ResolvedScenarioSuite, inputs []workspace.Inputs) ([]workspace.Inputs, error) {
 	execution := resolved.Suite.Spec.Execution
-	if execution.RateLimit.PerSecond > 0 {
-		return nil, fmt.Errorf("spec.execution.rateLimit.perSecond is not enabled for suite run yet")
-	}
 	repetitions := execution.Repetitions
 	if repetitions == 0 {
 		repetitions = 1
@@ -2023,25 +2020,27 @@ func suiteRunInputs(resolved workspace.ResolvedScenarioSuite, inputs []workspace
 	return out, nil
 }
 
-func runSuiteWorkspaces(workspaces []string, flags suiteFlags, concurrency int, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
+func runSuiteWorkspaces(workspaces []string, flags suiteFlags, concurrency int, rateLimit workspace.SuiteRateLimit, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
 	if concurrency <= 0 {
 		concurrency = 1
 	}
 	if concurrency > len(workspaces) && len(workspaces) > 0 {
 		concurrency = len(workspaces)
 	}
+	limiter := newSuiteRateLimiter(rateLimit)
 	if concurrency <= 1 {
-		return runSuiteWorkspacesSequential(workspaces, flags, failFast, maxFailures, stdout, stderr)
+		return runSuiteWorkspacesSequential(workspaces, flags, limiter, failFast, maxFailures, stdout, stderr)
 	}
-	return runSuiteWorkspacesConcurrent(workspaces, flags, concurrency, failFast, maxFailures, stdout, stderr)
+	return runSuiteWorkspacesConcurrent(workspaces, flags, concurrency, limiter, failFast, maxFailures, stdout, stderr)
 }
 
-func runSuiteWorkspacesSequential(workspaces []string, flags suiteFlags, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
+func runSuiteWorkspacesSequential(workspaces []string, flags suiteFlags, limiter suiteRateLimiter, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
 	var failed []string
 	outcomes := make([]suiteRunWorkspaceOutcome, 0, len(workspaces))
 	stopReason := ""
 	for i, workspacePath := range workspaces {
 		outcome := suiteRunWorkspaceOutcome{Workspace: workspacePath, Execution: "executed"}
+		limiter.Wait()
 		if err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr); err != nil {
 			failed = append(failed, filepath.Base(workspacePath))
 			if failFast || (maxFailures > 0 && len(failed) >= maxFailures) {
@@ -2063,7 +2062,7 @@ type suiteWorkspaceResult struct {
 	Failed bool
 }
 
-func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurrency int, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
+func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurrency int, limiter suiteRateLimiter, failFast bool, maxFailures int, stdout, stderr io.Writer) ([]suiteRunWorkspaceOutcome, []string, string) {
 	outcomes := make([]suiteRunWorkspaceOutcome, len(workspaces))
 	results := make(chan suiteWorkspaceResult, concurrency)
 	var writerMu sync.Mutex
@@ -2075,6 +2074,7 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 	stopReason := ""
 	stopped := false
 	start := func(index int) {
+		limiter.Wait()
 		running++
 		workspacePath := workspaces[index]
 		go func() {
@@ -2116,6 +2116,34 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 		}
 	}
 	return outcomes, failed, stopReason
+}
+
+type suiteRateLimiter struct {
+	interval time.Duration
+	next     time.Time
+}
+
+func newSuiteRateLimiter(rateLimit workspace.SuiteRateLimit) suiteRateLimiter {
+	if rateLimit.Starts <= 0 || rateLimit.Per == "" {
+		return suiteRateLimiter{}
+	}
+	duration, err := time.ParseDuration(rateLimit.Per)
+	if err != nil || duration <= 0 {
+		return suiteRateLimiter{}
+	}
+	return suiteRateLimiter{interval: duration / time.Duration(rateLimit.Starts)}
+}
+
+func (l *suiteRateLimiter) Wait() {
+	if l.interval <= 0 {
+		return
+	}
+	now := time.Now()
+	if !l.next.IsZero() && now.Before(l.next) {
+		time.Sleep(l.next.Sub(now))
+		now = time.Now()
+	}
+	l.next = now.Add(l.interval)
 }
 
 type lockedWriter struct {
@@ -2229,11 +2257,17 @@ type suiteRunReportStatus struct {
 }
 
 type suiteRunReportSpec struct {
-	SuiteFile     string `yaml:"suiteFile" json:"suiteFile"`
-	WorkspaceRoot string `yaml:"workspaceRoot" json:"workspaceRoot"`
-	ReportDir     string `yaml:"reportDir" json:"reportDir"`
-	Repetitions   int    `yaml:"repetitions,omitempty" json:"repetitions,omitempty"`
-	MaxFailures   int    `yaml:"maxFailures,omitempty" json:"maxFailures,omitempty"`
+	SuiteFile     string                   `yaml:"suiteFile" json:"suiteFile"`
+	WorkspaceRoot string                   `yaml:"workspaceRoot" json:"workspaceRoot"`
+	ReportDir     string                   `yaml:"reportDir" json:"reportDir"`
+	Repetitions   int                      `yaml:"repetitions,omitempty" json:"repetitions,omitempty"`
+	RateLimit     *suiteRunReportRateLimit `yaml:"rateLimit,omitempty" json:"rateLimit,omitempty"`
+	MaxFailures   int                      `yaml:"maxFailures,omitempty" json:"maxFailures,omitempty"`
+}
+
+type suiteRunReportRateLimit struct {
+	Starts int    `yaml:"starts" json:"starts"`
+	Per    string `yaml:"per" json:"per"`
 }
 
 type suiteRunScenarioRef struct {
@@ -2329,6 +2363,7 @@ func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRo
 			WorkspaceRoot: outRoot,
 			ReportDir:     reportDir,
 			Repetitions:   resolved.Suite.Spec.Execution.Repetitions,
+			RateLimit:     suiteRunReportRateLimitFor(resolved.Suite.Spec.Execution.RateLimit),
 			MaxFailures:   resolved.Suite.Spec.Execution.MaxFailures,
 		},
 	}
@@ -2360,6 +2395,13 @@ func buildSuiteReport(resolved workspace.ResolvedScenarioSuite, reportDir, outRo
 		report.Scenarios = append(report.Scenarios, scenario)
 	}
 	return report
+}
+
+func suiteRunReportRateLimitFor(rateLimit workspace.SuiteRateLimit) *suiteRunReportRateLimit {
+	if rateLimit.Starts <= 0 || rateLimit.Per == "" {
+		return nil
+	}
+	return &suiteRunReportRateLimit{Starts: rateLimit.Starts, Per: rateLimit.Per}
 }
 
 func writeSuiteJUnit(reportDir string, outcomes []suiteRunWorkspaceOutcome) error {

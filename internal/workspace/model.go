@@ -299,7 +299,8 @@ type SuiteExecution struct {
 }
 
 type SuiteRateLimit struct {
-	PerSecond int `yaml:"perSecond"`
+	Starts int    `yaml:"starts"`
+	Per    string `yaml:"per"`
 }
 
 type SuiteIsolation struct {

@@ -598,7 +598,8 @@ spec:
     repetitions: 100
     concurrency: 10
     rateLimit:
-      perSecond: 25
+      starts: 25
+      per: 1s
     failFast: false
     maxFailures: 10
     isolation:
@@ -611,7 +612,7 @@ spec:
 		t.Fatal(err)
 	}
 	execution := resolved.Suite.Spec.Execution
-	if execution.Repetitions != 100 || execution.Concurrency != 10 || execution.RateLimit.PerSecond != 25 || execution.FailFast == nil || *execution.FailFast || execution.MaxFailures != 10 || !execution.Isolation.NamespacePerIteration {
+	if execution.Repetitions != 100 || execution.Concurrency != 10 || execution.RateLimit.Starts != 25 || execution.RateLimit.Per != "1s" || execution.FailFast == nil || *execution.FailFast || execution.MaxFailures != 10 || !execution.Isolation.NamespacePerIteration {
 		t.Fatalf("execution controls mismatch: %+v", execution)
 	}
 }
@@ -660,6 +661,54 @@ spec:
 	_, err := LoadScenarioSuite(suitePath)
 	if err == nil || !strings.Contains(err.Error(), "spec.execution.concurrency greater than 1 requires spec.execution.isolation.namespacePerIteration") {
 		t.Fatalf("expected concurrency isolation validation error, got %v", err)
+	}
+}
+
+func TestLoadScenarioSuiteRejectsInvalidRateLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "missing duration",
+			yaml: "      starts: 10\n",
+			want: "spec.execution.rateLimit.per is required",
+		},
+		{
+			name: "missing starts",
+			yaml: "      per: 1s\n",
+			want: "spec.execution.rateLimit.starts is required",
+		},
+		{
+			name: "invalid duration",
+			yaml: "      starts: 10\n      per: sometimes\n",
+			want: "spec.execution.rateLimit.per must be a Go duration",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			_, _ = writeScenarioAndBinding(t, dir, "localEnvFile", "tcp://emqx.platform.svc.cluster.local:1883")
+			suitePath := filepath.Join(dir, "suite.yaml")
+			if err := os.WriteFile(suitePath, []byte(`apiVersion: spex.suite.v0.1
+kind: ScenarioSuite
+metadata:
+  name: invalid-load-suite
+spec:
+  bindingRef: binding.yaml
+  scenarios:
+    - scenario.yaml
+  execution:
+    repetitions: 2
+    rateLimit:
+`+tc.yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadScenarioSuite(suitePath)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected rate limit validation error %q, got %v", tc.want, err)
+			}
+		})
 	}
 }
 
