@@ -341,6 +341,8 @@ type BundleMetadata struct {
 type IntegrationBundleSpec struct {
 	Capabilities   []Capability    `yaml:"capabilities"`
 	BindingSchemas []BindingSchema `yaml:"bindingSchemas"`
+	StepCatalogs   []string        `yaml:"stepCatalogs"`
+	FlowCatalogs   []string        `yaml:"flowCatalogs"`
 }
 
 type FlowUse struct {

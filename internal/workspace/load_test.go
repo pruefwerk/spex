@@ -2046,6 +2046,109 @@ spec:
 	}
 }
 
+func TestLoadInputsRendersGenericOperationWithFromCatalog(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	catalogPath := filepath.Join(dir, "steps.yaml")
+	scenario := `apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: custom-check
+spec:
+  stepInvocations:
+    - kind: then
+      text: custom echoes 5
+`
+	binding := `apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: local-dev
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  bindings:
+    - name: custom.main
+      kind: custom.connection
+      with:
+        uri: custom://service
+`
+	catalog := `apiVersion: spex.catalog.v0.1
+kind: StepCatalog
+metadata:
+  name: custom-steps
+spec:
+  steps:
+    - kind: then
+      expression: custom echoes {message}
+      output:
+        operations:
+          - id: echo-{message}
+            type: custom.echo
+            timeout: "{message}s"
+            with:
+              bindingRef: custom.main
+              message: "{message}"
+              labels:
+                echoed: "{message}"
+              values:
+                - "{message}"
+`
+	if err := os.WriteFile(scenarioPath, []byte(scenario), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(binding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(catalogPath, []byte(catalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogs, err := LoadCatalogBundle([]string{catalogPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath, catalogs, []Provider{
+		{
+			Name: "custom",
+			Capabilities: []Capability{
+				{
+					Type:        "custom.echo",
+					BindingKind: "custom.connection",
+					Probe: ProbeInvocationSpec{
+						Image:   "custom-probe:dev",
+						Command: []string{"custom", "run"},
+						Input:   ProbeIO{Path: "/spex/input/operation.json"},
+						Output:  ProbeIO{Path: "/spex/output/result.json"},
+					},
+				},
+			},
+			BindingSchemas: []BindingSchema{{Kind: "custom.connection"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 1 || len(inputs[0].Scenario.Spec.Operations) != 1 {
+		t.Fatalf("expanded operations = %d, want 1", len(inputs[0].Scenario.Spec.Operations))
+	}
+	operation := inputs[0].Scenario.Spec.Operations[0]
+	if operation.ID != "echo-5" || operation.Timeout != "5s" {
+		t.Fatalf("operation templates not rendered: %+v", operation)
+	}
+	if operation.With["message"] != "5" {
+		t.Fatalf("operation with.message = %v", operation.With["message"])
+	}
+	labels, ok := operation.With["labels"].(map[string]any)
+	if !ok || labels["echoed"] != "5" {
+		t.Fatalf("operation with.labels = %#v", operation.With["labels"])
+	}
+	values, ok := operation.With["values"].([]any)
+	if !ok || len(values) != 1 || values[0] != "5" {
+		t.Fatalf("operation with.values = %#v", operation.With["values"])
+	}
+}
+
 func TestLoadInputsAcceptsGenericInfluxDBV3Operation(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath := filepath.Join(dir, "scenario.yaml")

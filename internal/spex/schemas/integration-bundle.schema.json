@@ -22,6 +22,14 @@
         "bindingSchemas": {
           "type": "array",
           "items": { "$ref": "#/$defs/bindingSchema" }
+        },
+        "stepCatalogs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "flowCatalogs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     }

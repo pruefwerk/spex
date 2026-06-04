@@ -627,6 +627,11 @@ func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
 		}
 	}
 	var catalogPaths []string
+	providers, bundleCatalogPaths, err := LoadBundleProvidersAndCatalogPaths(baseDir, suite.Spec.BundleRefs)
+	if err != nil {
+		return ResolvedScenarioSuite{}, err
+	}
+	catalogPaths = append(catalogPaths, bundleCatalogPaths...)
 	for i, ref := range suite.Spec.CatalogRefs {
 		catalogPath, err := resolveSuiteRef(baseDir, ref)
 		if err != nil {
@@ -636,10 +641,6 @@ func LoadScenarioSuite(suitePath string) (ResolvedScenarioSuite, error) {
 			return ResolvedScenarioSuite{}, fmt.Errorf("spec.catalogRefs[%d]: %w", i, err)
 		}
 		catalogPaths = append(catalogPaths, catalogPath)
-	}
-	providers, err := LoadBundleProviders(baseDir, suite.Spec.BundleRefs)
-	if err != nil {
-		return ResolvedScenarioSuite{}, err
 	}
 	scenarioRefs, err := expandSuiteScenarioRefs(baseDir, suite.Spec.Scenarios, bindingPath, integrationProfilePath)
 	if err != nil {
@@ -918,6 +919,15 @@ func renderCatalogOperation(op Operation, values map[string]string) Operation {
 	op.ID = renderCatalogTemplate(op.ID, values)
 	op.Type = renderCatalogTemplate(op.Type, values)
 	op.After = renderCatalogTemplate(op.After, values)
+	op.Timeout = renderCatalogTemplate(op.Timeout, values)
+	if op.DependsOn != nil {
+		for i, dependency := range op.DependsOn {
+			op.DependsOn[i] = renderCatalogTemplate(dependency, values)
+		}
+	}
+	if op.With != nil {
+		op.With = renderCatalogValue(op.With, values).(map[string]any)
+	}
 	if op.MQTT != nil {
 		mqtt := *op.MQTT
 		mqtt.Topic = renderCatalogTemplate(mqtt.Topic, values)
@@ -947,6 +957,27 @@ func renderCatalogOperation(op Operation, values map[string]string) Operation {
 		op.GraphQL = &graphql
 	}
 	return op
+}
+
+func renderCatalogValue(value any, values map[string]string) any {
+	switch typed := value.(type) {
+	case string:
+		return renderCatalogTemplate(typed, values)
+	case map[string]any:
+		out := map[string]any{}
+		for key, child := range typed {
+			out[renderCatalogTemplate(key, values)] = renderCatalogValue(child, values)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, child := range typed {
+			out[i] = renderCatalogValue(child, values)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func renderCatalogMatchers(matchers []Matcher, values map[string]string) []Matcher {
