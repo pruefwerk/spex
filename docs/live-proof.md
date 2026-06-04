@@ -19,6 +19,7 @@ The production proof is a real kind run. It is intentionally separate from norma
 - `kind`
 - `kubectl`
 - `go`
+- `oras` for the OCI bundle proof
 
 The Keycloak proof also needs enough local CPU and memory for Keycloak plus the demo stack.
 
@@ -55,6 +56,8 @@ make integration-example-kind-keycloak
 ## CI Usage
 
 Use `make live-proof-kind` in a workflow that has Docker and kind available. Use `make live-proof-keycloak` for the stronger Keycloak gate.
+
+Use `make live-proof-oci-bundle` in an environment that has Docker and ORAS available to prove the registry-hosted bundle path. The proof starts a local OCI registry when needed, pushes `examples/bundles/custom-echo`, resolves the immutable digest, then runs `bundle explain`, `bundle lock`, `bundle verify`, and `bundle vendor` against the digest-pinned OCI source. It enables `SPEX_OCI_BUNDLE_PLAIN_HTTP=true` only for that local-registry proof; production registry references should remain HTTPS and digest-pinned.
 
 Normal pull-request CI may run `make production-candidate-check` without the live proof. Release-candidate promotion must include at least one clean live proof for the target integration profile.
 
