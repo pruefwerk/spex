@@ -295,10 +295,15 @@ type SuiteExecution struct {
 	RateLimit   SuiteRateLimit `yaml:"rateLimit"`
 	FailFast    *bool          `yaml:"failFast"`
 	MaxFailures int            `yaml:"maxFailures"`
+	Isolation   SuiteIsolation `yaml:"isolation"`
 }
 
 type SuiteRateLimit struct {
 	PerSecond int `yaml:"perSecond"`
+}
+
+type SuiteIsolation struct {
+	NamespacePerIteration bool `yaml:"namespacePerIteration"`
 }
 
 type ScenarioRef struct {

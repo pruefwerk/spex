@@ -80,7 +80,14 @@
           }
         },
         "failFast": { "type": "boolean" },
-        "maxFailures": { "type": "integer", "minimum": 0 }
+        "maxFailures": { "type": "integer", "minimum": 0 },
+        "isolation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "namespacePerIteration": { "type": "boolean" }
+          }
+        }
       }
     },
     "bundleRef": {
