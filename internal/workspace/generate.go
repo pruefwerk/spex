@@ -1145,151 +1145,28 @@ func redpandaSnapshotOperation(in Inputs) Operation {
 	}
 }
 
-func legacyRedpandaSnapshotJob(in Inputs, scenarioSlug string, ordinal int) string {
-	args := []string{
-		"redpanda", "snapshot-offsets",
-		"--brokers=" + in.Binding.Spec.Redpanda.Brokers,
-		"--offsets-configmap=" + offsetConfigMapName(scenarioSlug),
-		"--namespace=" + in.Namespace,
-		"--scenario=" + scenarioSlug,
-		"--run-id=" + in.RunID,
-		"--timeout=" + defaultTimeout(in),
-	}
-	for _, topic := range redpandaSnapshotTopics(in) {
-		args = append(args, "--topic="+topic)
-	}
-	return probeJob(in, scenarioSlug, ordinal, "redpanda-snapshot-offsets", "redpanda.snapshotOffsets", args)
-}
-
 func mqttPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
-}
-
-func legacyMQTTPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
-	topic := renderTemplate(op.MQTT.Topic, in.RunID, op.MQTT.CorrelationID, params)
-	args := []string{
-		"mqtt", "publish",
-		"--topic=" + topic,
-		"--client-id=" + mqttClientID(in, scenarioSlug, ordinal, op.ID),
-		"--qos=1",
-		"--payload-file=/spex/payloads/" + payloadFile,
-		"--timeout=" + defaultTimeout(in),
-	}
-	if !isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
-		args = append([]string{"mqtt", "publish", "--broker-url=" + in.Binding.Spec.MQTT.BrokerURL}, args[2:]...)
-	}
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
 }
 
 func mqttRoundTripJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile, matchersFile string, params map[string]string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
 }
 
-func legacyMQTTRoundTripJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile, matchersFile string, params map[string]string) string {
-	topic := renderTemplate(op.MQTT.Topic, in.RunID, op.MQTT.CorrelationID, params)
-	args := []string{
-		"mqtt", "roundtrip",
-		"--topic=" + topic,
-		"--client-id=" + mqttClientID(in, scenarioSlug, ordinal, op.ID),
-		"--qos=1",
-		"--payload-file=/spex/payloads/" + payloadFile,
-		"--matchers-file=/spex/matchers/" + matchersFile,
-		"--timeout=" + mqttTimeout(in, op),
-	}
-	if op.MQTT.ClientMode != "" {
-		args = append(args, "--client-mode="+op.MQTT.ClientMode)
-	}
-	if !isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
-		args = append([]string{"mqtt", "roundtrip", "--broker-url=" + in.Binding.Spec.MQTT.BrokerURL}, args[2:]...)
-	}
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
-}
-
-func mqttClientID(in Inputs, scenarioSlug string, ordinal int, operationID string) string {
-	prefix := in.Binding.Spec.MQTT.ClientIDPrefix
-	if prefix == "" {
-		prefix = "spex"
-	}
-	return DNSLabel(prefix + "-" + scenarioSlug + "-" + in.RunID + "-" + twoDigitOrdinal(ordinal) + "-" + operationID)
-}
-
 func redpandaContainsJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
-}
-
-func legacyRedpandaContainsJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string) string {
-	topic := redpandaTopicName(in, op.Redpanda.TopicRef)
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
-		"redpanda", "contains",
-		"--brokers=" + in.Binding.Spec.Redpanda.Brokers,
-		"--topic=" + topic,
-		"--offsets-configmap=" + offsetConfigMapName(scenarioSlug),
-		"--namespace=" + in.Namespace,
-		"--scenario=" + scenarioSlug,
-		"--run-id=" + in.RunID,
-		"--matchers-file=/spex/matchers/" + matchersFile,
-		"--timeout=" + redpandaTimeout(in, op),
-		"--poll-interval=" + defaultPollInterval(in),
-	})
 }
 
 func graphqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, variablesFile, matchersFile string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
 }
 
-func legacyGraphQLExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, variablesFile, matchersFile string) string {
-	args := []string{
-		"graphql", "expect",
-		"--endpoint=" + in.Binding.Spec.GraphQL.Endpoint,
-		"--query-file=/spex/graphql/" + queryFile,
-		"--variables-file=/spex/variables/" + variablesFile,
-		"--matchers-file=/spex/matchers/" + matchersFile,
-		"--timeout=" + graphqlTimeout(in, op),
-		"--poll-interval=" + defaultPollInterval(in),
-	}
-	if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {
-		args = append(args,
-			"--keycloak-token-url="+in.Binding.Spec.GraphQL.Auth.TokenURL,
-			"--keycloak-client-id="+in.Binding.Spec.GraphQL.Auth.ClientID,
-		)
-		for _, scope := range in.Binding.Spec.GraphQL.Auth.Scopes {
-			args = append(args, "--keycloak-scope="+scope)
-		}
-	}
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, args)
-}
-
 func mongodbExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, filterFile, matchersFile string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
 }
 
-func legacyMongoDBExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, filterFile, matchersFile string) string {
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
-		"mongodb", "expect",
-		"--uri=" + in.Binding.Spec.MongoDB.URI,
-		"--database=" + in.Binding.Spec.MongoDB.Database,
-		"--collection=" + op.MongoDB.Collection,
-		"--filter-file=/spex/variables/" + filterFile,
-		"--matchers-file=/spex/matchers/" + matchersFile,
-		"--timeout=" + mongodbTimeout(in, op),
-		"--poll-interval=" + defaultPollInterval(in),
-	})
-}
-
 func postgresqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, argsFile, matchersFile string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
-}
-
-func legacyPostgreSQLExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, queryFile, argsFile, matchersFile string) string {
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
-		"postgresql", "expect",
-		"--uri=" + in.Binding.Spec.PostgreSQL.URI,
-		"--query-file=/spex/variables/" + queryFile,
-		"--args-file=/spex/variables/" + argsFile,
-		"--matchers-file=/spex/matchers/" + matchersFile,
-		"--timeout=" + postgresqlTimeout(in, op),
-		"--poll-interval=" + defaultPollInterval(in),
-	})
 }
 
 func genericProviderJob(in Inputs, scenarioSlug string, ordinal int, op Operation) string {
@@ -1453,115 +1330,8 @@ func rabbitmqPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operatio
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
 }
 
-func legacyRabbitMQPublishJob(in Inputs, scenarioSlug string, ordinal int, op Operation, payloadFile string, params map[string]string) string {
-	exchange := renderTemplate(op.RabbitMQ.Exchange, in.RunID, op.RabbitMQ.CorrelationID, params)
-	routingKey := renderTemplate(op.RabbitMQ.RoutingKey, in.RunID, op.RabbitMQ.CorrelationID, params)
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
-		"rabbitmq", "publish",
-		"--uri=" + in.Binding.Spec.RabbitMQ.URI,
-		"--exchange=" + exchange,
-		"--routing-key=" + routingKey,
-		"--payload-file=/spex/payloads/" + payloadFile,
-		"--timeout=" + rabbitmqTimeout(in, op),
-	})
-}
-
 func rabbitmqExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string, params map[string]string) string {
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
-}
-
-func legacyRabbitMQExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operation, matchersFile string, params map[string]string) string {
-	queue := renderTemplate(op.RabbitMQ.Queue, in.RunID, op.RabbitMQ.CorrelationID, params)
-	return probeJob(in, scenarioSlug, ordinal, op.ID, op.Type, []string{
-		"rabbitmq", "expect",
-		"--uri=" + in.Binding.Spec.RabbitMQ.URI,
-		"--queue=" + queue,
-		"--matchers-file=/spex/matchers/" + matchersFile,
-		"--timeout=" + rabbitmqTimeout(in, op),
-		"--poll-interval=" + defaultPollInterval(in),
-	})
-}
-
-func probeJob(in Inputs, scenarioSlug string, ordinal int, operationID, operationType string, args []string) string {
-	name := jobName(scenarioSlug, ordinal, operationID)
-	operationSlug := DNSLabel(operationID)
-	ordinalLabel := twoDigitOrdinal(ordinal)
-	image := in.Binding.Spec.Probe.Image
-	if image == "" {
-		image = "spex-probe:dev"
-	}
-	imagePullPolicy := in.Binding.Spec.Probe.ImagePullPolicy
-	if imagePullPolicy == "" {
-		imagePullPolicy = "IfNotPresent"
-	}
-	serviceAccountName := probeServiceAccountName(in)
-	return fmt.Sprintf(`apiVersion: batch/v1
-kind: Job
-metadata:
-  name: %s
-  namespace: %s
-  labels:
-    spex/owned: "true"
-    spex/scenario: "%s"
-    spex/operation-id: "%s"
-    spex/operation-type: "%s"
-    spex/step-ordinal: "%s"
-    spex/run-id: "%s"
-spec:
-  backoffLimit: 0
-  activeDeadlineSeconds: %d
-  template:
-    metadata:
-      labels:
-        spex/owned: "true"
-        spex/scenario: "%s"
-        spex/operation-id: "%s"
-        spex/operation-type: "%s"
-        spex/step-ordinal: "%s"
-        spex/run-id: "%s"
-    spec:
-      restartPolicy: Never
-      serviceAccountName: %s
-      containers:
-        - name: probe
-          image: %s
-          imagePullPolicy: %s
-%s
-          args:
-%s
-          volumeMounts:
-            - name: payloads
-              mountPath: /spex/payloads
-              readOnly: true
-            - name: graphql
-              mountPath: /spex/graphql
-              readOnly: true
-            - name: variables
-              mountPath: /spex/variables
-              readOnly: true
-            - name: matchers
-              mountPath: /spex/matchers
-              readOnly: true
-            - name: results
-              mountPath: /spex/results
-      volumes:
-        - name: payloads
-          configMap:
-            name: %s
-        - name: graphql
-          configMap:
-            name: %s
-        - name: variables
-          configMap:
-            name: %s
-        - name: matchers
-          configMap:
-            name: %s
-        - name: results
-          emptyDir: {}
-`, yamlString(name), yamlString(in.Namespace), scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, activeDeadlineSeconds(args),
-		scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, yamlString(serviceAccountName), yamlString(image), yamlString(imagePullPolicy), secretEnv(in, args), yamlArgs(args),
-		yamlString(payloadsConfigMapName(scenarioSlug)), yamlString(graphqlConfigMapName(scenarioSlug)), yamlString(variablesConfigMapName(scenarioSlug)), yamlString(matchersConfigMapName(scenarioSlug)))
 }
 
 func rbac(in Inputs, scenarioSlug string) string {
