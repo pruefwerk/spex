@@ -62,9 +62,10 @@ Inspect resolved integration bundles:
 spex bundle list --suite suite.yaml
 spex bundle explain --suite suite.yaml
 spex bundle lock --suite suite.yaml --out spex.bundle-lock.yaml
+spex bundle verify --suite suite.yaml --lock spex.bundle-lock.yaml
 ```
 
-`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths. `bundle lock` writes the resolved bundle inventory, including local file digests, Git revisions, capability schema refs, and probe image digests when images are pinned.
+`bundle list` shows resolved provider bundles and their source type. `bundle explain` shows bundle source, manifest, catalog files, registered capabilities, binding kinds, schema refs, probe images, commands, env mappings, and operation/result paths. `bundle lock` writes the resolved bundle inventory, including local file digests, Git revisions, capability schema refs, and probe image digests when images are pinned. `bundle verify` compares a suite's currently resolved bundles with a committed lock file and fails on drift.
 
 Suites can reference built-in bundles or local bundle directories:
 

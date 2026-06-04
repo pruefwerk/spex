@@ -4018,6 +4018,31 @@ spec:
 	if locked.Capabilities[0].Type != "custom.echo" || locked.Capabilities[0].ProbeImage != "custom-probe:dev" || locked.Capabilities[0].Env["CUSTOM_TOKEN"] != "secretRef:credentials.token" {
 		t.Fatalf("bundle lock capability mismatch: %+v\n%s", locked.Capabilities[0], stdout.String())
 	}
+
+	lockPath := filepath.Join(dir, "spex.bundle-lock.yaml")
+	stdout.Reset()
+	if err := Run([]string{"bundle", "lock", "--suite", filepath.Join(dir, "suite.yaml"), "--out", lockPath}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "bundle lock written:") {
+		t.Fatalf("bundle lock write output mismatch:\n%s", stdout.String())
+	}
+	stdout.Reset()
+	if err := Run([]string{"bundle", "verify", "--suite", filepath.Join(dir, "suite.yaml"), "--lock", lockPath}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "bundle lock verified:") {
+		t.Fatalf("bundle verify output mismatch:\n%s", stdout.String())
+	}
+	content := readTestFile(t, lockPath)
+	content = strings.Replace(content, "custom-probe:dev", "custom-probe:changed", 1)
+	if err := os.WriteFile(lockPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Run([]string{"bundle", "verify", "--suite", filepath.Join(dir, "suite.yaml"), "--lock", lockPath}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "bundle lock mismatch") {
+		t.Fatalf("expected bundle lock mismatch, got %v", err)
+	}
 }
 
 func TestBundleExplainShowsBuiltInBundleCapabilities(t *testing.T) {

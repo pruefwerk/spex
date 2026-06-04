@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -140,7 +141,7 @@ Commands:
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
   catalog   list, explain, check, or document reusable catalogs
-  bundle    list, explain, or lock resolved integration bundles
+  bundle    list, explain, lock, or verify resolved integration bundles
   schema    list or print embedded JSON Schemas
   doctor    run host and suite preflight checks
   release   verify release artifacts
@@ -2874,7 +2875,7 @@ type bundleCapabilitySummary struct {
 
 func runBundle(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("bundle requires subcommand list, explain, or lock")
+		return fmt.Errorf("bundle requires subcommand list, explain, lock, or verify")
 	}
 	switch args[0] {
 	case "list":
@@ -2883,6 +2884,8 @@ func runBundle(args []string, stdout io.Writer) error {
 		return runBundleExplain(args[1:], stdout)
 	case "lock":
 		return runBundleLock(args[1:], stdout)
+	case "verify":
+		return runBundleVerify(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown bundle subcommand %q", args[0])
 	}
@@ -3154,6 +3157,60 @@ func runBundleLock(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "bundle lock written: %s\n", *outPath)
 	return nil
+}
+
+func runBundleVerify(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("bundle verify", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	suitePath := fs.String("suite", "", "suite YAML path")
+	lockPath := fs.String("lock", "", "bundle lock file path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := rejectPositionalArgs(fs, "bundle verify"); err != nil {
+		return err
+	}
+	if *suitePath == "" {
+		return fmt.Errorf("bundle verify requires --suite")
+	}
+	if *lockPath == "" {
+		return fmt.Errorf("bundle verify requires --lock")
+	}
+	expected, err := loadBundleLockFile(*lockPath)
+	if err != nil {
+		return err
+	}
+	resolved, err := workspace.LoadScenarioSuite(*suitePath)
+	if err != nil {
+		return fmt.Errorf("suite: %w", err)
+	}
+	actual, err := bundleLockForResolvedBundles(resolved.Bundles)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(expected, actual) {
+		return fmt.Errorf("bundle lock mismatch: resolved bundles differ from %s; run spex bundle lock --suite %s --out %s", *lockPath, *suitePath, *lockPath)
+	}
+	fmt.Fprintf(stdout, "bundle lock verified: %s\n", *lockPath)
+	return nil
+}
+
+func loadBundleLockFile(path string) (bundleLockDocument, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return bundleLockDocument{}, err
+	}
+	var lock bundleLockDocument
+	if err := yaml.Unmarshal(content, &lock); err != nil {
+		return bundleLockDocument{}, fmt.Errorf("bundle lock %s: %w", path, err)
+	}
+	if lock.APIVersion != "spex.bundle-lock.v0.1" {
+		return bundleLockDocument{}, fmt.Errorf("bundle lock %s: unsupported apiVersion %q", path, lock.APIVersion)
+	}
+	if lock.Kind != "IntegrationBundleLock" {
+		return bundleLockDocument{}, fmt.Errorf("bundle lock %s: kind must be IntegrationBundleLock", path)
+	}
+	return lock, nil
 }
 
 func bundleLockForResolvedBundles(bundles []workspace.ResolvedBundle) (bundleLockDocument, error) {
