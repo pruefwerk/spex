@@ -715,11 +715,8 @@ func integrationSetupStep(in Inputs, ctx integrationRenderContext) string {
 }
 
 func hasMaterializedSecrets(in Inputs) bool {
-	if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
-		return true
-	}
 	for _, secret := range in.Binding.Spec.Secrets {
-		if secret.Type == "localEnvFile" || secret.Type == "awsSsmParameter" {
+		if secret.Type == "localEnvFile" {
 			return true
 		}
 	}
@@ -729,7 +726,7 @@ func hasMaterializedSecrets(in Inputs) bool {
 func secretMaterializationCommands(in Inputs, ctx integrationRenderContext) []KUTTLCommand {
 	var ids []string
 	for id, secret := range in.Binding.Spec.Secrets {
-		if secret.Type == "localEnvFile" || secret.Type == "awsSsmParameter" {
+		if secret.Type == "localEnvFile" {
 			ids = append(ids, id)
 		}
 	}
@@ -737,15 +734,7 @@ func secretMaterializationCommands(in Inputs, ctx integrationRenderContext) []KU
 	var commands []KUTTLCommand
 	for _, id := range ids {
 		secret := in.Binding.Spec.Secrets[id]
-		switch secret.Type {
-		case "localEnvFile":
-			commands = append(commands, KUTTLCommand{Command: localEnvSecretCommand(in, ctx, id, secret), Timeout: 60})
-		case "awsSsmParameter":
-			commands = append(commands, KUTTLCommand{Command: ssmSecretCommand(in, ctx, id, secret), Timeout: 120})
-		}
-	}
-	if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
-		commands = append(commands, KUTTLCommand{Command: ssmMQTTBrokerURLCommand(in, ctx), Timeout: 120})
+		commands = append(commands, KUTTLCommand{Command: localEnvSecretCommand(in, ctx, id, secret), Timeout: 60})
 	}
 	return commands
 }
@@ -776,20 +765,6 @@ func materializedSecretNames(in Inputs) []string {
 	return names
 }
 
-func ssmMQTTBrokerURLCommand(in Inputs, ctx integrationRenderContext) string {
-	secret := Secret{
-		Name: mqttBrokerURLSecretName(in.Binding),
-		Keys: map[string]string{"brokerURL": "brokerURL"},
-	}
-	var b strings.Builder
-	b.WriteString("set -eu\n")
-	b.WriteString(fmt.Sprintf("SPEX_SSM_MQTT_BROKER_URL=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", shellQuote(ssmParameterName(in.Binding.Spec.MQTT.BrokerURL))))
-	writeSecretCreatePipelineWithLabels(&b, in, ctx, "mqtt-broker-url", secret, []string{"spex/source=aws-ssm"}, func(logicalKey string) string {
-		return `"${SPEX_SSM_MQTT_BROKER_URL}"`
-	})
-	return b.String()
-}
-
 func localEnvSecretCommand(in Inputs, ctx integrationRenderContext, id string, secret Secret) string {
 	envFile := secret.EnvFile
 	if !filepath.IsAbs(envFile) && in.BindingPath != "" {
@@ -806,25 +781,6 @@ func localEnvSecretCommand(in Inputs, ctx integrationRenderContext, id string, s
 			envName = defaultSecretEnvName(id, logicalKey)
 		}
 		return fmt.Sprintf(`"${%s}"`, envName)
-	})
-	return b.String()
-}
-
-func ssmSecretCommand(in Inputs, ctx integrationRenderContext, id string, secret Secret) string {
-	var b strings.Builder
-	b.WriteString("set -eu\n")
-	var logicalKeys []string
-	for logicalKey := range secret.Keys {
-		logicalKeys = append(logicalKeys, logicalKey)
-	}
-	sort.Strings(logicalKeys)
-	for _, logicalKey := range logicalKeys {
-		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
-		b.WriteString(fmt.Sprintf("%s=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", varName, shellQuote(ssmParameterName(secret.SSMParameters[logicalKey]))))
-	}
-	writeSecretCreatePipelineWithLabels(&b, in, ctx, id, secret, []string{"spex/source=aws-ssm"}, func(logicalKey string) string {
-		varName := "SPEX_SSM_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(logicalKey))
-		return fmt.Sprintf(`"${%s}"`, varName)
 	})
 	return b.String()
 }
@@ -1259,7 +1215,15 @@ func genericProbeJob(in Inputs, scenarioSlug string, ordinal int, operationID, o
 	serviceAccountName := probeServiceAccountName(in)
 	inputMountPath := probeIODir(probe.Input, "/spex/input")
 	outputMountPath := probeIODir(probe.Output, "/spex/output")
-	env := probeEnv(in, operationID, operationType, probe, args)
+	envEntries := probeEnvEntries(in, operationID, operationType, probe, args)
+	if probeEnvNeedsRuntimeSSM(envEntries) {
+		return runtimeSSMProbeJob(in, scenarioSlug, name, operationSlug, ordinalLabel, operationType, image, imagePullPolicy, serviceAccountName, inputMountPath, outputMountPath, args, envEntries)
+	}
+	env := renderProbeEnv(envEntries)
+	return probeJobManifest(in, scenarioSlug, name, operationSlug, ordinalLabel, operationType, image, imagePullPolicy, serviceAccountName, inputMountPath, outputMountPath, args, env)
+}
+
+func probeJobManifest(in Inputs, scenarioSlug, name, operationSlug, ordinalLabel, operationType, image, imagePullPolicy, serviceAccountName, inputMountPath, outputMountPath string, args []string, env string) string {
 	return fmt.Sprintf(`apiVersion: batch/v1
 kind: Job
 metadata:
@@ -1309,6 +1273,36 @@ spec:
 `, yamlString(name), yamlString(in.Namespace), scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, activeDeadlineSeconds(args),
 		scenarioSlug, operationSlug, operationType, ordinalLabel, in.RunID, yamlString(serviceAccountName), yamlString(image), yamlString(imagePullPolicy), env, yamlArgs(args),
 		yamlString(inputMountPath), yamlString(outputMountPath), yamlString(operationsConfigMapName(scenarioSlug)))
+}
+
+func runtimeSSMProbeJob(in Inputs, scenarioSlug, name, operationSlug, ordinalLabel, operationType, image, imagePullPolicy, serviceAccountName, inputMountPath, outputMountPath string, args []string, envEntries []probeEnvEntry) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: kuttl.dev/v1beta1\nkind: TestStep\ncommands:\n  - script: |\n")
+	b.WriteString("      set -eu\n")
+	b.WriteString("      spex_yaml_literal() {\n")
+	b.WriteString("        printf '%s\\n' \"$1\" | sed 's/^/                /'\n")
+	b.WriteString("      }\n")
+	for i, entry := range envEntries {
+		if entry.SSMParameter == "" {
+			continue
+		}
+		varName := runtimeSSMEnvVarName(i, entry.Name)
+		b.WriteString(fmt.Sprintf("      %s=$(aws ssm get-parameter --with-decryption --name %s --query Parameter.Value --output text)\n", varName, shellQuote(ssmParameterName(entry.SSMParameter))))
+		envEntries[i].RuntimeVar = varName
+	}
+	createArgs := append(kubectlContextArgs(in, "../../kubeconfig"), "create", "-f", "-")
+	b.WriteString("      cat <<EOF | kubectl " + shellCommand(createArgs...) + "\n")
+	manifest := probeJobManifest(in, scenarioSlug, name, operationSlug, ordinalLabel, operationType, image, imagePullPolicy, serviceAccountName, inputMountPath, outputMountPath, args, renderRuntimeProbeEnv(envEntries))
+	for _, line := range strings.Split(strings.TrimRight(manifest, "\n"), "\n") {
+		b.WriteString("      " + line + "\n")
+	}
+	b.WriteString("      EOF\n")
+	return b.String()
+}
+
+func runtimeSSMEnvVarName(index int, name string) string {
+	normalized := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(name))
+	return fmt.Sprintf("SPEX_SSM_RUNTIME_%02d_%s", index, normalized)
 }
 
 func probeIODir(io ProbeIO, fallback string) string {
@@ -1677,55 +1671,223 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func probeEnv(in Inputs, operationID, operationType string, probe ProbeInvocationSpec, args []string) string {
-	if len(probe.Env) > 0 {
-		if env := declarativeProbeEnv(in, operationID, operationType, probe.Env); env != "" {
-			return env
-		}
-	}
-	return secretEnv(in, args)
+type probeEnvEntry struct {
+	Name         string
+	Value        string
+	SecretName   string
+	SecretKey    string
+	SSMParameter string
+	RuntimeVar   string
 }
 
-func declarativeProbeEnv(in Inputs, operationID, operationType string, envSpec map[string]ProbeEnvSource) string {
+func probeEnvEntries(in Inputs, operationID, operationType string, probe ProbeInvocationSpec, args []string) []probeEnvEntry {
+	if len(probe.Env) > 0 {
+		if entries := declarativeProbeEnvEntries(in, operationID, operationType, probe.Env); len(entries) > 0 {
+			return entries
+		}
+	}
+	return secretEnvEntries(in, args)
+}
+
+func declarativeProbeEnvEntries(in Inputs, operationID, operationType string, envSpec map[string]ProbeEnvSource) []probeEnvEntry {
 	if len(envSpec) == 0 {
-		return ""
+		return nil
 	}
 	operation, ok := loweredOperationForEnv(in, operationID, operationType)
 	if !ok {
-		return ""
+		return nil
 	}
 	var names []string
 	for name := range envSpec {
 		names = append(names, name)
 	}
 	sortStrings(names)
-	var entries []string
+	var entries []probeEnvEntry
 	for _, name := range names {
 		source := envSpec[name]
 		switch {
 		case source.Value != "":
-			entries = append(entries, fmt.Sprintf(`            - name: %s
-              value: %s
-`, yamlString(name), yamlString(source.Value)))
+			entries = append(entries, probeEnvEntry{Name: name, Value: source.Value})
 		case source.FromBinding != "":
 			if value, ok := stringFromAnyPath(operation.Binding.With, source.FromBinding); ok {
-				entries = append(entries, fmt.Sprintf(`            - name: %s
-              value: %s
-`, yamlString(name), yamlString(value)))
+				entries = append(entries, probeEnvEntry{Name: name, Value: value})
 			}
 		case source.SecretRef != "":
-			if entry := declarativeSecretEnvEntry(in, operation, name, source.SecretRef); entry != "" {
+			if entry, ok := declarativeSecretEnvSource(in, operation, name, source.SecretRef); ok {
 				entries = append(entries, entry)
 			}
 		}
 	}
+	return entries
+}
+
+func declarativeSecretEnvSource(in Inputs, operation LoweredOperation, envName, secretRef string) (probeEnvEntry, bool) {
+	refName, keyName, ok := strings.Cut(secretRef, ".")
+	if !ok || refName == "" || keyName == "" {
+		return probeEnvEntry{}, false
+	}
+	secretBindingRef := refName + "Ref"
+	if refName == "credentials" {
+		secretBindingRef = "credentialsRef"
+	}
+	secretName, ok := stringFromAnyPath(operation.Binding.With, secretBindingRef)
+	if !ok || secretName == "" {
+		return probeEnvEntry{}, false
+	}
+	return secretEnvEntry(in.Binding.Spec.Secrets[secretName], envName, keyName)
+}
+
+func secretEnvEntries(in Inputs, args []string) []probeEnvEntry {
+	switch {
+	case len(args) >= 2 && args[0] == "mqtt" && (args[1] == "publish" || args[1] == "roundtrip" || args[1] == "run"):
+		entries := secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
+			"SPEX_MQTT_USERNAME": "username",
+			"SPEX_MQTT_PASSWORD": "password",
+		})
+		if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+			entries = append(entries, probeEnvEntry{Name: "SPEX_MQTT_BROKER_URL", SSMParameter: in.Binding.Spec.MQTT.BrokerURL})
+		}
+		return entries
+	case len(args) >= 2 && args[0] == "graphql" && (args[1] == "expect" || args[1] == "run"):
+		if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {
+			return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.Auth.ClientSecretRef], map[string]string{
+				"SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET": "clientSecret",
+			})
+		}
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.CredentialsRef], map[string]string{
+			"SPEX_GRAPHQL_TOKEN": "token",
+		})
+	case len(args) >= 2 && args[0] == "influxdb" && args[1] == "run":
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "influxdb.connection")], map[string]string{
+			"SPEX_INFLUXDB_TOKEN": "token",
+		})
+	case len(args) >= 2 && args[0] == "mongodb" && (args[1] == "expect" || args[1] == "run"):
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
+			"SPEX_MONGODB_USERNAME": "username",
+			"SPEX_MONGODB_PASSWORD": "password",
+			"SPEX_MONGODB_URI":      "uri",
+		})
+	case len(args) >= 2 && args[0] == "redpanda" && args[1] == "run":
+		entries := secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.Redpanda.CredentialsRef], map[string]string{
+			"SPEX_REDPANDA_USERNAME": "username",
+			"SPEX_REDPANDA_PASSWORD": "password",
+			"SPEX_REDPANDA_BROKERS":  "brokers",
+		})
+		entries = append(entries, secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.Redpanda.CACertRef], map[string]string{
+			"SPEX_REDPANDA_CA_CRT_B64": "caCrt",
+		})...)
+		return entries
+	case len(args) >= 2 && args[0] == "postgresql" && (args[1] == "expect" || args[1] == "run"):
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.PostgreSQL.CredentialsRef], map[string]string{
+			"SPEX_POSTGRESQL_USERNAME": "username",
+			"SPEX_POSTGRESQL_PASSWORD": "password",
+		})
+	case len(args) >= 2 && args[0] == "rabbitmq" && (args[1] == "publish" || args[1] == "expect" || args[1] == "run"):
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.RabbitMQ.CredentialsRef], map[string]string{
+			"SPEX_RABBITMQ_USERNAME": "username",
+			"SPEX_RABBITMQ_PASSWORD": "password",
+		})
+	case len(args) >= 2 && args[0] == "redis" && args[1] == "run":
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "redis.connection")], map[string]string{
+			"SPEX_REDIS_USERNAME": "username",
+			"SPEX_REDIS_PASSWORD": "password",
+		})
+	default:
+		return nil
+	}
+}
+
+func secretEnvEntriesForSecret(secret Secret, envToKey map[string]string) []probeEnvEntry {
+	var names []string
+	for name := range envToKey {
+		names = append(names, name)
+	}
+	sortStrings(names)
+	var entries []probeEnvEntry
+	for _, name := range names {
+		if entry, ok := secretEnvEntry(secret, name, envToKey[name]); ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+func secretEnvEntry(secret Secret, envName, logicalKey string) (probeEnvEntry, bool) {
+	if secret.Type == "awsSsmParameter" {
+		parameter := secret.SSMParameters[logicalKey]
+		if parameter == "" {
+			return probeEnvEntry{}, false
+		}
+		return probeEnvEntry{Name: envName, SSMParameter: parameter}, true
+	}
+	if secret.Name == "" {
+		return probeEnvEntry{}, false
+	}
+	key := secret.Keys[logicalKey]
+	if key == "" {
+		return probeEnvEntry{}, false
+	}
+	return probeEnvEntry{Name: envName, SecretName: secret.Name, SecretKey: key}, true
+}
+
+func probeEnvNeedsRuntimeSSM(entries []probeEnvEntry) bool {
+	for _, entry := range entries {
+		if entry.SSMParameter != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func renderProbeEnv(entries []probeEnvEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("          env:\n")
 	for _, entry := range entries {
-		b.WriteString(entry)
+		switch {
+		case entry.Value != "":
+			b.WriteString(fmt.Sprintf(`            - name: %s
+              value: %s
+`, yamlString(entry.Name), yamlString(entry.Value)))
+		case entry.SecretName != "" && entry.SecretKey != "":
+			b.WriteString(fmt.Sprintf(`            - name: %s
+              valueFrom:
+                secretKeyRef:
+                  name: %s
+                  key: %s
+`, yamlString(entry.Name), yamlString(entry.SecretName), yamlString(entry.SecretKey)))
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderRuntimeProbeEnv(entries []probeEnvEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("          env:\n")
+	for _, entry := range entries {
+		switch {
+		case entry.RuntimeVar != "":
+			b.WriteString(fmt.Sprintf(`            - name: %s
+              value: |-
+$(spex_yaml_literal "${%s}")
+`, yamlString(entry.Name), entry.RuntimeVar))
+		case entry.Value != "":
+			b.WriteString(fmt.Sprintf(`            - name: %s
+              value: %s
+`, yamlString(entry.Name), yamlString(entry.Value)))
+		case entry.SecretName != "" && entry.SecretKey != "":
+			b.WriteString(fmt.Sprintf(`            - name: %s
+              valueFrom:
+                secretKeyRef:
+                  name: %s
+                  key: %s
+`, yamlString(entry.Name), yamlString(entry.SecretName), yamlString(entry.SecretKey)))
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -1745,32 +1907,6 @@ func loweredOperationForEnv(in Inputs, operationID, operationType string) (Lower
 		}
 	}
 	return LoweredOperation{}, false
-}
-
-func declarativeSecretEnvEntry(in Inputs, operation LoweredOperation, envName, secretRef string) string {
-	refName, keyName, ok := strings.Cut(secretRef, ".")
-	if !ok || refName == "" || keyName == "" {
-		return ""
-	}
-	secretBindingRef := refName + "Ref"
-	if refName == "credentials" {
-		secretBindingRef = "credentialsRef"
-	}
-	secretName, ok := stringFromAnyPath(operation.Binding.With, secretBindingRef)
-	if !ok || secretName == "" {
-		return ""
-	}
-	secret := in.Binding.Spec.Secrets[secretName]
-	key := secret.Keys[keyName]
-	if secret.Name == "" || key == "" {
-		return ""
-	}
-	return fmt.Sprintf(`            - name: %s
-              valueFrom:
-                secretKeyRef:
-                  name: %s
-                  key: %s
-`, yamlString(envName), yamlString(secret.Name), yamlString(key))
 }
 
 func stringFromAnyPath(values map[string]any, path string) (string, bool) {
@@ -1797,79 +1933,6 @@ func stringFromAnyPath(values map[string]any, path string) (string, bool) {
 	return value, ok
 }
 
-func secretEnv(in Inputs, args []string) string {
-	switch {
-	case len(args) >= 2 && args[0] == "mqtt" && (args[1] == "publish" || args[1] == "roundtrip" || args[1] == "run"):
-		env := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
-			"SPEX_MQTT_USERNAME": "username",
-			"SPEX_MQTT_PASSWORD": "password",
-		})
-		if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
-			brokerEnv := secretKeyEnv(Secret{
-				Name: mqttBrokerURLSecretName(in.Binding),
-				Keys: map[string]string{"brokerURL": "brokerURL"},
-			}, map[string]string{"SPEX_MQTT_BROKER_URL": "brokerURL"})
-			if env == "" {
-				return brokerEnv
-			}
-			return env + "\n" + strings.TrimPrefix(brokerEnv, "          env:\n")
-		}
-		return env
-	case len(args) >= 2 && args[0] == "graphql" && (args[1] == "expect" || args[1] == "run"):
-		if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {
-			return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.Auth.ClientSecretRef], map[string]string{
-				"SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET": "clientSecret",
-			})
-		}
-		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.CredentialsRef], map[string]string{
-			"SPEX_GRAPHQL_TOKEN": "token",
-		})
-	case len(args) >= 2 && args[0] == "influxdb" && args[1] == "run":
-		return secretKeyEnv(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "influxdb.connection")], map[string]string{
-			"SPEX_INFLUXDB_TOKEN": "token",
-		})
-	case len(args) >= 2 && args[0] == "mongodb" && (args[1] == "expect" || args[1] == "run"):
-		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
-			"SPEX_MONGODB_USERNAME": "username",
-			"SPEX_MONGODB_PASSWORD": "password",
-			"SPEX_MONGODB_URI":      "uri",
-		})
-	case len(args) >= 2 && args[0] == "redpanda" && args[1] == "run":
-		env := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.Redpanda.CredentialsRef], map[string]string{
-			"SPEX_REDPANDA_USERNAME": "username",
-			"SPEX_REDPANDA_PASSWORD": "password",
-			"SPEX_REDPANDA_BROKERS":  "brokers",
-		})
-		caEnv := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.Redpanda.CACertRef], map[string]string{
-			"SPEX_REDPANDA_CA_CRT_B64": "caCrt",
-		})
-		if env == "" {
-			return caEnv
-		}
-		if caEnv == "" {
-			return env
-		}
-		return env + "\n" + strings.TrimPrefix(caEnv, "          env:\n")
-	case len(args) >= 2 && args[0] == "postgresql" && (args[1] == "expect" || args[1] == "run"):
-		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.PostgreSQL.CredentialsRef], map[string]string{
-			"SPEX_POSTGRESQL_USERNAME": "username",
-			"SPEX_POSTGRESQL_PASSWORD": "password",
-		})
-	case len(args) >= 2 && args[0] == "rabbitmq" && (args[1] == "publish" || args[1] == "expect" || args[1] == "run"):
-		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.RabbitMQ.CredentialsRef], map[string]string{
-			"SPEX_RABBITMQ_USERNAME": "username",
-			"SPEX_RABBITMQ_PASSWORD": "password",
-		})
-	case len(args) >= 2 && args[0] == "redis" && args[1] == "run":
-		return secretKeyEnv(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "redis.connection")], map[string]string{
-			"SPEX_REDIS_USERNAME": "username",
-			"SPEX_REDIS_PASSWORD": "password",
-		})
-	default:
-		return ""
-	}
-}
-
 func genericCredentialsRef(binding TargetBinding, kind string) string {
 	for _, generic := range binding.Spec.Bindings {
 		if generic.Kind != kind {
@@ -1879,29 +1942,6 @@ func genericCredentialsRef(binding TargetBinding, kind string) string {
 		return ref
 	}
 	return ""
-}
-
-func secretKeyEnv(secret Secret, envToKey map[string]string) string {
-	if secret.Name == "" {
-		return ""
-	}
-	var names []string
-	for name := range envToKey {
-		names = append(names, name)
-	}
-	sortStrings(names)
-	var b strings.Builder
-	b.WriteString("          env:\n")
-	for _, name := range names {
-		key := secret.Keys[envToKey[name]]
-		b.WriteString(fmt.Sprintf(`            - name: %s
-              valueFrom:
-                secretKeyRef:
-                  name: %s
-                  key: %s
-`, yamlString(name), yamlString(secret.Name), yamlString(key)))
-	}
-	return strings.TrimRight(b.String(), "\n")
 }
 
 func sortStrings(values []string) {

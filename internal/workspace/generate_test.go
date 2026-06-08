@@ -418,6 +418,101 @@ spec:
 	}
 }
 
+func TestGenerateWorkspaceInjectsSSMMongoDBCredentialsAtRuntime(t *testing.T) {
+	dir := t.TempDir()
+	inputDir := filepath.Join(dir, "inputs")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenarioPath := filepath.Join(inputDir, "scenario.yaml")
+	bindingPath := filepath.Join(inputDir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: mongodb-connection-smoke
+spec:
+  defaults:
+    timeout: 5s
+    pollInterval: 100ms
+  operations:
+    - id: ping-mongodb
+      type: mongodb.ping
+      with:
+        bindingRef: mongodb.default
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: aws-dev
+spec:
+  kubeContext: aws-dev
+  namespace: migration-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  secrets:
+    mongodb-credentials:
+      type: awsSsmParameter
+      name: mongodb-probe-credentials
+      keys:
+        uri: uri
+        username: username
+        password: password
+      ssmParameters:
+        uri: /dev/mongodbatlas/mongodb_uri
+        username: /dev/mongodbatlas/app_user
+        password: /dev/mongodbatlas/app_user_password
+  mongodb:
+    deployment: atlas
+    uri: '{{ ssm "/dev/mongodbatlas/mongodb_uri" }}'
+    database: app
+    credentialsRef: mongodb-credentials
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.RunID = "run-fixed-test"
+	out := filepath.Join(dir, "out")
+	if err := Generate(out, inputs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "kuttl", "mongodb-connection-smoke", "01-integration-setup.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("SSM-only MongoDB binding should not create an integration setup step, got err=%v", err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mongodb-connection-smoke", "02-op-ping-mongodb.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobText := string(job)
+	for _, want := range []string{
+		"kind: TestStep",
+		"aws ssm get-parameter --with-decryption --name '/dev/mongodbatlas/app_user_password'",
+		"aws ssm get-parameter --with-decryption --name '/dev/mongodbatlas/app_user'",
+		"aws ssm get-parameter --with-decryption --name '/dev/mongodbatlas/mongodb_uri'",
+		`name: "SPEX_MONGODB_PASSWORD"`,
+		`name: "SPEX_MONGODB_URI"`,
+		`name: "SPEX_MONGODB_USERNAME"`,
+		`value: |-`,
+		`$(spex_yaml_literal "${SPEX_SSM_RUNTIME_`,
+		`"mongodb"`,
+		`"run"`,
+		`"--operation-file=/spex/input/ping-mongodb.operation.json"`,
+	} {
+		if !strings.Contains(jobText, want) {
+			t.Fatalf("runtime MongoDB job missing %q:\n%s", want, jobText)
+		}
+	}
+	if strings.Contains(jobText, "create' 'secret' 'generic' 'mongodb-probe-credentials'") {
+		t.Fatalf("runtime MongoDB job should not create a Kubernetes Secret:\n%s", jobText)
+	}
+}
+
 func TestGenerateWorkspaceUsesGenericRendererForRabbitMQ(t *testing.T) {
 	dir := t.TempDir()
 	inputDir := filepath.Join(dir, "inputs")
@@ -1093,7 +1188,7 @@ func TestGenerateWorkspaceMaterializesLocalEnvFileSecret(t *testing.T) {
 	}
 }
 
-func TestGenerateWorkspaceMaterializesSSMMQTTBrokerURL(t *testing.T) {
+func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLAtRuntime(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(dir, "inputs"), "kubernetesSecret", `'{{ ssm "/dev/emqx/emqx_endpoint" }}'`)
 	inputs, err := LoadInputs(scenarioPath, bindingPath)
@@ -1105,36 +1200,38 @@ func TestGenerateWorkspaceMaterializesSSMMQTTBrokerURL(t *testing.T) {
 	if err := Generate(out, inputs); err != nil {
 		t.Fatal(err)
 	}
-	setup, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "01-integration-setup.yaml"))
+	if _, err := os.Stat(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "01-integration-setup.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("SSM-only binding should not create an integration setup step, got err=%v", err)
+	}
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "03-op-publish-reading-1.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	jobText := string(job)
 	for _, want := range []string{
+		"kind: TestStep",
 		"aws ssm get-parameter --with-decryption --name '/dev/emqx/emqx_endpoint'",
-		"kubectl '--kubeconfig' '../../kubeconfig' '-n' 'spex-test' 'create' 'secret' 'generic' 'mqtt-probe-credentials-broker-url'",
-		"--from-literal='brokerURL'=\"${SPEX_SSM_MQTT_BROKER_URL}\"",
-		"'spex/secret-id=mqtt-broker-url'",
-		"'spex/source=aws-ssm'",
+		"cat <<EOF | kubectl '--kubeconfig' '../../kubeconfig' 'create' '-f' '-'",
+		`name: "SPEX_MQTT_BROKER_URL"`,
+		`value: |-`,
+		`$(spex_yaml_literal "${SPEX_SSM_RUNTIME_`,
+		`"mqtt"`,
+		`"run"`,
 	} {
-		if !strings.Contains(string(setup), want) {
-			t.Fatalf("broker URL materialization step missing %q:\n%s", want, string(setup))
+		if !strings.Contains(jobText, want) {
+			t.Fatalf("runtime broker URL job missing %q:\n%s", want, jobText)
 		}
 	}
-	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "04-op-publish-reading-1.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		`name: "SPEX_MQTT_BROKER_URL"`,
-		`name: "mqtt-probe-credentials-broker-url"`,
+	for _, notWant := range []string{
+		"create' 'secret' 'generic' 'mqtt-probe-credentials-broker-url'",
 		`key: "brokerURL"`,
 	} {
-		if !strings.Contains(string(job), want) {
-			t.Fatalf("broker URL env missing %q:\n%s", want, string(job))
+		if strings.Contains(jobText, notWant) {
+			t.Fatalf("runtime broker URL job should not contain %q:\n%s", notWant, jobText)
 		}
 	}
-	if strings.Contains(string(job), "--broker-url=") {
-		t.Fatalf("job should not render an SSM broker URL as a literal arg:\n%s", string(job))
+	if strings.Contains(jobText, "--broker-url=") {
+		t.Fatalf("job should not render an SSM broker URL as a literal arg:\n%s", jobText)
 	}
 }
 
@@ -1166,14 +1263,16 @@ func TestGenerateWorkspaceInjectsSSMMQTTBrokerURLForRoundTrip(t *testing.T) {
 	if err := Generate(out, inputs); err != nil {
 		t.Fatal(err)
 	}
-	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "03-op-assert-reading-1-mqtt.yaml"))
+	job, err := os.ReadFile(filepath.Join(out, "kuttl", "mqtt-ingestion-basic", "02-op-assert-reading-1-mqtt.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"kind: TestStep",
+		"aws ssm get-parameter --with-decryption --name '/dev/emqx/emqx_endpoint'",
 		`name: "SPEX_MQTT_BROKER_URL"`,
-		`name: "mqtt-probe-credentials-broker-url"`,
-		`key: "brokerURL"`,
+		`value: |-`,
+		`$(spex_yaml_literal "${SPEX_SSM_RUNTIME_`,
 		`"mqtt"`,
 		`"run"`,
 		`"--operation-file=/spex/input/assert-reading-1-mqtt.operation.json"`,
