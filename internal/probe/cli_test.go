@@ -84,6 +84,41 @@ func TestMQTTPublishUsesBrokerURLFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestMQTTRunUsesBrokerURLFromEnvironmentForSSMTemplate(t *testing.T) {
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "publish-mqtt-smoke",
+  "operationType": "mqtt.publish",
+  "provider": "mqtt",
+  "binding": {
+    "name": "mqtt.default",
+    "kind": "mqtt.connection",
+    "with": {
+      "brokerURL": "{{ ssm \"/dev/emqx/emqx_endpoint\" }}"
+    }
+  },
+  "with": {
+    "clientId": "client-1",
+    "payload": "{\"ok\":true}",
+    "topic": "migration/smoke"
+  },
+  "timeout": "60s"
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeMQTTPublisher{}
+	withMQTTPublisher(t, fake)
+	t.Setenv("SPEX_MQTT_BROKER_URL", "tcp://broker-from-env:1883")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"mqtt", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.request.BrokerURL != "tcp://broker-from-env:1883" {
+		t.Fatalf("unexpected broker URL: %#v", fake.request)
+	}
+}
+
 func TestMQTTPublishAcceptsQoSOverride(t *testing.T) {
 	dir := t.TempDir()
 	payload := writeTestFile(t, dir, "payload.json", `{"ok":true}`)

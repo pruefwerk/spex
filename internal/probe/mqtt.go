@@ -113,7 +113,7 @@ func runMQTTOperation(args []string, stdout io.Writer) error {
 
 func executeMQTTLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
 	brokerURL, _ := operation.Binding.With["brokerURL"].(string)
-	if brokerURLFromEnv := os.Getenv("SPEX_MQTT_BROKER_URL"); brokerURLFromEnv != "" && (brokerURL == "" || strings.HasPrefix(brokerURL, "aws-ssm:")) {
+	if brokerURLFromEnv := os.Getenv("SPEX_MQTT_BROKER_URL"); brokerURLFromEnv != "" && mqttBrokerURLUsesRuntimeEnv(brokerURL) {
 		brokerURL = brokerURLFromEnv
 	}
 	topic, _ := operation.With["topic"].(string)
@@ -165,6 +165,11 @@ func executeMQTTLoweredOperation(operation probeLoweredOperation, timeout time.D
 	default:
 		return fmt.Errorf("unsupported MQTT operation type %q", operation.OperationType)
 	}
+}
+
+func mqttBrokerURLUsesRuntimeEnv(brokerURL string) bool {
+	trimmed := strings.TrimSpace(brokerURL)
+	return trimmed == "" || strings.HasPrefix(trimmed, "aws-ssm:") || strings.HasPrefix(trimmed, "{{ ssm ")
 }
 
 func publishMQTT(req mqttPublishRequest) error {
