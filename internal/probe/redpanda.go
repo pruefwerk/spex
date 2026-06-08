@@ -168,6 +168,9 @@ func executeRedpandaPingLoweredOperation(operation probeLoweredOperation, timeou
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	brokers, _ := operation.Binding.With["brokers"].(string)
+	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
+		brokers = brokersFromEnv
+	}
 	topic, _ := operation.With["topic"].(string)
 	securityProtocol, _ := operation.Binding.With["securityProtocol"].(string)
 	saslMechanism, _ := operation.Binding.With["saslMechanism"].(string)
@@ -184,6 +187,9 @@ func executeRedpandaPingLoweredOperation(operation probeLoweredOperation, timeou
 
 func executeRedpandaSnapshotLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
 	brokers, _ := operation.Binding.With["brokers"].(string)
+	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
+		brokers = brokersFromEnv
+	}
 	topics := loweredStringSlice(operation.With["topics"])
 	offsetsConfigMap, _ := operation.With["offsetsConfigMap"].(string)
 	offsetsFile, _ := operation.With["offsetsFile"].(string)

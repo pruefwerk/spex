@@ -245,6 +245,39 @@ func TestRedpandaRunPingUsesBindingAndEnvironment(t *testing.T) {
 	}
 }
 
+func TestRedpandaRunPingUsesRuntimeBrokersForSSMReference(t *testing.T) {
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "ping-redpanda",
+  "operationType": "redpanda.ping",
+  "provider": "redpanda",
+  "binding": {
+    "name": "redpanda.default",
+    "kind": "redpanda.connection",
+    "with": {
+      "brokers": "{{ ssm \"/dev/redpanda/service_uri\" }}",
+      "securityProtocol": "SASL_SSL",
+      "saslMechanism": "SCRAM-SHA-512"
+    }
+  },
+  "with": {},
+  "timeout": "15s"
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeRedpandaClient{}
+	withRedpandaClient(t, fake)
+	t.Setenv("SPEX_REDPANDA_BROKERS", "redpanda-1:9093,redpanda-2:9093")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"redpanda", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(fake.ping.Brokers, ","); got != "redpanda-1:9093,redpanda-2:9093" {
+		t.Fatalf("unexpected ping brokers: %q", got)
+	}
+}
+
 func TestRedpandaContainsRejectsChangedPartitionSet(t *testing.T) {
 	dir := t.TempDir()
 	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.correlationId","equalsString":"reading-1"}]`)
@@ -367,6 +400,45 @@ func TestRedpandaRunSnapshotOffsetsWritesNormalizedEnvelopeAndOffsets(t *testing
 	}
 	if !strings.Contains(stdout.String(), `"status":"passed"`) {
 		t.Fatalf("stdout missing passed envelope: %s", stdout.String())
+	}
+}
+
+func TestRedpandaRunSnapshotOffsetsUsesRuntimeBrokersForSSMReference(t *testing.T) {
+	dir := t.TempDir()
+	offsets := filepath.Join(dir, "offsets.json")
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "redpanda-snapshot-offsets",
+  "operationType": "redpanda.snapshotOffsets",
+  "provider": "redpanda",
+  "binding": {
+    "name": "redpanda.default",
+    "kind": "redpanda.connection",
+    "with": {
+      "brokers": "{{ ssm \"/dev/redpanda/service_uri\" }}"
+    }
+  },
+  "with": {
+    "topics": ["events"],
+    "offsetsFile": "`+filepath.ToSlash(offsets)+`",
+    "runId": "run-1"
+  },
+  "timeout": "45s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeRedpandaClient{
+		snapshotOffsets: map[string]map[int]int64{"events": {0: 10}},
+	}
+	withRedpandaClient(t, fake)
+	t.Setenv("SPEX_REDPANDA_BROKERS", "redpanda-1:9093,redpanda-2:9093")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"redpanda", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(fake.snapshotBrokers, ","); got != "redpanda-1:9093,redpanda-2:9093" {
+		t.Fatalf("unexpected snapshot brokers: %q", got)
 	}
 }
 
@@ -1549,6 +1621,7 @@ func withMQTTPublisher(t *testing.T, publisher mqttPublisher) {
 type fakeRedpandaClient struct {
 	ping                 redpandaPingRequest
 	pingErr              error
+	snapshotBrokers      []string
 	snapshotOffsets      map[string]map[int]int64
 	snapshotErr          error
 	snapshotDeadline     time.Time
@@ -1566,6 +1639,7 @@ func (f *fakeRedpandaClient) Ping(ctx context.Context, req redpandaPingRequest) 
 }
 
 func (f *fakeRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error) {
+	f.snapshotBrokers = brokers
 	if deadline, ok := ctx.Deadline(); ok {
 		f.snapshotDeadline = deadline
 	}
