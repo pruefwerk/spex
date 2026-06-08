@@ -130,7 +130,7 @@
         "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
         "type": {
           "anyOf": [
-            { "enum": ["mqtt.publish", "redpanda.contains", "graphql.expect", "mongodb.expect", "postgresql.expect", "rabbitmq.publish", "rabbitmq.expect"] },
+            { "enum": ["mqtt.publish", "redpanda.ping", "redpanda.contains", "graphql.expect", "mongodb.ping", "mongodb.expect", "postgresql.expect", "rabbitmq.publish", "rabbitmq.expect"] },
             { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9_.-]*$" }
           ]
         },

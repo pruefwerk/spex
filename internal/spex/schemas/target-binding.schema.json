@@ -71,6 +71,10 @@
           "required": ["brokers", "topics"],
           "properties": {
             "brokers": { "type": "string", "minLength": 1 },
+            "securityProtocol": { "enum": ["", "PLAINTEXT", "SASL_SSL"] },
+            "saslMechanism": { "enum": ["", "SCRAM-SHA-256", "SCRAM-SHA-512"] },
+            "credentialsRef": { "type": "string", "minLength": 1 },
+            "caCertRef": { "type": "string", "minLength": 1 },
             "topics": {
               "type": "object",
               "additionalProperties": { "$ref": "#/$defs/redpandaTopic" }

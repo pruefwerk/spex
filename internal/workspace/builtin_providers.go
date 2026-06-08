@@ -35,6 +35,7 @@ func builtInProviders() []Provider {
 			"mqtt.roundtrip",
 		}),
 		builtInProvider("redpanda", "redpanda.connection", []string{
+			"redpanda.ping",
 			"redpanda.contains",
 			"redpanda.snapshotOffsets",
 		}),
@@ -45,6 +46,7 @@ func builtInProviders() []Provider {
 			"influxdb.expect",
 		}),
 		builtInProvider("mongodb", "mongodb.connection", []string{
+			"mongodb.ping",
 			"mongodb.expect",
 		}),
 		builtInProvider("postgresql", "postgresql.connection", []string{
@@ -140,6 +142,10 @@ func builtInInputSchema(operationType string) *JSONSchema {
 			"scenario":         stringSchema(),
 			"runId":            stringSchema(),
 		})
+	case "redpanda.ping":
+		return objectSchema(nil, map[string]JSONSchema{
+			"topic": stringSchema(),
+		})
 	case "graphql.expect":
 		return objectSchema([]string{"query", "variables", "match"}, map[string]JSONSchema{
 			"queryRef":  stringSchema(),
@@ -161,6 +167,8 @@ func builtInInputSchema(operationType string) *JSONSchema {
 			"correlationId": stringSchema(),
 			"match":         arraySchema(objectSchemaValue(nil, nil)),
 		})
+	case "mongodb.ping":
+		return objectSchema(nil, map[string]JSONSchema{})
 	case "postgresql.expect":
 		return objectSchema([]string{"query", "correlationId", "match"}, map[string]JSONSchema{
 			"query":         stringSchema(),
@@ -237,12 +245,16 @@ func builtInInputValidator(operationType string) OperationInputValidator {
 		return requireOperationInputFields("topic", "offsetsConfigMap", "correlationId", "match")
 	case "redpanda.snapshotOffsets":
 		return requireOperationInputFields("topics")
+	case "redpanda.ping":
+		return requireOperationInputFields()
 	case "graphql.expect":
 		return requireOperationInputFields("query", "variables", "match")
 	case "influxdb.expect":
 		return requireOperationInputFields("query", "match")
 	case "mongodb.expect":
 		return requireOperationInputFields("collection", "filter", "correlationId", "match")
+	case "mongodb.ping":
+		return requireOperationInputFields()
 	case "postgresql.expect":
 		return requireOperationInputFields("query", "correlationId", "match")
 	case "rabbitmq.publish":

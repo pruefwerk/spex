@@ -208,6 +208,43 @@ func TestRedpandaContainsStub(t *testing.T) {
 	}
 }
 
+func TestRedpandaRunPingUsesBindingAndEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "ping-redpanda",
+  "operationType": "redpanda.ping",
+  "provider": "redpanda",
+  "binding": {
+    "name": "redpanda.default",
+    "kind": "redpanda.connection",
+    "with": {
+      "brokers": "redpanda:9093",
+      "securityProtocol": "SASL_SSL",
+      "saslMechanism": "SCRAM-SHA-512"
+    }
+  },
+  "with": {
+    "topic": "migration.smoke"
+  },
+  "timeout": "15s"
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeRedpandaClient{}
+	withRedpandaClient(t, fake)
+	t.Setenv("SPEX_REDPANDA_USERNAME", "user")
+	t.Setenv("SPEX_REDPANDA_PASSWORD", "pass")
+	t.Setenv("SPEX_REDPANDA_CA_CRT_B64", "cert")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"redpanda", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.ping.Topic != "migration.smoke" || fake.ping.Brokers[0] != "redpanda:9093" || fake.ping.Username != "user" || fake.ping.Password != "pass" || fake.ping.CACertB64 != "cert" {
+		t.Fatalf("unexpected ping request: %#v", fake.ping)
+	}
+}
+
 func TestRedpandaContainsRejectsChangedPartitionSet(t *testing.T) {
 	dir := t.TempDir()
 	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.correlationId","equalsString":"reading-1"}]`)
@@ -1510,6 +1547,8 @@ func withMQTTPublisher(t *testing.T, publisher mqttPublisher) {
 }
 
 type fakeRedpandaClient struct {
+	ping                 redpandaPingRequest
+	pingErr              error
 	snapshotOffsets      map[string]map[int]int64
 	snapshotErr          error
 	snapshotDeadline     time.Time
@@ -1519,6 +1558,11 @@ type fakeRedpandaClient struct {
 	containsOffsets      map[int]int64
 	containsMatchersFile string
 	containsErr          error
+}
+
+func (f *fakeRedpandaClient) Ping(ctx context.Context, req redpandaPingRequest) error {
+	f.ping = req
+	return f.pingErr
 }
 
 func (f *fakeRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error) {

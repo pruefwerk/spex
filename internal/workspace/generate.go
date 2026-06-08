@@ -1832,7 +1832,24 @@ func secretEnv(in Inputs, args []string) string {
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.MongoDB.CredentialsRef], map[string]string{
 			"SPEX_MONGODB_USERNAME": "username",
 			"SPEX_MONGODB_PASSWORD": "password",
+			"SPEX_MONGODB_URI":      "uri",
 		})
+	case len(args) >= 2 && args[0] == "redpanda" && args[1] == "run":
+		env := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.Redpanda.CredentialsRef], map[string]string{
+			"SPEX_REDPANDA_USERNAME": "username",
+			"SPEX_REDPANDA_PASSWORD": "password",
+			"SPEX_REDPANDA_BROKERS":  "brokers",
+		})
+		caEnv := secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.Redpanda.CACertRef], map[string]string{
+			"SPEX_REDPANDA_CA_CRT_B64": "caCrt",
+		})
+		if env == "" {
+			return caEnv
+		}
+		if caEnv == "" {
+			return env
+		}
+		return env + "\n" + strings.TrimPrefix(caEnv, "          env:\n")
 	case len(args) >= 2 && args[0] == "postgresql" && (args[1] == "expect" || args[1] == "run"):
 		return secretKeyEnv(in.Binding.Spec.Secrets[in.Binding.Spec.PostgreSQL.CredentialsRef], map[string]string{
 			"SPEX_POSTGRESQL_USERNAME": "username",

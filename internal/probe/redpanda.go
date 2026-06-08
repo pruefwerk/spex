@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/scram"
 )
 
 const offsetsDataKey = "offsets.json"
@@ -29,9 +32,20 @@ type redpandaOffsetSnapshot struct {
 }
 
 type redpandaClient interface {
+	Ping(ctx context.Context, req redpandaPingRequest) error
 	SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error)
 	Partitions(ctx context.Context, brokers []string, topic string) ([]int, error)
 	FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) error
+}
+
+type redpandaPingRequest struct {
+	Brokers          []string
+	Topic            string
+	SecurityProtocol string
+	SASLMechanism    string
+	Username         string
+	Password         string
+	CACertB64        string
 }
 
 type redpandaOffsetsStore interface {
@@ -64,7 +78,7 @@ func runRedpandaOperation(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if operation.Provider != "redpanda" || (operation.OperationType != "redpanda.contains" && operation.OperationType != "redpanda.snapshotOffsets") {
+	if operation.Provider != "redpanda" || (operation.OperationType != "redpanda.ping" && operation.OperationType != "redpanda.contains" && operation.OperationType != "redpanda.snapshotOffsets") {
 		return fmt.Errorf("redpanda run cannot execute operation type %q from provider %q", operation.OperationType, operation.Provider)
 	}
 	timeoutText := operation.Timeout
@@ -109,6 +123,9 @@ func runRedpandaOperation(args []string, stdout io.Writer) error {
 }
 
 func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) error {
+	if operation.OperationType == "redpanda.ping" {
+		return executeRedpandaPingLoweredOperation(operation, timeout)
+	}
 	if operation.OperationType == "redpanda.snapshotOffsets" {
 		return executeRedpandaSnapshotLoweredOperation(operation, timeout)
 	}
@@ -126,6 +143,9 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 		return err
 	}
 	brokers, _ := operation.Binding.With["brokers"].(string)
+	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
+		brokers = brokersFromEnv
+	}
 	topic, _ := operation.With["topic"].(string)
 	offsetsConfigMap, _ := operation.With["offsetsConfigMap"].(string)
 	namespace, _ := operation.With["namespace"].(string)
@@ -137,6 +157,29 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 		return err
 	}
 	return redpandaContains(brokers, topic, snapshot.Topics[topic], matchersFile, timeout, pollInterval)
+}
+
+func redpandaBrokersUseRuntimeEnv(brokers string) bool {
+	trimmed := strings.TrimSpace(brokers)
+	return trimmed == "" || strings.HasPrefix(trimmed, "{{ ssm ")
+}
+
+func executeRedpandaPingLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	brokers, _ := operation.Binding.With["brokers"].(string)
+	topic, _ := operation.With["topic"].(string)
+	securityProtocol, _ := operation.Binding.With["securityProtocol"].(string)
+	saslMechanism, _ := operation.Binding.With["saslMechanism"].(string)
+	return redpandaKafka.Ping(ctx, redpandaPingRequest{
+		Brokers:          splitBrokers(brokers),
+		Topic:            topic,
+		SecurityProtocol: securityProtocol,
+		SASLMechanism:    saslMechanism,
+		Username:         os.Getenv("SPEX_REDPANDA_USERNAME"),
+		Password:         os.Getenv("SPEX_REDPANDA_PASSWORD"),
+		CACertB64:        os.Getenv("SPEX_REDPANDA_CA_CRT_B64"),
+	})
 }
 
 func executeRedpandaSnapshotLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
@@ -215,6 +258,67 @@ func (kafkaRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string
 		}
 	}
 	return out, nil
+}
+
+func (kafkaRedpandaClient) Ping(ctx context.Context, req redpandaPingRequest) error {
+	if len(req.Brokers) == 0 {
+		return fmt.Errorf("no Redpanda brokers configured")
+	}
+	dialer, err := redpandaDialer(req)
+	if err != nil {
+		return err
+	}
+	if req.Topic != "" {
+		_, err := dialer.LookupPartitions(ctx, "tcp", req.Brokers[0], req.Topic)
+		if err != nil {
+			return fmt.Errorf("lookup partitions for %q: %w", req.Topic, err)
+		}
+		return nil
+	}
+	conn, err := dialer.DialContext(ctx, "tcp", req.Brokers[0])
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
+func redpandaDialer(req redpandaPingRequest) (*kafka.Dialer, error) {
+	dialer := &kafka.Dialer{Timeout: 10 * time.Second}
+	if strings.EqualFold(req.SecurityProtocol, "SASL_SSL") {
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		if req.CACertB64 != "" {
+			decoded, err := base64.StdEncoding.DecodeString(req.CACertB64)
+			if err != nil {
+				return nil, fmt.Errorf("redpanda CA certificate base64: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(decoded) {
+				return nil, fmt.Errorf("redpanda CA certificate contains no PEM certificates")
+			}
+			tlsConfig.RootCAs = pool
+		}
+		dialer.TLS = tlsConfig
+		mechanism, err := redpandaSASLMechanism(req)
+		if err != nil {
+			return nil, err
+		}
+		dialer.SASLMechanism = mechanism
+	}
+	return dialer, nil
+}
+
+func redpandaSASLMechanism(req redpandaPingRequest) (sasl.Mechanism, error) {
+	if req.Username == "" || req.Password == "" {
+		return nil, fmt.Errorf("redpanda SASL username and password are required")
+	}
+	switch req.SASLMechanism {
+	case "", "SCRAM-SHA-512":
+		return scram.Mechanism(scram.SHA512, req.Username, req.Password)
+	case "SCRAM-SHA-256":
+		return scram.Mechanism(scram.SHA256, req.Username, req.Password)
+	default:
+		return nil, fmt.Errorf("unsupported Redpanda SASL mechanism %q", req.SASLMechanism)
+	}
 }
 
 func (kafkaRedpandaClient) Partitions(ctx context.Context, brokers []string, topic string) ([]int, error) {

@@ -186,8 +186,12 @@ type MQTTBinding struct {
 }
 
 type RedpandaBinding struct {
-	Brokers string                   `yaml:"brokers"`
-	Topics  map[string]RedpandaTopic `yaml:"topics"`
+	Brokers          string                   `yaml:"brokers"`
+	SecurityProtocol string                   `yaml:"securityProtocol"`
+	SASLMechanism    string                   `yaml:"saslMechanism"`
+	CredentialsRef   string                   `yaml:"credentialsRef"`
+	CACertRef        string                   `yaml:"caCertRef"`
+	Topics           map[string]RedpandaTopic `yaml:"topics"`
 }
 
 type RedpandaTopic struct {

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -27,6 +28,14 @@ type mongoDBExpectRequest struct {
 	MatchersFile string
 	Timeout      time.Duration
 	PollInterval time.Duration
+}
+
+type mongoDBPingRequest struct {
+	URI      string
+	Database string
+	Username string
+	Password string
+	Timeout  time.Duration
 }
 
 func runMongoDBOperation(args []string, stdout io.Writer) error {
@@ -49,7 +58,7 @@ func runMongoDBOperation(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if operation.OperationType != "mongodb.expect" || operation.Provider != "mongodb" {
+	if operation.Provider != "mongodb" || (operation.OperationType != "mongodb.expect" && operation.OperationType != "mongodb.ping") {
 		return fmt.Errorf("mongodb run cannot execute operation type %q from provider %q", operation.OperationType, operation.Provider)
 	}
 	timeoutText := operation.Timeout
@@ -94,6 +103,21 @@ func runMongoDBOperation(args []string, stdout io.Writer) error {
 }
 
 func executeMongoDBLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) error {
+	username, password := mongoDBCredentialsFromEnv()
+	uri, _ := operation.Binding.With["uri"].(string)
+	if uriFromEnv := os.Getenv("SPEX_MONGODB_URI"); uriFromEnv != "" && mongoDBURIUsesRuntimeEnv(uri) {
+		uri = uriFromEnv
+	}
+	database, _ := operation.Binding.With["database"].(string)
+	if operation.OperationType == "mongodb.ping" {
+		return pingMongoDB(mongoDBPingRequest{
+			URI:      uri,
+			Database: database,
+			Username: username,
+			Password: password,
+			Timeout:  timeout,
+		})
+	}
 	dir, err := os.MkdirTemp("", "spex-mongodb-*")
 	if err != nil {
 		return err
@@ -113,9 +137,6 @@ func executeMongoDBLoweredOperation(operation probeLoweredOperation, timeout, po
 	if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
 		return err
 	}
-	username, password := mongoDBCredentialsFromEnv()
-	uri, _ := operation.Binding.With["uri"].(string)
-	database, _ := operation.Binding.With["database"].(string)
 	return expectMongoDB(mongoDBExpectRequest{
 		URI:          uri,
 		Database:     database,
@@ -129,6 +150,22 @@ func executeMongoDBLoweredOperation(operation probeLoweredOperation, timeout, po
 	})
 }
 
+func mongoDBURIUsesRuntimeEnv(uri string) bool {
+	trimmed := strings.TrimSpace(uri)
+	return trimmed == "" || strings.HasPrefix(trimmed, "{{ ssm ")
+}
+
+func pingMongoDB(req mongoDBPingRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
+	defer cancel()
+	client, err := connectMongoDB(ctx, req.URI, req.Username, req.Password)
+	if err != nil {
+		return err
+	}
+	defer client.Disconnect(context.Background())
+	return client.Ping(ctx, nil)
+}
+
 func expectMongoDB(req mongoDBExpectRequest) error {
 	filter, err := readMongoDBFilter(req.FilterFile)
 	if err != nil {
@@ -137,14 +174,7 @@ func expectMongoDB(req mongoDBExpectRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
 	defer cancel()
 
-	clientOptions := options.Client().ApplyURI(req.URI)
-	if req.Username != "" || req.Password != "" {
-		clientOptions.SetAuth(options.Credential{
-			Username: req.Username,
-			Password: req.Password,
-		})
-	}
-	client, err := mongo.Connect(clientOptions)
+	client, err := connectMongoDB(ctx, req.URI, req.Username, req.Password)
 	if err != nil {
 		return err
 	}
@@ -181,6 +211,17 @@ func expectMongoDB(req mongoDBExpectRequest) error {
 		case <-timer.C:
 		}
 	}
+}
+
+func connectMongoDB(ctx context.Context, uri, username, password string) (*mongo.Client, error) {
+	clientOptions := options.Client().ApplyURI(uri)
+	if username != "" || password != "" {
+		clientOptions.SetAuth(options.Credential{
+			Username: username,
+			Password: password,
+		})
+	}
+	return mongo.Connect(clientOptions)
 }
 
 func readMongoDBFilter(path string) (bson.M, error) {

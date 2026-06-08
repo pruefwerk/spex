@@ -202,8 +202,12 @@ func legacyGenericBindings(binding TargetBinding) []GenericBinding {
 			"credentialsRef": binding.Spec.MQTT.CredentialsRef,
 		}),
 		legacyGenericBinding("redpanda", "redpanda.connection", map[string]any{
-			"brokers": binding.Spec.Redpanda.Brokers,
-			"topics":  binding.Spec.Redpanda.Topics,
+			"brokers":          binding.Spec.Redpanda.Brokers,
+			"securityProtocol": binding.Spec.Redpanda.SecurityProtocol,
+			"saslMechanism":    binding.Spec.Redpanda.SASLMechanism,
+			"credentialsRef":   binding.Spec.Redpanda.CredentialsRef,
+			"caCertRef":        binding.Spec.Redpanda.CACertRef,
+			"topics":           binding.Spec.Redpanda.Topics,
 		}),
 		legacyGenericBinding("graphql", "graphql.endpoint", map[string]any{
 			"endpoint":       binding.Spec.GraphQL.Endpoint,

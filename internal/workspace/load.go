@@ -2449,8 +2449,10 @@ func validateBinding(b TargetBinding) error {
 	if err := validateURLNoCredentials("spec.graphql.endpoint", b.Spec.GraphQL.Endpoint, []string{"http", "https"}); err != nil {
 		return err
 	}
-	if err := validateURLNoCredentials("spec.mongodb.uri", b.Spec.MongoDB.URI, []string{"mongodb", "mongodb+srv"}); err != nil {
-		return err
+	if b.Spec.MongoDB.URI != "" && !isSSMReference(b.Spec.MongoDB.URI) {
+		if err := validateURLNoCredentials("spec.mongodb.uri", b.Spec.MongoDB.URI, []string{"mongodb", "mongodb+srv"}); err != nil {
+			return err
+		}
 	}
 	switch b.Spec.MongoDB.Deployment {
 	case "", "selfManaged", "atlas":
@@ -2472,8 +2474,27 @@ func validateBinding(b TargetBinding) error {
 	if err := validateSecretRef(b, "spec.postgresql.credentialsRef", b.Spec.PostgreSQL.CredentialsRef, []string{"username", "password"}); err != nil {
 		return err
 	}
-	if err := validateRedpandaBrokers("spec.redpanda.brokers", b.Spec.Redpanda.Brokers); err != nil {
+	if b.Spec.Redpanda.Brokers != "" && !isSSMReference(b.Spec.Redpanda.Brokers) {
+		if err := validateRedpandaBrokers("spec.redpanda.brokers", b.Spec.Redpanda.Brokers); err != nil {
+			return err
+		}
+	}
+	if b.Spec.Redpanda.SecurityProtocol != "" && b.Spec.Redpanda.SecurityProtocol != "PLAINTEXT" && b.Spec.Redpanda.SecurityProtocol != "SASL_SSL" {
+		return fmt.Errorf("spec.redpanda.securityProtocol must be PLAINTEXT or SASL_SSL")
+	}
+	if b.Spec.Redpanda.SASLMechanism != "" && b.Spec.Redpanda.SASLMechanism != "SCRAM-SHA-256" && b.Spec.Redpanda.SASLMechanism != "SCRAM-SHA-512" {
+		return fmt.Errorf("spec.redpanda.saslMechanism must be SCRAM-SHA-256 or SCRAM-SHA-512")
+	}
+	if err := validateSecretRef(b, "spec.redpanda.credentialsRef", b.Spec.Redpanda.CredentialsRef, []string{"username", "password"}); err != nil {
 		return err
+	}
+	if b.Spec.Redpanda.SecurityProtocol == "SASL_SSL" && b.Spec.Redpanda.CredentialsRef == "" {
+		return fmt.Errorf("spec.redpanda.credentialsRef is required when spec.redpanda.securityProtocol is SASL_SSL")
+	}
+	if b.Spec.Redpanda.CACertRef != "" {
+		if err := validateSecretRef(b, "spec.redpanda.caCertRef", b.Spec.Redpanda.CACertRef, []string{"caCrt"}); err != nil {
+			return err
+		}
 	}
 	for ref, topic := range b.Spec.Redpanda.Topics {
 		if !idPattern.MatchString(ref) {
@@ -2618,10 +2639,12 @@ func validateScenarioBindingWithProviders(s Scenario, b TargetBinding, providers
 				return err
 			}
 		}
-		if op.Type == "redpanda.contains" {
+		if op.Type == "redpanda.contains" || op.Type == "redpanda.ping" {
 			if b.Spec.Redpanda.Brokers == "" {
-				return fmt.Errorf("binding_validation_failure: spec.redpanda.brokers is required because operation %q uses redpanda.contains", op.ID)
+				return fmt.Errorf("binding_validation_failure: spec.redpanda.brokers is required because operation %q uses %s", op.ID, op.Type)
 			}
+		}
+		if op.Type == "redpanda.contains" {
 			topicRef := op.Redpanda.TopicRef
 			topic, ok := b.Spec.Redpanda.Topics[topicRef]
 			if !ok {
@@ -2634,14 +2657,14 @@ func validateScenarioBindingWithProviders(s Scenario, b TargetBinding, providers
 				return fmt.Errorf("binding_validation_failure: operation %q redpanda topicRef %q uses compacted topics, unsupported in this release", op.ID, topicRef)
 			}
 		}
-		if op.Type == "mongodb.expect" {
+		if op.Type == "mongodb.expect" || op.Type == "mongodb.ping" {
 			if b.Spec.MongoDB.URI == "" {
-				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri is required because operation %q uses mongodb.expect", op.ID)
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri is required because operation %q uses %s", op.ID, op.Type)
 			}
 			if b.Spec.MongoDB.Database == "" {
-				return fmt.Errorf("binding_validation_failure: spec.mongodb.database is required because operation %q uses mongodb.expect", op.ID)
+				return fmt.Errorf("binding_validation_failure: spec.mongodb.database is required because operation %q uses %s", op.ID, op.Type)
 			}
-			if b.Spec.MongoDB.Deployment == "atlas" && !strings.HasPrefix(b.Spec.MongoDB.URI, "mongodb+srv://") {
+			if b.Spec.MongoDB.Deployment == "atlas" && !strings.HasPrefix(b.Spec.MongoDB.URI, "mongodb+srv://") && !isSSMReference(b.Spec.MongoDB.URI) {
 				return fmt.Errorf("binding_validation_failure: spec.mongodb.uri should use mongodb+srv:// because operation %q uses an Atlas deployment", op.ID)
 			}
 		}
