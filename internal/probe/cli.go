@@ -591,7 +591,7 @@ func runRedpandaContains(args []string, stdout io.Writer) error {
 		}
 		offsets = snapshot.Topics[*topic]
 	}
-	if err := redpandaContains(*brokers, *topic, offsets, *matchersFile, timeout, pollInterval); err != nil {
+	if _, err := redpandaContains(*brokers, *topic, offsets, *matchersFile, timeout, pollInterval); err != nil {
 		return emitFailure(stdout, "redpanda.contains", err)
 	}
 	return emit(stdout, "redpanda.contains", "passed", "")

@@ -35,7 +35,7 @@ type redpandaClient interface {
 	Ping(ctx context.Context, req redpandaPingRequest) error
 	SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error)
 	Partitions(ctx context.Context, brokers []string, topic string) ([]int, error)
-	FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) error
+	FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error)
 }
 
 type redpandaPingRequest struct {
@@ -46,6 +46,14 @@ type redpandaPingRequest struct {
 	Username         string
 	Password         string
 	CACertB64        string
+}
+
+type redpandaMatchedMessage struct {
+	Topic     string `json:"topic"`
+	Partition int    `json:"partition"`
+	Offset    int64  `json:"offset"`
+	Key       string `json:"key,omitempty"`
+	Value     string `json:"value"`
 }
 
 type redpandaOffsetsStore interface {
@@ -99,13 +107,16 @@ func runRedpandaOperation(args []string, stdout io.Writer) error {
 	if pollInterval <= 0 {
 		return fmt.Errorf("--poll-interval must be positive")
 	}
-	err = executeRedpandaLoweredOperation(operation, timeout, pollInterval)
+	result, err := executeRedpandaLoweredOperation(operation, timeout, pollInterval)
+	if result == nil {
+		result = map[string]any{}
+	}
 	envelope := probeResultEnvelope{
 		OperationID:   operation.OperationID,
 		OperationType: operation.OperationType,
 		Provider:      operation.Provider,
 		Status:        "passed",
-		Result:        map[string]any{},
+		Result:        result,
 		Evidence:      []probeEvidenceEnvelope{},
 		Diagnostics:   []probeDiagnostic{},
 	}
@@ -122,25 +133,25 @@ func runRedpandaOperation(args []string, stdout io.Writer) error {
 	return err
 }
 
-func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) error {
+func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, pollInterval time.Duration) (map[string]any, error) {
 	if operation.OperationType == "redpanda.ping" {
-		return executeRedpandaPingLoweredOperation(operation, timeout)
+		return nil, executeRedpandaPingLoweredOperation(operation, timeout)
 	}
 	if operation.OperationType == "redpanda.snapshotOffsets" {
-		return executeRedpandaSnapshotLoweredOperation(operation, timeout)
+		return nil, executeRedpandaSnapshotLoweredOperation(operation, timeout)
 	}
 	dir, err := os.MkdirTemp("", "spex-redpanda-*")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.RemoveAll(dir)
 	matchersFile := filepath.Join(dir, "matchers.json")
 	matchContent, err := json.Marshal(operation.With["match"])
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
-		return err
+		return nil, err
 	}
 	brokers, _ := operation.Binding.With["brokers"].(string)
 	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
@@ -156,17 +167,21 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 	if fromBeginning {
 		offsets, err = redpandaBeginningOffsets(brokers, topic, timeout)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		store := redpandaOffsetStore(offsetsConfigMap, "", namespace, scenario, runID)
 		snapshot, err := store.Load()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		offsets = snapshot.Topics[topic]
 	}
-	return redpandaContains(brokers, topic, offsets, matchersFile, timeout, pollInterval)
+	matched, err := redpandaContains(brokers, topic, offsets, matchersFile, timeout, pollInterval)
+	if matched == nil || err != nil {
+		return nil, err
+	}
+	return map[string]any{"matchedMessage": matched}, nil
 }
 
 func redpandaBrokersUseRuntimeEnv(brokers string) bool {
@@ -225,19 +240,19 @@ func snapshotRedpandaOffsets(brokersValue string, topics []string, timeout time.
 	return redpandaKafka.SnapshotOffsets(ctx, splitBrokers(brokersValue), topics)
 }
 
-func redpandaContains(brokersValue, topic string, offsets map[int]int64, matchersFile string, timeout, pollInterval time.Duration) error {
+func redpandaContains(brokersValue, topic string, offsets map[int]int64, matchersFile string, timeout, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
 	if len(offsets) == 0 {
-		return fmt.Errorf("offset snapshot does not contain topic %q", topic)
+		return nil, fmt.Errorf("offset snapshot does not contain topic %q", topic)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	brokers := splitBrokers(brokersValue)
 	partitions, err := redpandaKafka.Partitions(ctx, brokers, topic)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateRedpandaPartitionSet(topic, offsets, partitions); err != nil {
-		return err
+		return nil, err
 	}
 	return redpandaKafka.FindMatchingMessage(ctx, brokers, topic, offsets, matchersFile, pollInterval)
 }
@@ -385,20 +400,23 @@ func validateRedpandaPartitionSet(topic string, offsets map[int]int64, partition
 	return nil
 }
 
-func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) error {
+func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	type scanResult struct {
 		partition int
+		message   *redpandaMatchedMessage
 		err       error
 	}
 	results := make(chan scanResult, len(offsets))
 	for partition, offset := range offsets {
 		go func(partition int, offset int64) {
+			message, err := scanRedpandaPartition(ctx, brokers, topic, partition, offset, matchersFile)
 			results <- scanResult{
 				partition: partition,
-				err:       scanRedpandaPartition(ctx, brokers, topic, partition, offset, matchersFile),
+				message:   message,
+				err:       err,
 			}
 		}(partition, offset)
 	}
@@ -409,8 +427,8 @@ func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []st
 		select {
 		case result := <-results:
 			remaining--
-			if result.err == nil {
-				return nil
+			if result.err == nil && result.message != nil {
+				return result.message, nil
 			}
 			lastErr = fmt.Errorf("partition %d: %w", result.partition, result.err)
 		case <-ctx.Done():
@@ -418,12 +436,12 @@ func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []st
 		}
 	}
 	if lastErr != nil {
-		return fmt.Errorf("matching Redpanda event not found before timeout: %w", lastErr)
+		return nil, fmt.Errorf("matching Redpanda event not found before timeout: %w", lastErr)
 	}
-	return fmt.Errorf("matching Redpanda event not found before timeout")
+	return nil, fmt.Errorf("matching Redpanda event not found before timeout")
 }
 
-func scanPartition(ctx context.Context, brokers []string, topic string, partition int, offset int64, matchersFile string) error {
+func scanPartition(ctx context.Context, brokers []string, topic string, partition int, offset int64, matchersFile string) (*redpandaMatchedMessage, error) {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   brokers,
 		Topic:     topic,
@@ -433,15 +451,21 @@ func scanPartition(ctx context.Context, brokers []string, topic string, partitio
 	})
 	defer reader.Close()
 	if err := reader.SetOffset(offset); err != nil {
-		return fmt.Errorf("set offset for %q partition %d: %w", topic, partition, err)
+		return nil, fmt.Errorf("set offset for %q partition %d: %w", topic, partition, err)
 	}
 	for {
 		message, err := reader.FetchMessage(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := EvaluateMatchersBytes(matchersFile, message.Value); err == nil {
-			return nil
+			return &redpandaMatchedMessage{
+				Topic:     message.Topic,
+				Partition: message.Partition,
+				Offset:    message.Offset,
+				Key:       string(message.Key),
+				Value:     string(message.Value),
+			}, nil
 		}
 	}
 }

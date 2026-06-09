@@ -467,7 +467,16 @@ func TestRedpandaRunContainsFromBeginningStartsAtZero(t *testing.T) {
   "dependsOn": []
 }`)
 	result := filepath.Join(dir, "result.json")
-	fake := &fakeRedpandaClient{partitions: []int{0, 1}}
+	fake := &fakeRedpandaClient{
+		partitions: []int{0, 1},
+		containsMessage: &redpandaMatchedMessage{
+			Topic:     "normalized_metrics",
+			Partition: 1,
+			Offset:    42,
+			Key:       "WMBUS-7426263560042908",
+			Value:     `{"origin":{"gateway":"0200000100016E3F"}}`,
+		},
+	}
 	withRedpandaClient(t, fake)
 
 	var stdout bytes.Buffer
@@ -480,6 +489,22 @@ func TestRedpandaRunContainsFromBeginningStartsAtZero(t *testing.T) {
 	}
 	if !reflect.DeepEqual(fake.containsOffsets, map[int]int64{0: 0, 1: 0}) {
 		t.Fatalf("unexpected contains offsets: %#v", fake.containsOffsets)
+	}
+	content, readErr := os.ReadFile(result)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, want := range []string{
+		`"matchedMessage"`,
+		`"topic": "normalized_metrics"`,
+		`"partition": 1`,
+		`"offset": 42`,
+		`"key": "WMBUS-7426263560042908"`,
+		`"value": "{\"origin\":{\"gateway\":\"0200000100016E3F\"}}"`,
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("result envelope missing %q:\n%s", want, string(content))
+		}
 	}
 }
 
@@ -517,19 +542,22 @@ func TestRedpandaContainsScansPartitionsConcurrently(t *testing.T) {
 	defer func() {
 		scanRedpandaPartition = previous
 	}()
-	scanRedpandaPartition = func(ctx context.Context, brokers []string, topic string, partition int, offset int64, matchersFile string) error {
+	scanRedpandaPartition = func(ctx context.Context, brokers []string, topic string, partition int, offset int64, matchersFile string) (*redpandaMatchedMessage, error) {
 		if partition == 0 {
 			<-ctx.Done()
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
-		return nil
+		return &redpandaMatchedMessage{Topic: topic, Partition: partition, Offset: offset, Value: `{"ok":true}`}, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	err := kafkaRedpandaClient{}.FindMatchingMessage(ctx, []string{"redpanda:9092"}, "events", map[int]int64{0: 10, 1: 20}, "matchers.json", time.Millisecond)
+	matched, err := kafkaRedpandaClient{}.FindMatchingMessage(ctx, []string{"redpanda:9092"}, "events", map[int]int64{0: 10, 1: 20}, "matchers.json", time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if matched == nil || matched.Partition != 1 || matched.Offset != 20 {
+		t.Fatalf("unexpected matched message: %#v", matched)
 	}
 }
 
@@ -1722,6 +1750,7 @@ type fakeRedpandaClient struct {
 	containsTopic        string
 	containsOffsets      map[int]int64
 	containsMatchersFile string
+	containsMessage      *redpandaMatchedMessage
 	containsErr          error
 }
 
@@ -1752,11 +1781,14 @@ func (f *fakeRedpandaClient) Partitions(ctx context.Context, brokers []string, t
 	return []int{0}, nil
 }
 
-func (f *fakeRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) error {
+func (f *fakeRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
 	f.containsTopic = topic
 	f.containsOffsets = offsets
 	f.containsMatchersFile = matchersFile
-	return f.containsErr
+	if f.containsMessage != nil || f.containsErr != nil {
+		return f.containsMessage, f.containsErr
+	}
+	return &redpandaMatchedMessage{Topic: topic, Partition: 0, Offset: offsets[0], Value: `{"ok":true}`}, nil
 }
 
 func withRedpandaClient(t *testing.T, client redpandaClient) {
