@@ -1611,7 +1611,7 @@ func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []
 			if err := validateMQTTPayloadCorrelation(op.ID, template.Body); err != nil {
 				return err
 			}
-			if err := validateCorrelationMatchers("operation "+op.ID+" mqtt.match", op.MQTT.CorrelationID, op.MQTT.Match); err != nil {
+			if err := validateCorrelationMatchers("operation "+op.ID+" mqtt.match", op.MQTT.CorrelationID, op.MQTT.Match, true); err != nil {
 				return err
 			}
 		case "rabbitmq.publish":
@@ -1656,7 +1656,7 @@ func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []
 			if err := validateCorrelationID("operation "+op.ID+" rabbitmq.correlationId", op.RabbitMQ.CorrelationID); err != nil {
 				return err
 			}
-			if err := validateCorrelationMatchers("operation "+op.ID+" rabbitmq.match", op.RabbitMQ.CorrelationID, op.RabbitMQ.Match); err != nil {
+			if err := validateCorrelationMatchers("operation "+op.ID+" rabbitmq.match", op.RabbitMQ.CorrelationID, op.RabbitMQ.Match, true); err != nil {
 				return err
 			}
 		case "redpanda.contains":
@@ -1678,7 +1678,7 @@ func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []
 			if err := validateCorrelationID("operation "+op.ID+" redpanda.correlationId", op.Redpanda.CorrelationID); err != nil {
 				return err
 			}
-			if err := validateCorrelationMatchers("operation "+op.ID+" redpanda.match", op.Redpanda.CorrelationID, op.Redpanda.Match); err != nil {
+			if err := validateCorrelationMatchers("operation "+op.ID+" redpanda.match", op.Redpanda.CorrelationID, op.Redpanda.Match, scenarioScoped(op.Redpanda.ScenarioScoped)); err != nil {
 				return err
 			}
 		case "graphql.expect":
@@ -1735,7 +1735,7 @@ func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []
 			if err := validateCorrelationID("operation "+op.ID+" mongodb.correlationId", op.MongoDB.CorrelationID); err != nil {
 				return err
 			}
-			if err := validateCorrelationMatchers("operation "+op.ID+" mongodb.match", op.MongoDB.CorrelationID, op.MongoDB.Match); err != nil {
+			if err := validateCorrelationMatchers("operation "+op.ID+" mongodb.match", op.MongoDB.CorrelationID, op.MongoDB.Match, scenarioScoped(op.MongoDB.ScenarioScoped)); err != nil {
 				return err
 			}
 		case "postgresql.expect":
@@ -1760,7 +1760,7 @@ func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []
 			if err := validateCorrelationID("operation "+op.ID+" postgresql.correlationId", op.Postgres.CorrelationID); err != nil {
 				return err
 			}
-			if err := validateCorrelationMatchers("operation "+op.ID+" postgresql.match", op.Postgres.CorrelationID, op.Postgres.Match); err != nil {
+			if err := validateCorrelationMatchers("operation "+op.ID+" postgresql.match", op.Postgres.CorrelationID, op.Postgres.Match, true); err != nil {
 				return err
 			}
 		default:
@@ -2021,7 +2021,7 @@ func validateGraphQLCorrelation(field string, graphql *GraphQLExpectation) error
 	if err := validateCorrelationID(field+".variables.correlationId", correlationID); err != nil {
 		return err
 	}
-	return validateCorrelationMatchers(field+".match", correlationID, graphql.Match)
+	return validateCorrelationMatchers(field+".match", correlationID, graphql.Match, true)
 }
 
 func validateCorrelationID(field, value string) error {
@@ -2040,7 +2040,7 @@ func validateCorrelationID(field, value string) error {
 	return nil
 }
 
-func validateCorrelationMatchers(field, correlationID string, matchers []Matcher) error {
+func validateCorrelationMatchers(field, correlationID string, matchers []Matcher, requireScenarioRunID bool) error {
 	hasScenarioRunID := false
 	hasCorrelationID := false
 	for _, matcher := range matchers {
@@ -2051,7 +2051,7 @@ func validateCorrelationMatchers(field, correlationID string, matchers []Matcher
 			hasCorrelationID = true
 		}
 	}
-	if !hasScenarioRunID {
+	if requireScenarioRunID && !hasScenarioRunID {
 		return fmt.Errorf("%s must include an equalsString matcher for ${scenarioRunId}", field)
 	}
 	if correlationID == "" {
@@ -2061,6 +2061,10 @@ func validateCorrelationMatchers(field, correlationID string, matchers []Matcher
 		return fmt.Errorf("%s must include an equalsString matcher for correlationId %q", field, correlationID)
 	}
 	return nil
+}
+
+func scenarioScoped(value *bool) bool {
+	return value == nil || *value
 }
 
 func validateMQTTPayloadCorrelation(operationID, body string) error {

@@ -90,10 +90,12 @@ type MQTTPublish struct {
 }
 
 type RedpandaContains struct {
-	TopicRef      string    `yaml:"topicRef"`
-	CorrelationID string    `yaml:"correlationId"`
-	Timeout       string    `yaml:"timeout"`
-	Match         []Matcher `yaml:"match"`
+	TopicRef       string    `yaml:"topicRef"`
+	CorrelationID  string    `yaml:"correlationId"`
+	Timeout        string    `yaml:"timeout"`
+	FromBeginning  bool      `yaml:"fromBeginning"`
+	ScenarioScoped *bool     `yaml:"scenarioScoped"`
+	Match          []Matcher `yaml:"match"`
 }
 
 type GraphQLExpectation struct {
@@ -104,11 +106,12 @@ type GraphQLExpectation struct {
 }
 
 type MongoDBExpectation struct {
-	Collection    string    `yaml:"collection"`
-	Filter        string    `yaml:"filter"`
-	CorrelationID string    `yaml:"correlationId"`
-	Timeout       string    `yaml:"timeout"`
-	Match         []Matcher `yaml:"match"`
+	Collection     string    `yaml:"collection"`
+	Filter         string    `yaml:"filter"`
+	CorrelationID  string    `yaml:"correlationId"`
+	Timeout        string    `yaml:"timeout"`
+	ScenarioScoped *bool     `yaml:"scenarioScoped"`
+	Match          []Matcher `yaml:"match"`
 }
 
 type PostgreSQLExpectation struct {

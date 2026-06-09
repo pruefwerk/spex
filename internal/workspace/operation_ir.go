@@ -42,6 +42,7 @@ func NormalizeLegacyOperations(in Inputs) []GenericOperation {
 				generic.With["topicRef"] = op.Redpanda.TopicRef
 				generic.With["topic"] = redpandaTopicName(in, op.Redpanda.TopicRef)
 				generic.With["correlationId"] = op.Redpanda.CorrelationID
+				generic.With["fromBeginning"] = op.Redpanda.FromBeginning
 				generic.With["offsetsConfigMap"] = offsetConfigMapName(DNSLabel(in.ScenarioName))
 				generic.With["namespace"] = in.Namespace
 				generic.With["scenario"] = DNSLabel(in.ScenarioName)
@@ -62,6 +63,7 @@ func NormalizeLegacyOperations(in Inputs) []GenericOperation {
 				generic.With["collection"] = op.MongoDB.Collection
 				generic.With["filter"] = renderJSONTemplate(op.MongoDB.Filter, in.RunID, op.MongoDB.CorrelationID, resolvedParameters(in))
 				generic.With["correlationId"] = op.MongoDB.CorrelationID
+				generic.With["scenarioScoped"] = scenarioScoped(op.MongoDB.ScenarioScoped)
 				generic.With["match"] = decodeJSONArray(renderMatchersJSON(op.MongoDB.Match, in.RunID, op.MongoDB.CorrelationID, resolvedParameters(in)))
 			}
 		case "postgresql.expect":

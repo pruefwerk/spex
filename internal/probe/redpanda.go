@@ -151,12 +151,22 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 	namespace, _ := operation.With["namespace"].(string)
 	scenario, _ := operation.With["scenario"].(string)
 	runID, _ := operation.With["runId"].(string)
-	store := redpandaOffsetStore(offsetsConfigMap, "", namespace, scenario, runID)
-	snapshot, err := store.Load()
-	if err != nil {
-		return err
+	fromBeginning, _ := operation.With["fromBeginning"].(bool)
+	var offsets map[int]int64
+	if fromBeginning {
+		offsets, err = redpandaBeginningOffsets(brokers, topic, timeout)
+		if err != nil {
+			return err
+		}
+	} else {
+		store := redpandaOffsetStore(offsetsConfigMap, "", namespace, scenario, runID)
+		snapshot, err := store.Load()
+		if err != nil {
+			return err
+		}
+		offsets = snapshot.Topics[topic]
 	}
-	return redpandaContains(brokers, topic, snapshot.Topics[topic], matchersFile, timeout, pollInterval)
+	return redpandaContains(brokers, topic, offsets, matchersFile, timeout, pollInterval)
 }
 
 func redpandaBrokersUseRuntimeEnv(brokers string) bool {
@@ -230,6 +240,21 @@ func redpandaContains(brokersValue, topic string, offsets map[int]int64, matcher
 		return err
 	}
 	return redpandaKafka.FindMatchingMessage(ctx, brokers, topic, offsets, matchersFile, pollInterval)
+}
+
+func redpandaBeginningOffsets(brokersValue, topic string, timeout time.Duration) (map[int]int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	brokers := splitBrokers(brokersValue)
+	partitions, err := redpandaKafka.Partitions(ctx, brokers, topic)
+	if err != nil {
+		return nil, err
+	}
+	offsets := make(map[int]int64, len(partitions))
+	for _, partition := range partitions {
+		offsets[partition] = 0
+	}
+	return offsets, nil
 }
 
 func (kafkaRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error) {

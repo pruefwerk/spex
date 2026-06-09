@@ -1531,7 +1531,7 @@ func resolvedParameters(in Inputs) map[string]string {
 
 func needsRedpandaSnapshot(ops []Operation) bool {
 	for _, op := range ops {
-		if op.Type == "redpanda.contains" {
+		if op.Type == "redpanda.contains" && op.Redpanda != nil && !op.Redpanda.FromBeginning {
 			return true
 		}
 	}
@@ -1543,6 +1543,9 @@ func redpandaSnapshotTopics(in Inputs) []string {
 	var topics []string
 	for _, op := range in.Scenario.Spec.Operations {
 		if op.Type != "redpanda.contains" {
+			continue
+		}
+		if op.Redpanda == nil || op.Redpanda.FromBeginning {
 			continue
 		}
 		topic := redpandaTopicName(in, op.Redpanda.TopicRef)

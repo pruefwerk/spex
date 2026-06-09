@@ -810,6 +810,76 @@ spec:
 	}
 }
 
+func TestLoadInputsAcceptsStaticDataExpectations(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	bindingPath := filepath.Join(dir, "binding.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(`apiVersion: spex.scenario.v0.1
+kind: Scenario
+metadata:
+  name: static-data-check
+spec:
+  operations:
+    - id: assert-redpanda-seed
+      type: redpanda.contains
+      redpanda:
+        topicRef: normalized-metrics
+        correlationId: seed-1
+        fromBeginning: true
+        scenarioScoped: false
+        match:
+          - path: $.correlationId
+            equalsString: seed-1
+    - id: assert-mongodb-seed
+      type: mongodb.expect
+      mongodb:
+        collection: readings
+        filter: |
+          {"correlationId":"seed-1"}
+        correlationId: seed-1
+        scenarioScoped: false
+        match:
+          - path: $.correlationId
+            equalsString: seed-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, []byte(`apiVersion: spex.binding.v0.1
+kind: TargetBinding
+metadata:
+  name: kind
+spec:
+  namespace: spex-test
+  rbac:
+    create: true
+  probe:
+    image: spex-probe:dev
+  redpanda:
+    brokers: redpanda:9092
+    topics:
+      normalized-metrics:
+        name: normalized_metrics
+        allowOffsetSnapshot: true
+  mongodb:
+    deployment: selfManaged
+    uri: mongodb://mongodb:27017
+    database: app
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inputs, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatalf("expected static data expectations to validate: %v", err)
+	}
+	if !inputs.Scenario.Spec.Operations[0].Redpanda.FromBeginning {
+		t.Fatalf("fromBeginning not loaded: %#v", inputs.Scenario.Spec.Operations[0].Redpanda)
+	}
+	if scenarioScoped(inputs.Scenario.Spec.Operations[1].MongoDB.ScenarioScoped) {
+		t.Fatalf("scenarioScoped not loaded as false: %#v", inputs.Scenario.Spec.Operations[1].MongoDB)
+	}
+}
+
 func TestLoadInputsRejectsMongoDBAtlasWithoutCredentials(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath := filepath.Join(dir, "scenario.yaml")

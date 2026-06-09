@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -439,6 +440,46 @@ func TestRedpandaRunSnapshotOffsetsUsesRuntimeBrokersForSSMReference(t *testing.
 	}
 	if got := strings.Join(fake.snapshotBrokers, ","); got != "redpanda-1:9093,redpanda-2:9093" {
 		t.Fatalf("unexpected snapshot brokers: %q", got)
+	}
+}
+
+func TestRedpandaRunContainsFromBeginningStartsAtZero(t *testing.T) {
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "assert-seeded-event",
+  "operationType": "redpanda.contains",
+  "provider": "redpanda",
+  "binding": {
+    "name": "redpanda.default",
+    "kind": "redpanda.connection",
+    "with": {
+      "brokers": "redpanda:9092"
+    }
+  },
+  "with": {
+    "topic": "normalized_metrics",
+    "fromBeginning": true,
+    "match": [
+      {"path":"$.correlationId","equalsString":"seed-1"}
+    ]
+  },
+  "timeout": "45s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeRedpandaClient{partitions: []int{0, 1}}
+	withRedpandaClient(t, fake)
+
+	var stdout bytes.Buffer
+	err := Run([]string{"redpanda", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.containsTopic != "normalized_metrics" {
+		t.Fatalf("unexpected contains topic: %q", fake.containsTopic)
+	}
+	if !reflect.DeepEqual(fake.containsOffsets, map[int]int64{0: 0, 1: 0}) {
+		t.Fatalf("unexpected contains offsets: %#v", fake.containsOffsets)
 	}
 }
 

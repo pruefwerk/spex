@@ -131,6 +131,7 @@ func builtInInputSchema(operationType string) *JSONSchema {
 			"scenario":         stringSchema(),
 			"runId":            stringSchema(),
 			"correlationId":    stringSchema(),
+			"fromBeginning":    {Type: "boolean"},
 			"match":            arraySchema(objectSchemaValue(nil, nil)),
 		})
 	case "redpanda.snapshotOffsets":
@@ -162,10 +163,11 @@ func builtInInputSchema(operationType string) *JSONSchema {
 		})
 	case "mongodb.expect":
 		return objectSchema([]string{"collection", "filter", "correlationId", "match"}, map[string]JSONSchema{
-			"collection":    stringSchema(),
-			"filter":        stringSchema(),
-			"correlationId": stringSchema(),
-			"match":         arraySchema(objectSchemaValue(nil, nil)),
+			"collection":     stringSchema(),
+			"filter":         stringSchema(),
+			"correlationId":  stringSchema(),
+			"scenarioScoped": {Type: "boolean"},
+			"match":          arraySchema(objectSchemaValue(nil, nil)),
 		})
 	case "mongodb.ping":
 		return objectSchema(nil, map[string]JSONSchema{})

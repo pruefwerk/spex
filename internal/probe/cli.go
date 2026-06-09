@@ -531,6 +531,7 @@ func runRedpandaContains(args []string, stdout io.Writer) error {
 	offsetsConfigMap := fs.String("offsets-configmap", "", "runtime offsets ConfigMap name")
 	offsetsFile := fs.String("offsets-file", "", "local offsets file")
 	fixtureEventFile := fs.String("fixture-event-file", "", "fixture event JSON file")
+	fromBeginning := fs.Bool("from-beginning", false, "scan Redpanda topic from offset 0")
 	brokers := fs.String("brokers", "", "comma-separated brokers")
 	topic := fs.String("topic", "", "topic")
 	namespace := fs.String("namespace", "", "Kubernetes namespace")
@@ -544,8 +545,11 @@ func runRedpandaContains(args []string, stdout io.Writer) error {
 	if err := rejectProbePositionalArgs(fs, "redpanda contains"); err != nil {
 		return err
 	}
-	if (*offsetsConfigMap == "" && *offsetsFile == "") || *matchersFile == "" {
-		return fmt.Errorf("redpanda contains requires --offsets-configmap or --offsets-file, and --matchers-file")
+	if !*fromBeginning && *fixtureEventFile == "" && *offsetsConfigMap == "" && *offsetsFile == "" {
+		return fmt.Errorf("redpanda contains requires --offsets-configmap or --offsets-file unless --from-beginning or --fixture-event-file is used")
+	}
+	if *matchersFile == "" {
+		return fmt.Errorf("redpanda contains requires --matchers-file")
 	}
 	if _, err := os.Stat(*matchersFile); err != nil {
 		return err
@@ -573,12 +577,21 @@ func runRedpandaContains(args []string, stdout io.Writer) error {
 	if pollInterval <= 0 {
 		return fmt.Errorf("--poll-interval must be positive")
 	}
-	store := redpandaOffsetStore(*offsetsConfigMap, *offsetsFile, *namespace, *scenario, *runID)
-	snapshot, err := store.Load()
-	if err != nil {
-		return emitFailure(stdout, "redpanda.contains", err)
+	var offsets map[int]int64
+	if *fromBeginning {
+		offsets, err = redpandaBeginningOffsets(*brokers, *topic, timeout)
+		if err != nil {
+			return emitFailure(stdout, "redpanda.contains", err)
+		}
+	} else {
+		store := redpandaOffsetStore(*offsetsConfigMap, *offsetsFile, *namespace, *scenario, *runID)
+		snapshot, err := store.Load()
+		if err != nil {
+			return emitFailure(stdout, "redpanda.contains", err)
+		}
+		offsets = snapshot.Topics[*topic]
 	}
-	if err := redpandaContains(*brokers, *topic, snapshot.Topics[*topic], *matchersFile, timeout, pollInterval); err != nil {
+	if err := redpandaContains(*brokers, *topic, offsets, *matchersFile, timeout, pollInterval); err != nil {
 		return emitFailure(stdout, "redpanda.contains", err)
 	}
 	return emit(stdout, "redpanda.contains", "passed", "")
