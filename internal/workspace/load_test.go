@@ -2678,6 +2678,52 @@ spec:
 	}
 }
 
+func TestRenderCatalogOperationRendersMongoDBFields(t *testing.T) {
+	operation := renderCatalogOperation(Operation{
+		ID:   "assert-mongodb-{collection}-{correlationId}",
+		Type: "mongodb.expect",
+		MongoDB: &MongoDBExpectation{
+			Collection:    "{collection}",
+			Filter:        `{"correlationId":"{correlationId}","tenantId":"${param.tenantId}"}`,
+			CorrelationID: "{correlationId}",
+			Timeout:       "{timeout}",
+			Match: []Matcher{
+				{Path: "$.correlationId", EqualsString: "{correlationId}"},
+				{Path: "$.tenantId", EqualsString: "${param.tenantId}"},
+			},
+		},
+	}, map[string]string{
+		"collection":    "devices",
+		"correlationId": "device-seed-1",
+		"timeout":       "30s",
+	})
+
+	if operation.ID != "assert-mongodb-devices-device-seed-1" {
+		t.Fatalf("operation ID = %q", operation.ID)
+	}
+	if operation.MongoDB == nil {
+		t.Fatal("operation MongoDB field is nil")
+	}
+	if operation.MongoDB.Collection != "devices" {
+		t.Fatalf("MongoDB collection = %q", operation.MongoDB.Collection)
+	}
+	if operation.MongoDB.CorrelationID != "device-seed-1" {
+		t.Fatalf("MongoDB correlationId = %q", operation.MongoDB.CorrelationID)
+	}
+	if operation.MongoDB.Timeout != "30s" {
+		t.Fatalf("MongoDB timeout = %q", operation.MongoDB.Timeout)
+	}
+	if !strings.Contains(operation.MongoDB.Filter, `"device-seed-1"`) || strings.Contains(operation.MongoDB.Filter, "{correlationId}") {
+		t.Fatalf("MongoDB filter was not rendered: %s", operation.MongoDB.Filter)
+	}
+	if got := operation.MongoDB.Match[0].EqualsString; got != "device-seed-1" {
+		t.Fatalf("MongoDB matcher equalsString = %q", got)
+	}
+	if got := operation.MongoDB.Match[1].EqualsString; got != "${param.tenantId}" {
+		t.Fatalf("parameter template should be preserved, got %q", got)
+	}
+}
+
 func TestLoadBundleProvidersResolvesSchemaFileRefs(t *testing.T) {
 	dir := t.TempDir()
 	bundleDir := filepath.Join(dir, "bundles", "custom")

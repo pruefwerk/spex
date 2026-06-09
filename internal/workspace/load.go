@@ -1004,6 +1004,15 @@ func renderCatalogOperation(op Operation, values map[string]string) Operation {
 		graphql.Match = renderCatalogMatchers(graphql.Match, values)
 		op.GraphQL = &graphql
 	}
+	if op.MongoDB != nil {
+		mongodb := *op.MongoDB
+		mongodb.Collection = renderCatalogTemplate(mongodb.Collection, values)
+		mongodb.Filter = renderCatalogTemplate(mongodb.Filter, values)
+		mongodb.CorrelationID = renderCatalogTemplate(mongodb.CorrelationID, values)
+		mongodb.Timeout = renderCatalogTemplate(mongodb.Timeout, values)
+		mongodb.Match = renderCatalogMatchers(mongodb.Match, values)
+		op.MongoDB = &mongodb
+	}
 	return op
 }
 
