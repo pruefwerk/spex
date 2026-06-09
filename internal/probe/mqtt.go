@@ -181,11 +181,14 @@ func roundTripMQTT(req mqttRoundTripRequest) error {
 }
 
 func (pahoMQTTPublisher) Publish(req mqttPublishRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
+	defer cancel()
+
 	options := mqttClientOptions(req.BrokerURL, req.ClientID, req.Username, req.Password, req.Timeout)
 
 	client := mqtt.NewClient(options)
 	connect := client.Connect()
-	if !connect.WaitTimeout(req.Timeout) {
+	if !connect.WaitTimeout(mqttRemainingTimeout(ctx)) {
 		return fmt.Errorf("mqtt connect timed out")
 	}
 	if err := connect.Error(); err != nil {
@@ -194,7 +197,7 @@ func (pahoMQTTPublisher) Publish(req mqttPublishRequest) error {
 	defer client.Disconnect(250)
 
 	publish := client.Publish(req.Topic, req.QoS, false, req.Payload)
-	if !publish.WaitTimeout(req.Timeout) {
+	if !publish.WaitTimeout(mqttRemainingTimeout(ctx)) {
 		return fmt.Errorf("mqtt publish timed out")
 	}
 	if err := publish.Error(); err != nil {
