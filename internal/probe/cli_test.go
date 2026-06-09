@@ -1634,6 +1634,57 @@ func TestMQTTRoundTripRejectsInvalidClientMode(t *testing.T) {
 	}
 }
 
+func TestWaitForMQTTMatchRepublishesUntilMatcherPasses(t *testing.T) {
+	dir := t.TempDir()
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.ok","equalsBool":true}]`)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	messages := make(chan []byte, 1)
+	republished := 0
+	err := waitForMQTTMatch(ctx, mqttRoundTripRequest{
+		Topic:        "migration/smoke",
+		MatchersFile: matchers,
+		Timeout:      time.Second,
+	}, "separate clients", messages, "accepted with granted qos 1", func() error {
+		republished++
+		messages <- []byte(`{"ok":true}`)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if republished != 1 {
+		t.Fatalf("republish attempts = %d, want 1", republished)
+	}
+}
+
+func TestWaitForMQTTMatchReportsRepublishAttemptsOnTimeout(t *testing.T) {
+	dir := t.TempDir()
+	matchers := writeTestFile(t, dir, "matchers.json", `[{"path":"$.ok","equalsBool":true}]`)
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+
+	republished := 0
+	err := waitForMQTTMatch(ctx, mqttRoundTripRequest{
+		Topic:        "migration/smoke",
+		MatchersFile: matchers,
+		Timeout:      700 * time.Millisecond,
+	}, "separate clients", make(chan []byte), "accepted with granted qos 1", func() error {
+		republished++
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected timeout")
+	}
+	if republished == 0 {
+		t.Fatal("expected at least one republish attempt")
+	}
+	if !strings.Contains(err.Error(), "republish attempt") {
+		t.Fatalf("timeout did not include republish attempts: %v", err)
+	}
+}
+
 type fakeMQTTPublisher struct {
 	request   mqttPublishRequest
 	roundTrip mqttRoundTripRequest

@@ -261,24 +261,16 @@ func roundTripMQTTSeparate(req mqttRoundTripRequest) error {
 		return fmt.Errorf("mqtt publish: %w", err)
 	}
 
-	var lastErr error
-	received := 0
-	for {
-		select {
-		case payload := <-messages:
-			received++
-			if err := EvaluateMatchersBytes(req.MatchersFile, payload); err == nil {
-				return nil
-			} else {
-				lastErr = err
-			}
-		case <-ctx.Done():
-			if lastErr != nil {
-				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using separate clients after receiving %d message(s); subscription %s: %w", req.Topic, received, subscribeResult, lastErr)
-			}
-			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using separate clients without receiving messages; subscription %s", req.Topic, subscribeResult)
+	return waitForMQTTMatch(ctx, req, "separate clients", messages, subscribeResult, func() error {
+		publish := publisher.Publish(req.Topic, req.QoS, false, req.Payload)
+		if !publish.WaitTimeout(mqttRemainingTimeout(ctx)) {
+			return fmt.Errorf("mqtt republish timed out")
 		}
-	}
+		if err := publish.Error(); err != nil {
+			return fmt.Errorf("mqtt republish: %w", err)
+		}
+		return nil
+	})
 }
 
 func roundTripMQTTShared(req mqttRoundTripRequest) error {
@@ -319,8 +311,25 @@ func roundTripMQTTShared(req mqttRoundTripRequest) error {
 		return fmt.Errorf("mqtt shared client publish: %w", err)
 	}
 
+	return waitForMQTTMatch(ctx, req, "shared client", messages, subscribeResult, func() error {
+		publish := client.Publish(req.Topic, req.QoS, false, req.Payload)
+		if !publish.WaitTimeout(mqttRemainingTimeout(ctx)) {
+			return fmt.Errorf("mqtt shared client republish timed out")
+		}
+		if err := publish.Error(); err != nil {
+			return fmt.Errorf("mqtt shared client republish: %w", err)
+		}
+		return nil
+	})
+}
+
+func waitForMQTTMatch(ctx context.Context, req mqttRoundTripRequest, clientMode string, messages <-chan []byte, subscribeResult string, republish func() error) error {
+	ticker := time.NewTicker(mqttRoundTripRepublishInterval(req.Timeout))
+	defer ticker.Stop()
+
 	var lastErr error
 	received := 0
+	republished := 0
 	for {
 		select {
 		case payload := <-messages:
@@ -330,13 +339,33 @@ func roundTripMQTTShared(req mqttRoundTripRequest) error {
 			} else {
 				lastErr = err
 			}
+		case <-ticker.C:
+			if err := republish(); err != nil {
+				lastErr = err
+			} else {
+				republished++
+			}
 		case <-ctx.Done():
 			if lastErr != nil {
-				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using shared client after receiving %d message(s); subscription %s: %w", req.Topic, received, subscribeResult, lastErr)
+				return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using %s after receiving %d message(s) and %d republish attempt(s); subscription %s: %w", req.Topic, clientMode, received, republished, subscribeResult, lastErr)
 			}
-			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using shared client without receiving messages; subscription %s", req.Topic, subscribeResult)
+			return fmt.Errorf("mqtt roundtrip expectation timed out on topic %q using %s without receiving messages after %d republish attempt(s); subscription %s", req.Topic, clientMode, republished, subscribeResult)
 		}
 	}
+}
+
+func mqttRoundTripRepublishInterval(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 5 * time.Second
+	}
+	interval := timeout / 3
+	if interval < 250*time.Millisecond {
+		return 250 * time.Millisecond
+	}
+	if interval > 5*time.Second {
+		return 5 * time.Second
+	}
+	return interval
 }
 
 func mqttSubscribeResult(topic string, token mqtt.Token) string {
