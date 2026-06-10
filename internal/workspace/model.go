@@ -133,11 +133,12 @@ type RabbitMQOperation struct {
 }
 
 type Matcher struct {
-	Path         string `yaml:"path"`
-	EqualsString string `yaml:"equalsString"`
-	EqualsNumber string `yaml:"equalsNumber"`
-	EqualsBool   *bool  `yaml:"equalsBool"`
-	EqualsNull   *bool  `yaml:"equalsNull"`
+	Path             string `yaml:"path"`
+	EqualsString     string `yaml:"equalsString"`
+	EqualsNumber     string `yaml:"equalsNumber"`
+	EqualsBool       *bool  `yaml:"equalsBool"`
+	EqualsNull       *bool  `yaml:"equalsNull"`
+	TimeNotOlderThan string `yaml:"timeNotOlderThan"`
 }
 
 type TargetBinding struct {

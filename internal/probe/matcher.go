@@ -8,14 +8,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Matcher struct {
-	Path         string `json:"path"`
-	EqualsString string `json:"equalsString,omitempty"`
-	EqualsNumber string `json:"equalsNumber,omitempty"`
-	EqualsBool   *bool  `json:"equalsBool,omitempty"`
-	EqualsNull   *bool  `json:"equalsNull,omitempty"`
+	Path             string `json:"path"`
+	EqualsString     string `json:"equalsString,omitempty"`
+	EqualsNumber     string `json:"equalsNumber,omitempty"`
+	EqualsBool       *bool  `json:"equalsBool,omitempty"`
+	EqualsNull       *bool  `json:"equalsNull,omitempty"`
+	TimeNotOlderThan string `json:"timeNotOlderThan,omitempty"`
 }
 
 func EvaluateMatchersFile(matchersPath, documentPath string) error {
@@ -79,6 +81,16 @@ func loadMatchers(path string) ([]Matcher, error) {
 		}
 		if matcher.EqualsNull != nil {
 			expectationCount++
+		}
+		if matcher.TimeNotOlderThan != "" {
+			expectationCount++
+			duration, err := time.ParseDuration(matcher.TimeNotOlderThan)
+			if err != nil {
+				return nil, fmt.Errorf("matcher[%d] timeNotOlderThan must be a duration: %w", i, err)
+			}
+			if duration <= 0 {
+				return nil, fmt.Errorf("matcher[%d] timeNotOlderThan must be positive", i)
+			}
 		}
 		if expectationCount != 1 {
 			return nil, fmt.Errorf("matcher[%d] must specify exactly one expectation", i)
@@ -151,6 +163,31 @@ func evaluateMatcher(matcher Matcher, value any) error {
 		}
 		if value != nil {
 			return fmt.Errorf("expected null, got %T", value)
+		}
+		return nil
+	}
+	if matcher.TimeNotOlderThan != "" {
+		actual, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("expected RFC3339 timestamp string, got %T", value)
+		}
+		timestamp, err := time.Parse(time.RFC3339Nano, actual)
+		if err != nil {
+			return fmt.Errorf("expected RFC3339 timestamp string: %w", err)
+		}
+		maxAge, err := time.ParseDuration(matcher.TimeNotOlderThan)
+		if err != nil {
+			return fmt.Errorf("timeNotOlderThan must be a duration: %w", err)
+		}
+		if maxAge <= 0 {
+			return fmt.Errorf("timeNotOlderThan must be positive")
+		}
+		now := time.Now()
+		if timestamp.After(now.Add(10 * time.Second)) {
+			return fmt.Errorf("timestamp %s is more than 10s in the future", timestamp.Format(time.RFC3339Nano))
+		}
+		if age := now.Sub(timestamp); age > maxAge {
+			return fmt.Errorf("timestamp %s is older than %s", timestamp.Format(time.RFC3339Nano), maxAge)
 		}
 		return nil
 	}

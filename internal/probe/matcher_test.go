@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEvaluateMatchersSupportsPrimitiveExpectations(t *testing.T) {
@@ -36,6 +37,30 @@ func TestEvaluateMatchersRejectsTypeCoercion(t *testing.T) {
 	err := EvaluateMatchers([]Matcher{{Path: "$.value", EqualsNumber: "42.5"}}, map[string]any{"value": "42.5"})
 	if err == nil || !strings.Contains(err.Error(), "expected number") {
 		t.Fatalf("expected number type error, got %v", err)
+	}
+}
+
+func TestEvaluateMatchersSupportsTimeNotOlderThan(t *testing.T) {
+	document := map[string]any{
+		"timestamp": time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
+	}
+	matchers := []Matcher{
+		{Path: "$.timestamp", TimeNotOlderThan: "5m"},
+	}
+
+	if err := EvaluateMatchers(matchers, document); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvaluateMatchersRejectsStaleTimestamp(t *testing.T) {
+	document := map[string]any{
+		"timestamp": time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339Nano),
+	}
+
+	err := EvaluateMatchers([]Matcher{{Path: "$.timestamp", TimeNotOlderThan: "5m"}}, document)
+	if err == nil || !strings.Contains(err.Error(), "older than 5m0s") {
+		t.Fatalf("expected stale timestamp error, got %v", err)
 	}
 }
 

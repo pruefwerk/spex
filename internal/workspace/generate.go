@@ -1450,20 +1450,22 @@ func renderStringSliceJSON(source []string, runID, correlationID string, params 
 
 func renderMatchersJSON(source []Matcher, runID, correlationID string, params map[string]string) string {
 	type renderedMatcher struct {
-		Path         string `json:"path"`
-		EqualsString string `json:"equalsString,omitempty"`
-		EqualsNumber string `json:"equalsNumber,omitempty"`
-		EqualsBool   *bool  `json:"equalsBool,omitempty"`
-		EqualsNull   *bool  `json:"equalsNull,omitempty"`
+		Path             string `json:"path"`
+		EqualsString     string `json:"equalsString,omitempty"`
+		EqualsNumber     string `json:"equalsNumber,omitempty"`
+		EqualsBool       *bool  `json:"equalsBool,omitempty"`
+		EqualsNull       *bool  `json:"equalsNull,omitempty"`
+		TimeNotOlderThan string `json:"timeNotOlderThan,omitempty"`
 	}
 	rendered := make([]renderedMatcher, 0, len(source))
 	for _, matcher := range source {
 		rendered = append(rendered, renderedMatcher{
-			Path:         matcher.Path,
-			EqualsString: renderTemplate(matcher.EqualsString, runID, correlationID, params),
-			EqualsNumber: renderTemplate(matcher.EqualsNumber, runID, correlationID, params),
-			EqualsBool:   matcher.EqualsBool,
-			EqualsNull:   matcher.EqualsNull,
+			Path:             matcher.Path,
+			EqualsString:     renderTemplate(matcher.EqualsString, runID, correlationID, params),
+			EqualsNumber:     renderTemplate(matcher.EqualsNumber, runID, correlationID, params),
+			EqualsBool:       matcher.EqualsBool,
+			EqualsNull:       matcher.EqualsNull,
+			TimeNotOlderThan: renderTemplate(matcher.TimeNotOlderThan, runID, correlationID, params),
 		})
 	}
 	content, err := json.MarshalIndent(rendered, "", "  ")

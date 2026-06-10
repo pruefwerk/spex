@@ -267,7 +267,8 @@
         "equalsString": { "type": "string" },
         "equalsNumber": { "type": "string" },
         "equalsBool": { "type": "boolean" },
-        "equalsNull": { "type": "boolean" }
+        "equalsNull": { "type": "boolean" },
+        "timeNotOlderThan": { "type": "string" }
       }
     }
   }

@@ -2387,6 +2387,26 @@ func TestLoadInputsRejectsInvalidMatcherPath(t *testing.T) {
 	}
 }
 
+func TestLoadInputsRejectsInvalidMatcherTimeNotOlderThan(t *testing.T) {
+	dir := t.TempDir()
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")
+	content, err := os.ReadFile(scenarioPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = []byte(strings.Replace(string(content), `          - path: $.correlationId
+            equalsString: reading-1`, `          - path: $.timestamp
+            timeNotOlderThan: soon`, 1))
+	if err := os.WriteFile(scenarioPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = LoadInputs(scenarioPath, bindingPath)
+	if err == nil || !strings.Contains(err.Error(), "timeNotOlderThan must be a duration") {
+		t.Fatalf("expected invalid timeNotOlderThan error, got %v", err)
+	}
+}
+
 func TestLoadInputsRejectsNonJSONPayloadTemplateContentType(t *testing.T) {
 	dir := t.TempDir()
 	scenarioPath, bindingPath := writeScenarioAndBinding(t, dir, "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")

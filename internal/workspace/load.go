@@ -1043,6 +1043,7 @@ func renderCatalogMatchers(matchers []Matcher, values map[string]string) []Match
 		matcher.Path = renderCatalogTemplate(matcher.Path, values)
 		matcher.EqualsString = renderCatalogTemplate(matcher.EqualsString, values)
 		matcher.EqualsNumber = renderCatalogTemplate(matcher.EqualsNumber, values)
+		matcher.TimeNotOlderThan = renderCatalogTemplate(matcher.TimeNotOlderThan, values)
 		out[i] = matcher
 	}
 	return out
@@ -2007,6 +2008,16 @@ func validateMatchers(field string, matchers []Matcher) error {
 				return fmt.Errorf("%s.equalsNull must be true when specified", item)
 			}
 		}
+		if matcher.TimeNotOlderThan != "" {
+			expectationCount++
+			duration, err := time.ParseDuration(matcher.TimeNotOlderThan)
+			if err != nil {
+				return fmt.Errorf("%s.timeNotOlderThan must be a duration: %w", item, err)
+			}
+			if duration <= 0 {
+				return fmt.Errorf("%s.timeNotOlderThan must be positive", item)
+			}
+		}
 		if expectationCount != 1 {
 			return fmt.Errorf("%s must specify exactly one expectation", item)
 		}
@@ -2199,9 +2210,10 @@ func validateScenarioTemplates(s Scenario) error {
 
 func validateMatcherTemplate(field string, matcher Matcher, params map[string]struct{}) error {
 	for suffix, value := range map[string]string{
-		".path":         matcher.Path,
-		".equalsString": matcher.EqualsString,
-		".equalsNumber": matcher.EqualsNumber,
+		".path":             matcher.Path,
+		".equalsString":     matcher.EqualsString,
+		".equalsNumber":     matcher.EqualsNumber,
+		".timeNotOlderThan": matcher.TimeNotOlderThan,
 	} {
 		if err := validateTemplateString(field+suffix, value, params); err != nil {
 			return err
