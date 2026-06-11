@@ -100,7 +100,7 @@ func TestUDPRunSendsDatagram(t *testing.T) {
 	}()
 
 	var stdout bytes.Buffer
-	if err := Run([]string{"udp", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{}); err != nil {
+	if err := Run([]string{"udp", "run", "--operation-file", operation, "--result-file", result, "--poll-interval", "10ms"}, &stdout, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	select {

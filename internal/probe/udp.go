@@ -17,6 +17,7 @@ func runUDPOperation(args []string, stdout io.Writer) error {
 	operationFile := fs.String("operation-file", "", "lowered operation JSON file")
 	resultFile := fs.String("result-file", "", "normalized result envelope path")
 	timeoutValue := fs.String("timeout", "", "timeout override")
+	pollIntervalValue := fs.String("poll-interval", "1s", "poll interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -43,6 +44,13 @@ func runUDPOperation(args []string, stdout io.Writer) error {
 	}
 	if timeout <= 0 {
 		return fmt.Errorf("--timeout must be positive")
+	}
+	pollInterval, err := time.ParseDuration(*pollIntervalValue)
+	if err != nil {
+		return fmt.Errorf("invalid --poll-interval: %w", err)
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("--poll-interval must be positive")
 	}
 	err = executeUDPLoweredOperation(operation, timeout)
 	envelope := probeResultEnvelope{
