@@ -33,9 +33,18 @@ type redpandaOffsetSnapshot struct {
 
 type redpandaClient interface {
 	Ping(ctx context.Context, req redpandaPingRequest) error
-	SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error)
-	Partitions(ctx context.Context, brokers []string, topic string) ([]int, error)
-	FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error)
+	SnapshotOffsets(ctx context.Context, req redpandaConnectionRequest, topics []string) (map[string]map[int]int64, error)
+	Partitions(ctx context.Context, req redpandaConnectionRequest, topic string) ([]int, error)
+	FindMatchingMessage(ctx context.Context, req redpandaConnectionRequest, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error)
+}
+
+type redpandaConnectionRequest struct {
+	Brokers          []string
+	SecurityProtocol string
+	SASLMechanism    string
+	Username         string
+	Password         string
+	CACertB64        string
 }
 
 type redpandaPingRequest struct {
@@ -153,10 +162,7 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 	if err := os.WriteFile(matchersFile, matchContent, 0o644); err != nil {
 		return nil, err
 	}
-	brokers, _ := operation.Binding.With["brokers"].(string)
-	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
-		brokers = brokersFromEnv
-	}
+	req := redpandaConnectionRequestFromOperation(operation)
 	topic, _ := operation.With["topic"].(string)
 	offsetsConfigMap, _ := operation.With["offsetsConfigMap"].(string)
 	namespace, _ := operation.With["namespace"].(string)
@@ -165,7 +171,7 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 	fromBeginning, _ := operation.With["fromBeginning"].(bool)
 	var offsets map[int]int64
 	if fromBeginning {
-		offsets, err = redpandaBeginningOffsets(brokers, topic, timeout)
+		offsets, err = redpandaBeginningOffsets(req, topic, timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -177,7 +183,7 @@ func executeRedpandaLoweredOperation(operation probeLoweredOperation, timeout, p
 		}
 		offsets = snapshot.Topics[topic]
 	}
-	matched, err := redpandaContains(brokers, topic, offsets, matchersFile, timeout, pollInterval)
+	matched, err := redpandaContains(req, topic, offsets, matchersFile, timeout, pollInterval)
 	if matched == nil || err != nil {
 		return nil, err
 	}
@@ -189,39 +195,48 @@ func redpandaBrokersUseRuntimeEnv(brokers string) bool {
 	return trimmed == "" || strings.HasPrefix(trimmed, "{{ ssm ")
 }
 
-func executeRedpandaPingLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+func redpandaConnectionRequestFromOperation(operation probeLoweredOperation) redpandaConnectionRequest {
 	brokers, _ := operation.Binding.With["brokers"].(string)
 	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
 		brokers = brokersFromEnv
 	}
-	topic, _ := operation.With["topic"].(string)
 	securityProtocol, _ := operation.Binding.With["securityProtocol"].(string)
 	saslMechanism, _ := operation.Binding.With["saslMechanism"].(string)
-	return redpandaKafka.Ping(ctx, redpandaPingRequest{
+	return redpandaConnectionRequest{
 		Brokers:          splitBrokers(brokers),
-		Topic:            topic,
 		SecurityProtocol: securityProtocol,
 		SASLMechanism:    saslMechanism,
 		Username:         os.Getenv("SPEX_REDPANDA_USERNAME"),
 		Password:         os.Getenv("SPEX_REDPANDA_PASSWORD"),
 		CACertB64:        os.Getenv("SPEX_REDPANDA_CA_CRT_B64"),
+	}
+}
+
+func executeRedpandaPingLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req := redpandaConnectionRequestFromOperation(operation)
+	topic, _ := operation.With["topic"].(string)
+	return redpandaKafka.Ping(ctx, redpandaPingRequest{
+		Brokers:          req.Brokers,
+		Topic:            topic,
+		SecurityProtocol: req.SecurityProtocol,
+		SASLMechanism:    req.SASLMechanism,
+		Username:         req.Username,
+		Password:         req.Password,
+		CACertB64:        req.CACertB64,
 	})
 }
 
 func executeRedpandaSnapshotLoweredOperation(operation probeLoweredOperation, timeout time.Duration) error {
-	brokers, _ := operation.Binding.With["brokers"].(string)
-	if brokersFromEnv := os.Getenv("SPEX_REDPANDA_BROKERS"); brokersFromEnv != "" && redpandaBrokersUseRuntimeEnv(brokers) {
-		brokers = brokersFromEnv
-	}
+	req := redpandaConnectionRequestFromOperation(operation)
 	topics := loweredStringSlice(operation.With["topics"])
 	offsetsConfigMap, _ := operation.With["offsetsConfigMap"].(string)
 	offsetsFile, _ := operation.With["offsetsFile"].(string)
 	namespace, _ := operation.With["namespace"].(string)
 	scenario, _ := operation.With["scenario"].(string)
 	runID, _ := operation.With["runId"].(string)
-	offsets, err := snapshotRedpandaOffsets(brokers, topics, timeout)
+	offsets, err := snapshotRedpandaOffsets(req, topics, timeout)
 	if err != nil {
 		return err
 	}
@@ -234,34 +249,32 @@ func executeRedpandaSnapshotLoweredOperation(operation probeLoweredOperation, ti
 	})
 }
 
-func snapshotRedpandaOffsets(brokersValue string, topics []string, timeout time.Duration) (map[string]map[int]int64, error) {
+func snapshotRedpandaOffsets(req redpandaConnectionRequest, topics []string, timeout time.Duration) (map[string]map[int]int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return redpandaKafka.SnapshotOffsets(ctx, splitBrokers(brokersValue), topics)
+	return redpandaKafka.SnapshotOffsets(ctx, req, topics)
 }
 
-func redpandaContains(brokersValue, topic string, offsets map[int]int64, matchersFile string, timeout, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
+func redpandaContains(req redpandaConnectionRequest, topic string, offsets map[int]int64, matchersFile string, timeout, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
 	if len(offsets) == 0 {
 		return nil, fmt.Errorf("offset snapshot does not contain topic %q", topic)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	brokers := splitBrokers(brokersValue)
-	partitions, err := redpandaKafka.Partitions(ctx, brokers, topic)
+	partitions, err := redpandaKafka.Partitions(ctx, req, topic)
 	if err != nil {
 		return nil, err
 	}
 	if err := validateRedpandaPartitionSet(topic, offsets, partitions); err != nil {
 		return nil, err
 	}
-	return redpandaKafka.FindMatchingMessage(ctx, brokers, topic, offsets, matchersFile, pollInterval)
+	return redpandaKafka.FindMatchingMessage(ctx, req, topic, offsets, matchersFile, pollInterval)
 }
 
-func redpandaBeginningOffsets(brokersValue, topic string, timeout time.Duration) (map[int]int64, error) {
+func redpandaBeginningOffsets(req redpandaConnectionRequest, topic string, timeout time.Duration) (map[int]int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	brokers := splitBrokers(brokersValue)
-	partitions, err := redpandaKafka.Partitions(ctx, brokers, topic)
+	partitions, err := redpandaKafka.Partitions(ctx, req, topic)
 	if err != nil {
 		return nil, err
 	}
@@ -272,9 +285,13 @@ func redpandaBeginningOffsets(brokersValue, topic string, timeout time.Duration)
 	return offsets, nil
 }
 
-func (kafkaRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error) {
-	if len(brokers) == 0 {
+func (kafkaRedpandaClient) SnapshotOffsets(ctx context.Context, req redpandaConnectionRequest, topics []string) (map[string]map[int]int64, error) {
+	if len(req.Brokers) == 0 {
 		return nil, fmt.Errorf("no Redpanda brokers configured")
+	}
+	dialer, err := redpandaDialer(req)
+	if err != nil {
+		return nil, err
 	}
 	out := make(map[string]map[int]int64, len(topics))
 	for _, topic := range topics {
@@ -282,13 +299,13 @@ func (kafkaRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string
 		if topic == "" {
 			continue
 		}
-		partitions, err := kafka.LookupPartitions(ctx, "tcp", brokers[0], topic)
+		partitions, err := dialer.LookupPartitions(ctx, "tcp", req.Brokers[0], topic)
 		if err != nil {
 			return nil, fmt.Errorf("lookup partitions for %q: %w", topic, err)
 		}
 		out[topic] = map[int]int64{}
 		for _, partition := range partitions {
-			conn, err := kafka.DialLeader(ctx, "tcp", brokers[0], topic, partition.ID)
+			conn, err := dialer.DialLeader(ctx, "tcp", req.Brokers[0], topic, partition.ID)
 			if err != nil {
 				return nil, fmt.Errorf("dial leader for %q partition %d: %w", topic, partition.ID, err)
 			}
@@ -310,7 +327,14 @@ func (kafkaRedpandaClient) Ping(ctx context.Context, req redpandaPingRequest) er
 	if len(req.Brokers) == 0 {
 		return fmt.Errorf("no Redpanda brokers configured")
 	}
-	dialer, err := redpandaDialer(req)
+	dialer, err := redpandaDialer(redpandaConnectionRequest{
+		Brokers:          req.Brokers,
+		SecurityProtocol: req.SecurityProtocol,
+		SASLMechanism:    req.SASLMechanism,
+		Username:         req.Username,
+		Password:         req.Password,
+		CACertB64:        req.CACertB64,
+	})
 	if err != nil {
 		return err
 	}
@@ -328,7 +352,7 @@ func (kafkaRedpandaClient) Ping(ctx context.Context, req redpandaPingRequest) er
 	return conn.Close()
 }
 
-func redpandaDialer(req redpandaPingRequest) (*kafka.Dialer, error) {
+func redpandaDialer(req redpandaConnectionRequest) (*kafka.Dialer, error) {
 	dialer := &kafka.Dialer{Timeout: 10 * time.Second}
 	if strings.EqualFold(req.SecurityProtocol, "SASL_SSL") {
 		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
@@ -353,7 +377,7 @@ func redpandaDialer(req redpandaPingRequest) (*kafka.Dialer, error) {
 	return dialer, nil
 }
 
-func redpandaSASLMechanism(req redpandaPingRequest) (sasl.Mechanism, error) {
+func redpandaSASLMechanism(req redpandaConnectionRequest) (sasl.Mechanism, error) {
 	if req.Username == "" || req.Password == "" {
 		return nil, fmt.Errorf("redpanda SASL username and password are required")
 	}
@@ -367,11 +391,15 @@ func redpandaSASLMechanism(req redpandaPingRequest) (sasl.Mechanism, error) {
 	}
 }
 
-func (kafkaRedpandaClient) Partitions(ctx context.Context, brokers []string, topic string) ([]int, error) {
-	if len(brokers) == 0 {
+func (kafkaRedpandaClient) Partitions(ctx context.Context, req redpandaConnectionRequest, topic string) ([]int, error) {
+	if len(req.Brokers) == 0 {
 		return nil, fmt.Errorf("no Redpanda brokers configured")
 	}
-	partitions, err := kafka.LookupPartitions(ctx, "tcp", brokers[0], topic)
+	dialer, err := redpandaDialer(req)
+	if err != nil {
+		return nil, err
+	}
+	partitions, err := dialer.LookupPartitions(ctx, "tcp", req.Brokers[0], topic)
 	if err != nil {
 		return nil, fmt.Errorf("lookup partitions for %q: %w", topic, err)
 	}
@@ -400,9 +428,13 @@ func validateRedpandaPartitionSet(topic string, offsets map[int]int64, partition
 	return nil
 }
 
-func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
+func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, req redpandaConnectionRequest, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	dialer, err := redpandaDialer(req)
+	if err != nil {
+		return nil, err
+	}
 
 	type scanResult struct {
 		partition int
@@ -412,7 +444,7 @@ func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []st
 	results := make(chan scanResult, len(offsets))
 	for partition, offset := range offsets {
 		go func(partition int, offset int64) {
-			message, err := scanRedpandaPartition(ctx, brokers, topic, partition, offset, matchersFile)
+			message, err := scanRedpandaPartition(ctx, dialer, req.Brokers, topic, partition, offset, matchersFile)
 			results <- scanResult{
 				partition: partition,
 				message:   message,
@@ -441,13 +473,14 @@ func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []st
 	return nil, fmt.Errorf("matching Redpanda event not found before timeout")
 }
 
-func scanPartition(ctx context.Context, brokers []string, topic string, partition int, offset int64, matchersFile string) (*redpandaMatchedMessage, error) {
+func scanPartition(ctx context.Context, dialer *kafka.Dialer, brokers []string, topic string, partition int, offset int64, matchersFile string) (*redpandaMatchedMessage, error) {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   brokers,
 		Topic:     topic,
 		Partition: partition,
 		MinBytes:  1,
 		MaxBytes:  10e6,
+		Dialer:    dialer,
 	})
 	defer reader.Close()
 	if err := reader.SetOffset(offset); err != nil {

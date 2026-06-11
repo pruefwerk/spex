@@ -446,7 +446,7 @@ func runRedpandaSnapshotOffsets(args []string, stdout io.Writer) error {
 	if timeout <= 0 {
 		return fmt.Errorf("--timeout must be positive")
 	}
-	offsets, err := snapshotRedpandaOffsets(*brokers, []string(topics), timeout)
+	offsets, err := snapshotRedpandaOffsets(redpandaConnectionRequest{Brokers: splitBrokers(*brokers)}, []string(topics), timeout)
 	if err != nil {
 		return emitFailure(stdout, "redpanda.snapshotOffsets", err)
 	}
@@ -578,8 +578,9 @@ func runRedpandaContains(args []string, stdout io.Writer) error {
 		return fmt.Errorf("--poll-interval must be positive")
 	}
 	var offsets map[int]int64
+	req := redpandaConnectionRequest{Brokers: splitBrokers(*brokers)}
 	if *fromBeginning {
-		offsets, err = redpandaBeginningOffsets(*brokers, *topic, timeout)
+		offsets, err = redpandaBeginningOffsets(req, *topic, timeout)
 		if err != nil {
 			return emitFailure(stdout, "redpanda.contains", err)
 		}
@@ -591,7 +592,7 @@ func runRedpandaContains(args []string, stdout io.Writer) error {
 		}
 		offsets = snapshot.Topics[*topic]
 	}
-	if _, err := redpandaContains(*brokers, *topic, offsets, *matchersFile, timeout, pollInterval); err != nil {
+	if _, err := redpandaContains(req, *topic, offsets, *matchersFile, timeout, pollInterval); err != nil {
 		return emitFailure(stdout, "redpanda.contains", err)
 	}
 	return emit(stdout, "redpanda.contains", "passed", "")

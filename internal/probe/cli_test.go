@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/segmentio/kafka-go"
 )
 
 func TestMQTTPublishStub(t *testing.T) {
@@ -508,6 +510,67 @@ func TestRedpandaRunContainsFromBeginningStartsAtZero(t *testing.T) {
 	}
 }
 
+func TestRedpandaRunContainsUsesBindingSecurity(t *testing.T) {
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "assert-secured-event",
+  "operationType": "redpanda.contains",
+  "provider": "redpanda",
+  "binding": {
+    "name": "redpanda.default",
+    "kind": "redpanda.connection",
+    "with": {
+      "brokers": "redpanda:9093",
+      "securityProtocol": "SASL_SSL",
+      "saslMechanism": "SCRAM-SHA-512"
+    }
+  },
+  "with": {
+    "topic": "normalized_metrics",
+    "fromBeginning": true,
+    "match": [
+      {"path":"$.origin.gateway","equalsString":"0200000100016E3F"}
+    ]
+  },
+  "timeout": "45s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeRedpandaClient{
+		partitions: []int{0},
+		containsMessage: &redpandaMatchedMessage{
+			Topic:     "normalized_metrics",
+			Partition: 0,
+			Offset:    7,
+			Value:     `{"origin":{"gateway":"0200000100016E3F"}}`,
+		},
+	}
+	withRedpandaClient(t, fake)
+	t.Setenv("SPEX_REDPANDA_USERNAME", "user")
+	t.Setenv("SPEX_REDPANDA_PASSWORD", "pass")
+	t.Setenv("SPEX_REDPANDA_CA_CRT_B64", "cert")
+
+	var stdout bytes.Buffer
+	err := Run([]string{"redpanda", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(fake.partitionsReq.Brokers, ","); got != "redpanda:9093" {
+		t.Fatalf("unexpected partitions brokers: %q", got)
+	}
+	want := redpandaConnectionRequest{
+		Brokers:          []string{"redpanda:9093"},
+		SecurityProtocol: "SASL_SSL",
+		SASLMechanism:    "SCRAM-SHA-512",
+		Username:         "user",
+		Password:         "pass",
+		CACertB64:        "cert",
+	}
+	if !reflect.DeepEqual(fake.containsReq, want) {
+		t.Fatalf("unexpected contains request: %#v", fake.containsReq)
+	}
+}
+
 func TestRedpandaSnapshotOffsetsRejectsInvalidTimeout(t *testing.T) {
 	withRedpandaClient(t, &fakeRedpandaClient{})
 	var stdout bytes.Buffer
@@ -542,7 +605,7 @@ func TestRedpandaContainsScansPartitionsConcurrently(t *testing.T) {
 	defer func() {
 		scanRedpandaPartition = previous
 	}()
-	scanRedpandaPartition = func(ctx context.Context, brokers []string, topic string, partition int, offset int64, matchersFile string) (*redpandaMatchedMessage, error) {
+	scanRedpandaPartition = func(ctx context.Context, dialer *kafka.Dialer, brokers []string, topic string, partition int, offset int64, matchersFile string) (*redpandaMatchedMessage, error) {
 		if partition == 0 {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -552,7 +615,7 @@ func TestRedpandaContainsScansPartitionsConcurrently(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	matched, err := kafkaRedpandaClient{}.FindMatchingMessage(ctx, []string{"redpanda:9092"}, "events", map[int]int64{0: 10, 1: 20}, "matchers.json", time.Millisecond)
+	matched, err := kafkaRedpandaClient{}.FindMatchingMessage(ctx, redpandaConnectionRequest{Brokers: []string{"redpanda:9092"}}, "events", map[int]int64{0: 10, 1: 20}, "matchers.json", time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1742,11 +1805,14 @@ type fakeRedpandaClient struct {
 	ping                 redpandaPingRequest
 	pingErr              error
 	snapshotBrokers      []string
+	snapshotReq          redpandaConnectionRequest
 	snapshotOffsets      map[string]map[int]int64
 	snapshotErr          error
 	snapshotDeadline     time.Time
+	partitionsReq        redpandaConnectionRequest
 	partitions           []int
 	partitionsErr        error
+	containsReq          redpandaConnectionRequest
 	containsTopic        string
 	containsOffsets      map[int]int64
 	containsMatchersFile string
@@ -1759,8 +1825,9 @@ func (f *fakeRedpandaClient) Ping(ctx context.Context, req redpandaPingRequest) 
 	return f.pingErr
 }
 
-func (f *fakeRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []string, topics []string) (map[string]map[int]int64, error) {
-	f.snapshotBrokers = brokers
+func (f *fakeRedpandaClient) SnapshotOffsets(ctx context.Context, req redpandaConnectionRequest, topics []string) (map[string]map[int]int64, error) {
+	f.snapshotReq = req
+	f.snapshotBrokers = req.Brokers
 	if deadline, ok := ctx.Deadline(); ok {
 		f.snapshotDeadline = deadline
 	}
@@ -1774,14 +1841,16 @@ func (f *fakeRedpandaClient) SnapshotOffsets(ctx context.Context, brokers []stri
 	return out, nil
 }
 
-func (f *fakeRedpandaClient) Partitions(ctx context.Context, brokers []string, topic string) ([]int, error) {
+func (f *fakeRedpandaClient) Partitions(ctx context.Context, req redpandaConnectionRequest, topic string) ([]int, error) {
+	f.partitionsReq = req
 	if f.partitions != nil || f.partitionsErr != nil {
 		return f.partitions, f.partitionsErr
 	}
 	return []int{0}, nil
 }
 
-func (f *fakeRedpandaClient) FindMatchingMessage(ctx context.Context, brokers []string, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
+func (f *fakeRedpandaClient) FindMatchingMessage(ctx context.Context, req redpandaConnectionRequest, topic string, offsets map[int]int64, matchersFile string, pollInterval time.Duration) (*redpandaMatchedMessage, error) {
+	f.containsReq = req
 	f.containsTopic = topic
 	f.containsOffsets = offsets
 	f.containsMatchersFile = matchersFile
