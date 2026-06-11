@@ -61,6 +61,9 @@ func builtInProviders() []Provider {
 			"redis.assertKeyExists",
 			"redis.assertValueEquals",
 		}),
+		builtInProvider("udp", "udp.endpoint", []string{
+			"udp.send",
+		}),
 	}
 }
 
@@ -186,6 +189,12 @@ func builtInInputSchema(operationType string) *JSONSchema {
 			"payload":            stringSchema(),
 			"correlationId":      stringSchema(),
 		})
+	case "udp.send":
+		return objectSchema([]string{"payload"}, map[string]JSONSchema{
+			"host":    stringSchema(),
+			"port":    stringSchema(),
+			"payload": stringSchema(),
+		})
 	case "rabbitmq.expect":
 		return objectSchema([]string{"queue", "correlationId", "match"}, map[string]JSONSchema{
 			"queue":         stringSchema(),
@@ -263,6 +272,8 @@ func builtInInputValidator(operationType string) OperationInputValidator {
 		return requireOperationInputStringFields("routingKey", "payload", "correlationId")
 	case "rabbitmq.expect":
 		return requireOperationInputFields("queue", "correlationId", "match")
+	case "udp.send":
+		return requireOperationInputStringFields("payload")
 	case "redis.get":
 		return requireOperationInputStringFields("key")
 	case "redis.assertKeyExists":

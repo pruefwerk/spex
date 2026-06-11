@@ -54,6 +54,68 @@ func TestMQTTPublishStub(t *testing.T) {
 	}
 }
 
+func TestUDPRunSendsDatagram(t *testing.T) {
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	port := listener.LocalAddr().(*net.UDPAddr).Port
+
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", fmt.Sprintf(`{
+  "operationId": "send-udp-network-analyser",
+  "operationType": "udp.send",
+  "provider": "udp",
+  "binding": {
+    "name": "udp.default",
+    "kind": "udp.endpoint",
+    "with": {
+      "host": "127.0.0.1",
+      "port": "%d"
+    }
+  },
+  "with": {
+    "payload": "{\"ok\":true}"
+  },
+  "timeout": "5s",
+  "dependsOn": []
+}`, port))
+	result := filepath.Join(dir, "result.json")
+
+	received := make(chan string, 1)
+	go func() {
+		buffer := make([]byte, 1024)
+		_ = listener.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, _, err := listener.ReadFromUDP(buffer)
+		if err != nil {
+			received <- "error: " + err.Error()
+			return
+		}
+		received <- string(buffer[:n])
+	}()
+
+	var stdout bytes.Buffer
+	if err := Run([]string{"udp", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-received:
+		if got != `{"ok":true}` {
+			t.Fatalf("unexpected datagram: %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for UDP datagram")
+	}
+	if !strings.Contains(stdout.String(), `"operationType":"udp.send"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+}
+
 func TestRunProviderDispatchesProviderCommand(t *testing.T) {
 	var stdout bytes.Buffer
 	err := RunProvider("redis", []string{"run"}, &stdout, &bytes.Buffer{})

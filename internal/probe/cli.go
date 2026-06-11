@@ -12,7 +12,7 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|influxdb|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|influxdb|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda|udp> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
@@ -49,6 +49,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runRedpandaContains(args[2:], stdout)
 	case "redpanda run":
 		return runRedpandaOperation(args[2:], stdout)
+	case "udp run":
+		return runUDPOperation(args[2:], stdout)
 	default:
 		return fmt.Errorf("unknown probe command %q %q", args[0], args[1])
 	}
@@ -684,6 +686,8 @@ func probeFailureClass(operation string, err error) string {
 		if strings.Contains(message, "not found before timeout") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") {
 			return "redpanda_match_timeout"
 		}
+	case "udp.send":
+		return "udp_send_failed"
 	case "graphql.expect":
 		if strings.Contains(message, "graphql response contains errors") {
 			return "graphql_response_error"
