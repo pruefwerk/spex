@@ -39,6 +39,9 @@ func builtInProviders() []Provider {
 			"redpanda.contains",
 			"redpanda.snapshotOffsets",
 		}),
+		builtInProvider("keycloak", "keycloak.realm", []string{
+			"keycloak.token",
+		}),
 		builtInProvider("graphql", "graphql.endpoint", []string{
 			"graphql.expect",
 		}),
@@ -150,6 +153,10 @@ func builtInInputSchema(operationType string) *JSONSchema {
 		return objectSchema(nil, map[string]JSONSchema{
 			"topic": stringSchema(),
 		})
+	case "keycloak.token":
+		return objectSchema(nil, map[string]JSONSchema{
+			"match": arraySchema(objectSchemaValue(nil, nil)),
+		})
 	case "graphql.expect":
 		return objectSchema([]string{"query", "variables", "match"}, map[string]JSONSchema{
 			"queryRef":  stringSchema(),
@@ -257,6 +264,8 @@ func builtInInputValidator(operationType string) OperationInputValidator {
 	case "redpanda.snapshotOffsets":
 		return requireOperationInputFields("topics")
 	case "redpanda.ping":
+		return requireOperationInputFields()
+	case "keycloak.token":
 		return requireOperationInputFields()
 	case "graphql.expect":
 		return requireOperationInputFields("query", "variables", "match")

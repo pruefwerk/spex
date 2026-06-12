@@ -1755,12 +1755,20 @@ func secretEnvEntries(in Inputs, args []string) []probeEnvEntry {
 		return entries
 	case len(args) >= 2 && args[0] == "graphql" && (args[1] == "expect" || args[1] == "run"):
 		if in.Binding.Spec.GraphQL.Auth.Type == "keycloakClientCredentials" {
-			return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.Auth.ClientSecretRef], map[string]string{
+			clientSecretRef := in.Binding.Spec.GraphQL.Auth.ClientSecretRef
+			if in.Binding.Spec.GraphQL.Auth.KeycloakRef != "" {
+				clientSecretRef = in.Binding.Spec.Keycloak.CredentialsRef
+			}
+			return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[clientSecretRef], map[string]string{
 				"SPEX_GRAPHQL_KEYCLOAK_CLIENT_SECRET": "clientSecret",
 			})
 		}
 		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.GraphQL.CredentialsRef], map[string]string{
 			"SPEX_GRAPHQL_TOKEN": "token",
+		})
+	case len(args) >= 2 && args[0] == "keycloak" && args[1] == "run":
+		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "keycloak.realm")], map[string]string{
+			"SPEX_KEYCLOAK_CLIENT_SECRET": "clientSecret",
 		})
 	case len(args) >= 2 && args[0] == "influxdb" && args[1] == "run":
 		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "influxdb.connection")], map[string]string{
@@ -1939,6 +1947,9 @@ func stringFromAnyPath(values map[string]any, path string) (string, bool) {
 }
 
 func genericCredentialsRef(binding TargetBinding, kind string) string {
+	if kind == "keycloak.realm" && binding.Spec.Keycloak.CredentialsRef != "" {
+		return binding.Spec.Keycloak.CredentialsRef
+	}
 	for _, generic := range binding.Spec.Bindings {
 		if generic.Kind != kind {
 			continue

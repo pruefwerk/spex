@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -130,6 +131,81 @@ func TestRunProviderRequiresProvider(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "provider is required") {
 		t.Fatalf("expected provider required error, got %v", err)
 	}
+}
+
+func TestKeycloakRunFetchesClientCredentialsToken(t *testing.T) {
+	var tokenRequestBody string
+	token := unsignedJWT(map[string]any{
+		"iss": "http://keycloak.test/realms/dev",
+		"azp": "spex",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/realms/dev/protocol/openid-connect/token" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		tokenRequestBody = r.Form.Encode()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"access_token":%q,"token_type":"Bearer","expires_in":300,"scope":"openid profile"}`, token)))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", fmt.Sprintf(`{
+  "operationId": "fetch-keycloak-token",
+  "operationType": "keycloak.token",
+  "provider": "keycloak",
+  "binding": {
+    "name": "keycloak.default",
+    "kind": "keycloak.realm",
+    "with": {
+      "tokenURL": "%s/realms/dev/protocol/openid-connect/token",
+      "clientID": "spex",
+      "scopes": ["openid", "profile"]
+    }
+  },
+  "with": {
+    "match": [
+      {"path": "$.tokenType", "equalsString": "Bearer"},
+      {"path": "$.hasAccessToken", "equalsBool": true},
+      {"path": "$.claims.azp", "equalsString": "spex"}
+    ]
+  },
+  "timeout": "5s",
+  "dependsOn": []
+}`, server.URL))
+	result := filepath.Join(dir, "result.json")
+	t.Setenv("SPEX_KEYCLOAK_CLIENT_SECRET", "secret")
+
+	var stdout bytes.Buffer
+	if err := Run([]string{"keycloak", "run", "--operation-file", operation, "--result-file", result}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"client_id=spex",
+		"client_secret=secret",
+		"grant_type=client_credentials",
+		"scope=openid+profile",
+	} {
+		if !strings.Contains(tokenRequestBody, want) {
+			t.Fatalf("token request missing %q in %q", want, tokenRequestBody)
+		}
+	}
+	if strings.Contains(stdout.String(), token) {
+		t.Fatalf("stdout leaked access token: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"operationType":"keycloak.token"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+}
+
+func unsignedJWT(claims map[string]any) string {
+	header := map[string]any{"alg": "none", "typ": "JWT"}
+	headerJSON, _ := json.Marshal(header)
+	claimsJSON, _ := json.Marshal(claims)
+	return base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON) + "."
 }
 
 func TestMQTTPublishUsesBrokerURLFromEnvironment(t *testing.T) {

@@ -2,7 +2,7 @@
 
 spex lets testers describe acceptance scenarios once and generate an inspectable KUTTL workspace from that intent.
 
-It is built for Kubernetes-based integration testing where the test author should not have to hand-write KUTTL steps, probe Jobs, ConfigMaps, or report mapping. The current implementation focuses on provider-shaped operations for MQTT, Redpanda, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, optional Keycloak client-credentials auth, and Kind-backed local proof runs.
+It is built for Kubernetes-based integration testing where the test author should not have to hand-write KUTTL steps, probe Jobs, ConfigMaps, or report mapping. The current implementation focuses on provider-shaped operations for MQTT, Redpanda, Keycloak, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, and Kind-backed local proof runs.
 
 Status: production-candidate. Use it for controlled pilots and promotion pipelines that run the validation, security, artifact-scan, and live proof gates described in the production-readiness and live-proof docs.
 
@@ -12,7 +12,7 @@ This diagram shows how spex turns acceptance-test intent into a repeatable Kuber
 
 Test authors describe the scenario once, using YAML, Gherkin features, GraphQL queries, suite configuration, and optional shared catalogs. Platform and test-infrastructure owners keep the environment-specific pieces separate: target bindings, integration profiles, secrets, and runtime settings.
 
-spex connects both sides. It validates the suite, explains what will run, resolves the required references, and compiles an inspectable KUTTL workspace. From that workspace, spex generates the probe jobs and assertions that exercise the target system through provider capabilities such as MQTT, Redpanda, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, and optional Keycloak authentication.
+spex connects both sides. It validates the suite, explains what will run, resolves the required references, and compiles an inspectable KUTTL workspace. From that workspace, spex generates the probe jobs and assertions that exercise the target system through provider capabilities such as MQTT, Redpanda, Keycloak, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, and InfluxDB.
 
 Teams can stop after compilation and review the generated workspace, or they can run the suite against kind or another Kubernetes target. During a live proof run, spex executes the generated probes, observes the system under test, collects results, and cleans up runtime resources.
 
@@ -721,7 +721,7 @@ spec:
 
 For SSM-backed MQTT broker URLs, the generated setup step materializes the value as a labeled Kubernetes Secret. Probe jobs read the URL from that Secret at runtime instead of rendering it into the generated Job arguments.
 
-GraphQL auth supports either a pre-existing bearer token Secret or Keycloak client-credentials. For Keycloak, the binding supplies the token endpoint and client ID, while the client secret comes from a Kubernetes Secret.
+Keycloak is a built-in provider through `keycloak.token` and `spec.keycloak`. GraphQL auth can either use a pre-existing bearer token Secret or reuse the first-class Keycloak binding with `graphql.auth.type: keycloakClientCredentials` and `graphql.auth.keycloakRef: keycloak`.
 
 MongoDB assertions use `mongodb.expect` operations. The scenario supplies a collection, a JSON filter, a correlation ID, and matchers. The binding supplies `spec.mongodb.uri`, `spec.mongodb.database`, and optionally `spec.mongodb.credentialsRef` with `username` and `password` keys. Filters and matchers support the same `${scenarioRunId}`, `${correlationId}`, and `${param.<name>}` template values used by the other assertion operations.
 

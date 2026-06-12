@@ -12,7 +12,7 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|influxdb|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda|udp> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|influxdb|keycloak|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda|udp> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
@@ -21,6 +21,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runGraphQLOperation(args[2:], stdout)
 	case "influxdb run":
 		return runInfluxDBOperation(args[2:], stdout)
+	case "keycloak run":
+		return runKeycloakOperation(args[2:], stdout)
 	case "mongodb expect":
 		return runMongoDBExpect(args[2:], stdout)
 	case "mongodb run":
@@ -695,6 +697,8 @@ func probeFailureClass(operation string, err error) string {
 		if strings.Contains(message, "graphql expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") || strings.Contains(message, "context deadline exceeded") {
 			return "graphql_match_timeout"
 		}
+	case "keycloak.token":
+		return "keycloak_token_failed"
 	}
 	return "probe_job_failed"
 }

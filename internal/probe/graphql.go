@@ -28,6 +28,13 @@ type graphQLAuth struct {
 	KeycloakScopes   []string
 }
 
+type keycloakTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope"`
+}
+
 func runGraphQLOperation(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("graphql run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -220,6 +227,14 @@ func graphQLBearerToken(ctx context.Context, auth graphQLAuth) (string, error) {
 }
 
 func fetchKeycloakToken(ctx context.Context, tokenURL, clientID, clientSecret string, scopes []string) (string, error) {
+	decoded, err := fetchKeycloakTokenResponse(ctx, tokenURL, clientID, clientSecret, scopes)
+	if err != nil {
+		return "", err
+	}
+	return decoded.AccessToken, nil
+}
+
+func fetchKeycloakTokenResponse(ctx context.Context, tokenURL, clientID, clientSecret string, scopes []string) (keycloakTokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", clientID)
@@ -229,32 +244,29 @@ func fetchKeycloakToken(ctx context.Context, tokenURL, clientID, clientSecret st
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", err
+		return keycloakTokenResponse{}, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := graphQLHTTPClient.Do(request)
 	if err != nil {
-		return "", err
+		return keycloakTokenResponse{}, err
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return "", err
+		return keycloakTokenResponse{}, err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", fmt.Errorf("keycloak token endpoint returned HTTP %d: %s", response.StatusCode, string(body))
+		return keycloakTokenResponse{}, fmt.Errorf("keycloak token endpoint returned HTTP %d: %s", response.StatusCode, string(body))
 	}
-	var decoded struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-	}
+	var decoded keycloakTokenResponse
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return "", fmt.Errorf("keycloak token response: %w", err)
+		return keycloakTokenResponse{}, fmt.Errorf("keycloak token response: %w", err)
 	}
 	if decoded.AccessToken == "" {
-		return "", fmt.Errorf("keycloak token response missing access_token")
+		return keycloakTokenResponse{}, fmt.Errorf("keycloak token response missing access_token")
 	}
-	return decoded.AccessToken, nil
+	return decoded, nil
 }
 
 func postGraphQL(ctx context.Context, endpoint, query string, variables map[string]any, token string) (any, error) {

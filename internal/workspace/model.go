@@ -158,6 +158,7 @@ type BindingSpec struct {
 	Bindings           []GenericBinding  `yaml:"bindings"`
 	MQTT               MQTTBinding       `yaml:"mqtt"`
 	Redpanda           RedpandaBinding   `yaml:"redpanda"`
+	Keycloak           KeycloakBinding   `yaml:"keycloak"`
 	GraphQL            GraphQLBinding    `yaml:"graphql"`
 	MongoDB            MongoDBBinding    `yaml:"mongodb"`
 	PostgreSQL         PostgreSQLBinding `yaml:"postgresql"`
@@ -204,6 +205,13 @@ type RedpandaTopic struct {
 	AllowCompacted      bool   `yaml:"allowCompacted"`
 }
 
+type KeycloakBinding struct {
+	TokenURL       string   `yaml:"tokenURL"`
+	ClientID       string   `yaml:"clientID"`
+	CredentialsRef string   `yaml:"credentialsRef"`
+	Scopes         []string `yaml:"scopes"`
+}
+
 type GraphQLBinding struct {
 	Endpoint       string      `yaml:"endpoint"`
 	CredentialsRef string      `yaml:"credentialsRef"`
@@ -232,6 +240,7 @@ type GraphQLAuth struct {
 	TokenURL        string   `yaml:"tokenURL"`
 	ClientID        string   `yaml:"clientID"`
 	ClientSecretRef string   `yaml:"clientSecretRef"`
+	KeycloakRef     string   `yaml:"keycloakRef"`
 	Scopes          []string `yaml:"scopes"`
 }
 

@@ -141,6 +141,7 @@ func TestBuiltInProviderRegistryResolvesCurrentOperationTypes(t *testing.T) {
 		"mqtt.roundtrip",
 		"redpanda.contains",
 		"redpanda.snapshotOffsets",
+		"keycloak.token",
 		"graphql.expect",
 		"influxdb.expect",
 		"mongodb.expect",
@@ -150,6 +151,7 @@ func TestBuiltInProviderRegistryResolvesCurrentOperationTypes(t *testing.T) {
 		"redis.get",
 		"redis.assertKeyExists",
 		"redis.assertValueEquals",
+		"udp.send",
 	} {
 		capability, ok := registry.ResolveCapability(operationType)
 		if !ok {

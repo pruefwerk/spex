@@ -37,12 +37,14 @@ spec:
         name: ingestion.normalized-readings
         allowOffsetSnapshot: true
         allowCompacted: false
+  keycloak:
+    tokenURL: http://keycloak.identity.svc.cluster.local/realms/dev/protocol/openid-connect/token
+    clientID: spex
+    credentialsRef: keycloak-client
+    scopes:
+      - openid
   graphql:
     endpoint: http://graphql-api.application.svc.cluster.local/graphql
     auth:
       type: keycloakClientCredentials
-      tokenURL: http://keycloak.identity.svc.cluster.local/realms/dev/protocol/openid-connect/token
-      clientID: spex
-      clientSecretRef: keycloak-client
-      scopes:
-        - openid
+      keycloakRef: keycloak

@@ -211,10 +211,16 @@ func legacyGenericBindings(binding TargetBinding) []GenericBinding {
 			"caCertRef":        binding.Spec.Redpanda.CACertRef,
 			"topics":           binding.Spec.Redpanda.Topics,
 		}),
+		legacyGenericBinding("keycloak", "keycloak.realm", map[string]any{
+			"tokenURL":       binding.Spec.Keycloak.TokenURL,
+			"clientID":       binding.Spec.Keycloak.ClientID,
+			"credentialsRef": binding.Spec.Keycloak.CredentialsRef,
+			"scopes":         append([]string(nil), binding.Spec.Keycloak.Scopes...),
+		}),
 		legacyGenericBinding("graphql", "graphql.endpoint", map[string]any{
 			"endpoint":       binding.Spec.GraphQL.Endpoint,
 			"credentialsRef": binding.Spec.GraphQL.CredentialsRef,
-			"auth":           legacyGraphQLAuth(binding.Spec.GraphQL.Auth),
+			"auth":           legacyGraphQLAuth(binding.Spec),
 		}),
 		legacyGenericBinding("mongodb", "mongodb.connection", map[string]any{
 			"deployment":     binding.Spec.MongoDB.Deployment,
@@ -233,12 +239,27 @@ func legacyGenericBindings(binding TargetBinding) []GenericBinding {
 	}
 }
 
-func legacyGraphQLAuth(auth GraphQLAuth) map[string]any {
+func legacyGraphQLAuth(binding BindingSpec) map[string]any {
+	auth := binding.GraphQL.Auth
+	if auth.Type == "keycloakClientCredentials" && auth.KeycloakRef != "" {
+		ref := auth.KeycloakRef
+		if ref == legacyBindingName("keycloak") || ref == "keycloak" {
+			return map[string]any{
+				"type":            auth.Type,
+				"tokenURL":        binding.Keycloak.TokenURL,
+				"clientID":        binding.Keycloak.ClientID,
+				"clientSecretRef": binding.Keycloak.CredentialsRef,
+				"keycloakRef":     ref,
+				"scopes":          append([]string(nil), binding.Keycloak.Scopes...),
+			}
+		}
+	}
 	return map[string]any{
 		"type":            auth.Type,
 		"tokenURL":        auth.TokenURL,
 		"clientID":        auth.ClientID,
 		"clientSecretRef": auth.ClientSecretRef,
+		"keycloakRef":     auth.KeycloakRef,
 		"scopes":          append([]string(nil), auth.Scopes...),
 	}
 }

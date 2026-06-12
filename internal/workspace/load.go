@@ -2532,7 +2532,42 @@ func validateBinding(b TargetBinding) error {
 	if err := validateGenericBindings(b); err != nil {
 		return err
 	}
+	if err := validateKeycloakBinding(b); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateKeycloakBinding(b TargetBinding) error {
+	if !hasKeycloakBinding(b) {
+		return nil
+	}
+	return validateConfiguredKeycloakBinding(b)
+}
+
+func validateConfiguredKeycloakBinding(b TargetBinding) error {
+	if b.Spec.Keycloak.TokenURL == "" {
+		return fmt.Errorf("spec.keycloak.tokenURL is required")
+	}
+	if err := validateURLNoCredentials("spec.keycloak.tokenURL", b.Spec.Keycloak.TokenURL, []string{"http", "https"}); err != nil {
+		return err
+	}
+	if b.Spec.Keycloak.ClientID == "" {
+		return fmt.Errorf("spec.keycloak.clientID is required")
+	}
+	if strings.ContainsAny(b.Spec.Keycloak.ClientID, " \t\r\n\x00") {
+		return fmt.Errorf("spec.keycloak.clientID must not contain whitespace or control characters")
+	}
+	for i, scope := range b.Spec.Keycloak.Scopes {
+		if scope == "" || strings.ContainsAny(scope, " \t\r\n\x00") {
+			return fmt.Errorf("spec.keycloak.scopes[%d] must be non-empty and must not contain whitespace or control characters", i)
+		}
+	}
+	return validateRequiredSecretRef(b, "spec.keycloak.credentialsRef", b.Spec.Keycloak.CredentialsRef, []string{"clientSecret"})
+}
+
+func hasKeycloakBinding(b TargetBinding) bool {
+	return b.Spec.Keycloak.TokenURL != "" || b.Spec.Keycloak.ClientID != "" || b.Spec.Keycloak.CredentialsRef != "" || len(b.Spec.Keycloak.Scopes) > 0
 }
 
 func validateGenericBindings(b TargetBinding) error {
@@ -2585,6 +2620,22 @@ func validateGenericBindings(b TargetBinding) error {
 			if err := validateSecretRef(b, field+".with.credentialsRef", credentialsRef, []string{"username", "password"}); err != nil {
 				return err
 			}
+		case "keycloak.realm":
+			tokenURL, _ := binding.With["tokenURL"].(string)
+			if err := validateURLNoCredentials(field+".with.tokenURL", tokenURL, []string{"http", "https"}); err != nil {
+				return err
+			}
+			clientID, _ := binding.With["clientID"].(string)
+			if clientID == "" {
+				return fmt.Errorf("%s.with.clientID is required", field)
+			}
+			if strings.ContainsAny(clientID, " \t\r\n\x00") {
+				return fmt.Errorf("%s.with.clientID must not contain whitespace or control characters", field)
+			}
+			credentialsRef, _ := binding.With["credentialsRef"].(string)
+			if err := validateSecretRef(b, field+".with.credentialsRef", credentialsRef, []string{"clientSecret"}); err != nil {
+				return err
+			}
 		default:
 			if !operationTypePattern.MatchString(binding.Kind) {
 				return fmt.Errorf("%s.kind must be provider-qualified", field)
@@ -2603,6 +2654,16 @@ func validateGraphQLAuth(b TargetBinding) error {
 	case "bearerToken":
 		return validateRequiredSecretRef(b, "spec.graphql.credentialsRef", b.Spec.GraphQL.CredentialsRef, []string{"token"})
 	case "keycloakClientCredentials":
+		if b.Spec.GraphQL.Auth.KeycloakRef != "" {
+			ref := b.Spec.GraphQL.Auth.KeycloakRef
+			if ref != "keycloak" && ref != legacyBindingName("keycloak") {
+				return fmt.Errorf("binding_validation_failure: spec.graphql.auth.keycloakRef must be keycloak or keycloak.default")
+			}
+			if !hasKeycloakBinding(b) {
+				return fmt.Errorf("binding_validation_failure: spec.keycloak is required when spec.graphql.auth.keycloakRef is set")
+			}
+			return validateConfiguredKeycloakBinding(b)
+		}
 		if b.Spec.GraphQL.Auth.TokenURL == "" {
 			return fmt.Errorf("binding_validation_failure: spec.graphql.auth.tokenURL is required for keycloakClientCredentials")
 		}
@@ -2751,9 +2812,27 @@ func validateProviderSpecificOperationBinding(op Operation, binding GenericBindi
 	switch op.Type {
 	case "influxdb.expect":
 		return validateInfluxDBOperationBinding(op, binding)
+	case "keycloak.token":
+		return validateKeycloakOperationBinding(op, binding)
 	default:
 		return nil
 	}
+}
+
+func validateKeycloakOperationBinding(op Operation, binding GenericBinding) error {
+	tokenURL, _ := binding.With["tokenURL"].(string)
+	if tokenURL == "" {
+		return fmt.Errorf("binding_validation_failure: operation %q binding %q tokenURL is required", op.ID, binding.Name)
+	}
+	clientID, _ := binding.With["clientID"].(string)
+	if clientID == "" {
+		return fmt.Errorf("binding_validation_failure: operation %q binding %q clientID is required", op.ID, binding.Name)
+	}
+	credentialsRef, _ := binding.With["credentialsRef"].(string)
+	if credentialsRef == "" {
+		return fmt.Errorf("binding_validation_failure: operation %q binding %q credentialsRef is required", op.ID, binding.Name)
+	}
+	return nil
 }
 
 func validateInfluxDBOperationBinding(op Operation, binding GenericBinding) error {
