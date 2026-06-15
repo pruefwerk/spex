@@ -237,7 +237,7 @@ func readMongoDBFilter(path string) (bson.M, error) {
 }
 
 func evaluateMongoDBDocument(matchersFile string, document bson.M) error {
-	extended, err := bson.MarshalExtJSON(document, true, false)
+	extended, err := bson.MarshalExtJSON(document, false, false)
 	if err != nil {
 		return err
 	}

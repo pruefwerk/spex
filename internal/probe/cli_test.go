@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestMQTTPublishStub(t *testing.T) {
@@ -1145,6 +1146,24 @@ func TestMongoDBRunWritesNormalizedFailureEnvelope(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"status":"failed"`) {
 		t.Fatalf("stdout missing failed envelope: %s", stdout.String())
+	}
+}
+
+func TestMongoDBDocumentEvaluationTreatsBSONNumbersAsJSONNumbers(t *testing.T) {
+	dir := t.TempDir()
+	matchers := writeTestFile(t, dir, "matchers.json", `[
+{"path":"$.serial","equalsNumber":"30720"},
+{"path":"$.batteryVoltage","equalsNumber":"3.336"},
+{"path":"$.gateway","equalsString":"0200000100007D10"}
+]`)
+	document := bson.M{
+		"serial":         int32(30720),
+		"batteryVoltage": 3.336,
+		"gateway":        "0200000100007D10",
+	}
+
+	if err := evaluateMongoDBDocument(matchers, document); err != nil {
+		t.Fatal(err)
 	}
 }
 
