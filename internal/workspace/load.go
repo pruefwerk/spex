@@ -1669,6 +1669,83 @@ func validateScenarioWithProviders(s Scenario, scenarioPath string, providers []
 			if err := validateCorrelationMatchers("operation "+op.ID+" rabbitmq.match", op.RabbitMQ.CorrelationID, op.RabbitMQ.Match, true); err != nil {
 				return err
 			}
+		case "hawkbit.publishGatewayMessage":
+			if err := validateOperationBlocks(op, "hawkbit"); err != nil {
+				return err
+			}
+			if op.Hawkbit == nil {
+				return fmt.Errorf("operation %q missing hawkbit block", op.ID)
+			}
+			if strings.TrimSpace(op.Hawkbit.GatewayID) == "" {
+				return fmt.Errorf("operation %q hawkbit.gatewayId is required", op.ID)
+			}
+			if strings.TrimSpace(op.Hawkbit.MessageType) == "" {
+				return fmt.Errorf("operation %q hawkbit.messageType is required", op.ID)
+			}
+			if strings.TrimSpace(op.Hawkbit.ProtocolVersion) == "" && strings.TrimSpace(op.Hawkbit.TopicStyle) == "" {
+				return fmt.Errorf("operation %q hawkbit.protocolVersion or hawkbit.topicStyle is required", op.ID)
+			}
+			if op.Hawkbit.ProtocolVersion != "" {
+				if _, ok := normalizeHawkbitProtocolVersion(op.Hawkbit.ProtocolVersion); !ok {
+					return fmt.Errorf("operation %q hawkbit.protocolVersion must be one of legacy, old, v1, new, v2, current, latest", op.ID)
+				}
+			}
+			if op.Hawkbit.TopicStyle != "" {
+				if _, ok := normalizeHawkbitProtocolVersion(op.Hawkbit.TopicStyle); !ok {
+					return fmt.Errorf("operation %q hawkbit.topicStyle must be one of legacy, old, v1, new, v2, current, latest", op.ID)
+				}
+			}
+			if op.Hawkbit.ProtocolVersion != "" && op.Hawkbit.TopicStyle != "" {
+				versionStyle, _ := normalizeHawkbitProtocolVersion(op.Hawkbit.ProtocolVersion)
+				topicStyle, _ := normalizeHawkbitProtocolVersion(op.Hawkbit.TopicStyle)
+				if versionStyle != topicStyle {
+					return fmt.Errorf("operation %q hawkbit.protocolVersion and hawkbit.topicStyle resolve to different topic formats", op.ID)
+				}
+			}
+			if op.Hawkbit.Direction != "" && op.Hawkbit.Direction != "gw2dm" && op.Hawkbit.Direction != "dm2gw" {
+				return fmt.Errorf("operation %q hawkbit.direction must be gw2dm or dm2gw", op.ID)
+			}
+			if op.Hawkbit.PayloadTemplateRef == "" {
+				return fmt.Errorf("operation %q hawkbit.payloadTemplateRef is required", op.ID)
+			}
+			template, ok := s.Spec.PayloadTemplates[op.Hawkbit.PayloadTemplateRef]
+			if !ok {
+				return fmt.Errorf("operation %q references unknown payload template %q", op.ID, op.Hawkbit.PayloadTemplateRef)
+			}
+			if strings.TrimSpace(op.Hawkbit.CorrelationID) == "" {
+				return fmt.Errorf("operation %q hawkbit.correlationId is required", op.ID)
+			}
+			if err := validateCorrelationID("operation "+op.ID+" hawkbit.correlationId", op.Hawkbit.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateMQTTPayloadCorrelation(op.ID, template.Body); err != nil {
+				return err
+			}
+		case "hawkbit.expectGatewayMessage":
+			if err := validateOperationBlocks(op, "hawkbit"); err != nil {
+				return err
+			}
+			if op.Hawkbit == nil {
+				return fmt.Errorf("operation %q missing hawkbit block", op.ID)
+			}
+			if strings.TrimSpace(op.Hawkbit.Queue) == "" {
+				return fmt.Errorf("operation %q hawkbit.queue is required", op.ID)
+			}
+			if strings.TrimSpace(op.Hawkbit.CorrelationID) == "" {
+				return fmt.Errorf("operation %q hawkbit.correlationId is required", op.ID)
+			}
+			if err := validateOptionalTimeout("operation "+op.ID+" hawkbit.timeout", op.Hawkbit.Timeout); err != nil {
+				return err
+			}
+			if err := validateMatchers("operation "+op.ID+" hawkbit.match", op.Hawkbit.Match); err != nil {
+				return err
+			}
+			if err := validateCorrelationID("operation "+op.ID+" hawkbit.correlationId", op.Hawkbit.CorrelationID); err != nil {
+				return err
+			}
+			if err := validateCorrelationMatchers("operation "+op.ID+" hawkbit.match", op.Hawkbit.CorrelationID, op.Hawkbit.Match, true); err != nil {
+				return err
+			}
 		case "redpanda.contains":
 			if err := validateOperationBlocks(op, "redpanda"); err != nil {
 				return err
@@ -1853,6 +1930,9 @@ func validateOperationBlocks(op Operation, expected string) error {
 	}
 	if expected != "rabbitmq" && op.RabbitMQ != nil {
 		return fmt.Errorf("operation %q of type %q must not contain rabbitmq block", op.ID, op.Type)
+	}
+	if expected != "hawkbit" && op.Hawkbit != nil {
+		return fmt.Errorf("operation %q of type %q must not contain hawkbit block", op.ID, op.Type)
 	}
 	return nil
 }
@@ -2203,6 +2283,26 @@ func validateScenarioTemplates(s Scenario) error {
 					}
 				}
 			}
+		case "hawkbit.publishGatewayMessage":
+			if op.Hawkbit != nil {
+				if err := validateTemplateString("operation "+op.ID+" hawkbit.gatewayId", op.Hawkbit.GatewayID, params); err != nil {
+					return err
+				}
+				if err := validateTemplateString("operation "+op.ID+" hawkbit.messageType", op.Hawkbit.MessageType, params); err != nil {
+					return err
+				}
+			}
+		case "hawkbit.expectGatewayMessage":
+			if op.Hawkbit != nil {
+				if err := validateTemplateString("operation "+op.ID+" hawkbit.queue", op.Hawkbit.Queue, params); err != nil {
+					return err
+				}
+				for i, matcher := range op.Hawkbit.Match {
+					if err := validateMatcherTemplate("operation "+op.ID+" hawkbit.match["+fmt.Sprint(i)+"]", matcher, params); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
 	return nil
@@ -2465,6 +2565,30 @@ func validateBinding(b TargetBinding) error {
 			return err
 		}
 	}
+	if hasHawkbitBinding(b) {
+		if b.Spec.Hawkbit.BaseURL == "" {
+			return fmt.Errorf("spec.hawkbit.baseURL is required")
+		}
+		if !isSSMReference(b.Spec.Hawkbit.BaseURL) {
+			if err := validateURLNoCredentials("spec.hawkbit.baseURL", b.Spec.Hawkbit.BaseURL, []string{"http", "https"}); err != nil {
+				return err
+			}
+		}
+		switch b.Spec.Hawkbit.ServerVersion {
+		case "", "legacy", "0.3.0M9", "latest", "current":
+		default:
+			return fmt.Errorf("spec.hawkbit.serverVersion must be legacy, 0.3.0M9, latest, or current")
+		}
+		if err := validateSecretRef(b, "spec.hawkbit.credentialsRef", b.Spec.Hawkbit.CredentialsRef, []string{"username", "password"}); err != nil {
+			return err
+		}
+		if err := validateSecretRef(b, "spec.hawkbit.targetTokenRef", b.Spec.Hawkbit.TargetTokenRef, []string{"token"}); err != nil {
+			return err
+		}
+		if err := validateSecretRef(b, "spec.hawkbit.gatewayTokenRef", b.Spec.Hawkbit.GatewayTokenRef, []string{"token"}); err != nil {
+			return err
+		}
+	}
 	if err := validateURLNoCredentials("spec.rabbitmq.uri", b.Spec.RabbitMQ.URI, []string{"amqp", "amqps"}); err != nil {
 		return err
 	}
@@ -2543,6 +2667,10 @@ func validateKeycloakBinding(b TargetBinding) error {
 		return nil
 	}
 	return validateConfiguredKeycloakBinding(b)
+}
+
+func hasHawkbitBinding(b TargetBinding) bool {
+	return b.Spec.Hawkbit.BaseURL != "" || b.Spec.Hawkbit.ServerVersion != "" || b.Spec.Hawkbit.CredentialsRef != "" || b.Spec.Hawkbit.TargetTokenRef != "" || b.Spec.Hawkbit.GatewayTokenRef != ""
 }
 
 func validateConfiguredKeycloakBinding(b TargetBinding) error {
@@ -2762,6 +2890,19 @@ func validateScenarioBindingWithProviders(s Scenario, b TargetBinding, providers
 		if op.Type == "rabbitmq.publish" || op.Type == "rabbitmq.expect" {
 			if b.Spec.RabbitMQ.URI == "" {
 				return fmt.Errorf("binding_validation_failure: spec.rabbitmq.uri is required because operation %q uses %s", op.ID, op.Type)
+			}
+		}
+		if op.Type == "hawkbit.publishGatewayMessage" || op.Type == "hawkbit.expectGatewayMessage" {
+			if b.Spec.MQTT.BrokerURL == "" {
+				return fmt.Errorf("binding_validation_failure: spec.mqtt.brokerURL is required because operation %q uses %s", op.ID, op.Type)
+			}
+			if b.Spec.RabbitMQ.URI == "" {
+				return fmt.Errorf("binding_validation_failure: spec.rabbitmq.uri is required because operation %q uses %s", op.ID, op.Type)
+			}
+		}
+		if op.Type == "hawkbit.managementGet" || op.Type == "hawkbit.managementPost" || op.Type == "hawkbit.directDeviceGet" {
+			if b.Spec.Hawkbit.BaseURL == "" {
+				return fmt.Errorf("binding_validation_failure: spec.hawkbit.baseURL is required because operation %q uses %s", op.ID, op.Type)
 			}
 		}
 		if err := validateGenericOperationBinding(op, b, registry); err != nil {

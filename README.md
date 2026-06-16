@@ -431,7 +431,7 @@ operations:
           equalsString: reading-1
 ```
 
-Provider operations always use a fully qualified `type` such as `redis.assertValueEquals` or `influxdb.expect`. The `with` object is validated by the provider capability schema, then lowered into one operation file for the probe container. The probe writes one normalized result envelope that spex validates and includes in reports.
+Provider operations always use a fully qualified `type` such as `redis.assertValueEquals`, `influxdb.expect`, or `hawkbit.publishGatewayMessage`. The `with` object is validated by the provider capability schema, then lowered into one operation file for the probe container. The probe writes one normalized result envelope that spex validates and includes in reports.
 
 Generic bindings keep target configuration separate from scenario intent:
 
@@ -466,6 +466,8 @@ with:
 ```
 
 See `examples/providers/influxdb/influxdb-reading-exists.yaml`, `examples/bindings/influxdb-local.yaml`, and `examples/suites/influxdb-local.example.yaml`.
+
+Hawkbit gateway bridge operations use the existing MQTT and RabbitMQ binding sections and expose `hawkbit.publishGatewayMessage` plus `hawkbit.expectGatewayMessage` for gateway-message forwarding tests. Use `protocolVersion: legacy`/`v1`/`old` for the `/gw-.../dm/hawkbit/...` topic layout, or `protocolVersion: v2`/`new`/`current` for the `gateway/.../hawkbit/...` layout.
 
 ## Integration Proof
 

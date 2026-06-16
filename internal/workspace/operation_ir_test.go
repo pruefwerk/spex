@@ -55,6 +55,136 @@ func TestNormalizeLegacyOperationsMapsTypedPostgreSQLOperation(t *testing.T) {
 	}
 }
 
+func TestLowerOperationsMapsTypedHawkbitOperation(t *testing.T) {
+	registry, err := NewBuiltInProviderRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := Inputs{
+		ScenarioName: "hawkbit-smoke",
+		RunID:        "run-123",
+		Scenario: Scenario{
+			Spec: ScenarioSpec{
+				PayloadTemplates: map[string]PayloadTemplate{
+					"status": {
+						Body: `{"scenarioRunId":"${scenarioRunId}","correlationId":"${correlationId}"}`,
+					},
+				},
+				Operations: []Operation{
+					{
+						ID:   "publish-status",
+						Type: "hawkbit.publishGatewayMessage",
+						Hawkbit: &HawkbitOperation{
+							GatewayID:          "CDEF",
+							MessageType:        "UPDATE_ACTION_STATUS",
+							ProtocolVersion:    "legacy",
+							PayloadTemplateRef: "status",
+							CorrelationID:      "status-1",
+							Timeout:            "10s",
+						},
+					},
+				},
+			},
+		},
+		Binding: TargetBinding{
+			Spec: BindingSpec{
+				MQTT: MQTTBinding{
+					BrokerURL:      "tcp://emqx.default.svc:1883",
+					ClientIDPrefix: "spex-hawkbit",
+					CredentialsRef: "mqtt-credentials",
+				},
+				RabbitMQ: RabbitMQBinding{
+					URI:            "amqp://rabbitmq.default.svc:5672",
+					CredentialsRef: "rabbitmq-credentials",
+				},
+			},
+		},
+	}
+
+	lowered, err := LowerOperations(inputs, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lowered) != 1 {
+		t.Fatalf("expected one lowered operation, got %d", len(lowered))
+	}
+	operation := lowered[0]
+	if operation.Provider != "hawkbit" || operation.OperationType != "hawkbit.publishGatewayMessage" {
+		t.Fatalf("unexpected lowered operation identity: %#v", operation)
+	}
+	if operation.Binding.Kind != "hawkbit.gatewayBridge" {
+		t.Fatalf("unexpected binding kind: %#v", operation.Binding)
+	}
+	if operation.Binding.With["mqttBrokerURL"] != "tcp://emqx.default.svc:1883" || operation.Binding.With["rabbitmqURI"] != "amqp://rabbitmq.default.svc:5672" {
+		t.Fatalf("binding did not include MQTT and RabbitMQ endpoints: %#v", operation.Binding.With)
+	}
+	if operation.With["gatewayId"] != "CDEF" || operation.With["messageType"] != "UPDATE_ACTION_STATUS" || operation.With["topicStyle"] != "old" || operation.With["protocolVersion"] != "legacy" {
+		t.Fatalf("hawkbit fields not lowered: %#v", operation.With)
+	}
+	payload, _ := operation.With["payload"].(string)
+	if !strings.Contains(payload, `"scenarioRunId": "run-123"`) || !strings.Contains(payload, `"correlationId": "status-1"`) {
+		t.Fatalf("payload was not rendered with correlation values: %q", payload)
+	}
+	if _, exists := operation.With["direction"]; exists {
+		t.Fatalf("empty optional direction should not be lowered: %#v", operation.With)
+	}
+	if operation.Timeout != "10s" {
+		t.Fatalf("unexpected timeout: %q", operation.Timeout)
+	}
+}
+
+func TestLowerOperationsMapsHawkbitServerOperation(t *testing.T) {
+	registry, err := NewBuiltInProviderRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := Inputs{
+		ScenarioName: "hawkbit-server-smoke",
+		RunID:        "run-123",
+		Scenario: Scenario{
+			Spec: ScenarioSpec{
+				Operations: []Operation{
+					{
+						ID:   "create-target",
+						Type: "hawkbit.managementPost",
+						With: map[string]any{
+							"resource": "targets",
+							"payload":  `[{"controllerId":"0123456789ABCDEF"}]`,
+						},
+					},
+				},
+			},
+		},
+		Binding: TargetBinding{
+			Spec: BindingSpec{
+				Hawkbit: HawkbitBinding{
+					BaseURL:        "http://hawkbit.default.svc:8080",
+					ServerVersion:  "0.3.0M9",
+					CredentialsRef: "hawkbit-credentials",
+				},
+			},
+		},
+	}
+
+	lowered, err := LowerOperations(inputs, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lowered) != 1 {
+		t.Fatalf("expected one lowered operation, got %d", len(lowered))
+	}
+	operation := lowered[0]
+	if operation.Provider != "hawkbit" || operation.OperationType != "hawkbit.managementPost" {
+		t.Fatalf("unexpected lowered operation identity: %#v", operation)
+	}
+	if operation.Binding.Name != "hawkbit.server" || operation.Binding.Kind != "hawkbit.updateServer" {
+		t.Fatalf("unexpected binding: %#v", operation.Binding)
+	}
+	if operation.Binding.With["baseURL"] != "http://hawkbit.default.svc:8080" || operation.Binding.With["serverVersion"] != "0.3.0M9" {
+		t.Fatalf("hawkbit server binding not lowered: %#v", operation.Binding.With)
+	}
+}
+
 func TestLowerOperationResolvesProviderAndBinding(t *testing.T) {
 	registry, err := NewBuiltInProviderRegistry()
 	if err != nil {

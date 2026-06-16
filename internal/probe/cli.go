@@ -12,13 +12,15 @@ import (
 
 func Run(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: spex-probe <graphql|influxdb|keycloak|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda|udp> <subcommand>")
+		return fmt.Errorf("usage: spex-probe <graphql|hawkbit|influxdb|keycloak|mongodb|mqtt|postgresql|rabbitmq|redis|redpanda|udp> <subcommand>")
 	}
 	switch args[0] + " " + args[1] {
 	case "graphql expect":
 		return runGraphQLExpect(args[2:], stdout)
 	case "graphql run":
 		return runGraphQLOperation(args[2:], stdout)
+	case "hawkbit run":
+		return runHawkbitOperation(args[2:], stdout)
 	case "influxdb run":
 		return runInfluxDBOperation(args[2:], stdout)
 	case "keycloak run":
@@ -679,6 +681,15 @@ func probeFailureClass(operation string, err error) string {
 			return "rabbitmq_match_timeout"
 		}
 		return "rabbitmq_expect_failed"
+	case "hawkbit.publishGatewayMessage":
+		return "hawkbit_publish_failed"
+	case "hawkbit.expectGatewayMessage":
+		if strings.Contains(message, "rabbitmq expectation timed out") || strings.Contains(message, "timed out") || strings.Contains(message, "timeout") || strings.Contains(message, "context deadline exceeded") {
+			return "hawkbit_match_timeout"
+		}
+		return "hawkbit_expect_failed"
+	case "hawkbit.managementGet", "hawkbit.managementPost", "hawkbit.directDeviceGet":
+		return "hawkbit_server_request_failed"
 	case "redpanda.snapshotOffsets":
 		return "redpanda_offset_snapshot_failed"
 	case "redpanda.contains":

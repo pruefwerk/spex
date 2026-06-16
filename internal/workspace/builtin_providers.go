@@ -59,6 +59,7 @@ func builtInProviders() []Provider {
 			"rabbitmq.publish",
 			"rabbitmq.expect",
 		}),
+		hawkbitBuiltInProvider(),
 		builtInProvider("redis", "redis.connection", []string{
 			"redis.get",
 			"redis.assertKeyExists",
@@ -68,6 +69,38 @@ func builtInProviders() []Provider {
 			"udp.send",
 		}),
 	}
+}
+
+func hawkbitBuiltInProvider() Provider {
+	provider := Provider{
+		Name: "hawkbit",
+		BindingSchemas: []BindingSchema{
+			{Kind: "hawkbit.updateServer"},
+			{Kind: "hawkbit.gatewayBridge"},
+		},
+	}
+	for operationType, bindingKind := range map[string]string{
+		"hawkbit.managementGet":         "hawkbit.updateServer",
+		"hawkbit.managementPost":        "hawkbit.updateServer",
+		"hawkbit.directDeviceGet":       "hawkbit.updateServer",
+		"hawkbit.publishGatewayMessage": "hawkbit.gatewayBridge",
+		"hawkbit.expectGatewayMessage":  "hawkbit.gatewayBridge",
+	} {
+		provider.Capabilities = append(provider.Capabilities, Capability{
+			Type:         operationType,
+			InputSchema:  SchemaRef{Name: operationType + ".input", Schema: builtInInputSchema(operationType)},
+			ResultSchema: SchemaRef{Name: operationType + ".result", Schema: builtInResultSchema(operationType)},
+			BindingKind:  bindingKind,
+			Probe: ProbeInvocationSpec{
+				Image:   "spex-probe:dev",
+				Command: []string{"hawkbit", "run"},
+				Input:   ProbeIO{Mode: "operationFile", Path: "/spex/input/operation.json"},
+				Output:  ProbeIO{Path: "/spex/output/result.json"},
+			},
+			Validate: builtInInputValidator(operationType),
+		})
+	}
+	return provider
 }
 
 func builtInProvider(name, bindingKind string, operationTypes []string) Provider {
@@ -208,6 +241,47 @@ func builtInInputSchema(operationType string) *JSONSchema {
 			"correlationId": stringSchema(),
 			"match":         arraySchema(objectSchemaValue(nil, nil)),
 		})
+	case "hawkbit.managementGet":
+		return objectSchema([]string{"resource"}, map[string]JSONSchema{
+			"resource":       stringSchema(),
+			"expectedStatus": {Type: "integer"},
+			"match":          arraySchema(objectSchemaValue(nil, nil)),
+		})
+	case "hawkbit.managementPost":
+		return objectSchema([]string{"resource", "payload"}, map[string]JSONSchema{
+			"resource":       stringSchema(),
+			"payload":        stringSchema(),
+			"expectedStatus": {Type: "integer"},
+			"contentType":    stringSchema(),
+			"match":          arraySchema(objectSchemaValue(nil, nil)),
+		})
+	case "hawkbit.directDeviceGet":
+		return objectSchema([]string{"controllerId"}, map[string]JSONSchema{
+			"tenant":         stringSchema(),
+			"controllerId":   stringSchema(),
+			"tokenType":      {Type: "string", Enum: []string{"", "target", "gateway"}},
+			"expectedStatus": {Type: "integer"},
+			"match":          arraySchema(objectSchemaValue(nil, nil)),
+		})
+	case "hawkbit.publishGatewayMessage":
+		return objectSchema([]string{"gatewayId", "messageType", "payload", "correlationId"}, map[string]JSONSchema{
+			"gatewayId":          stringSchema(),
+			"messageType":        stringSchema(),
+			"protocolVersion":    {Type: "string", Enum: []string{"legacy", "old", "v1", "new", "v2", "current", "latest"}},
+			"topicStyle":         {Type: "string", Enum: []string{"legacy", "old", "v1", "new", "v2", "current", "latest"}},
+			"direction":          {Type: "string", Enum: []string{"gw2dm", "dm2gw"}},
+			"payloadTemplateRef": stringSchema(),
+			"payload":            stringSchema(),
+			"correlationId":      stringSchema(),
+			"clientId":           stringSchema(),
+		})
+	case "hawkbit.expectGatewayMessage":
+		return objectSchema([]string{"queue", "correlationId", "match"}, map[string]JSONSchema{
+			"queue":         stringSchema(),
+			"messageType":   stringSchema(),
+			"correlationId": stringSchema(),
+			"match":         arraySchema(objectSchemaValue(nil, nil)),
+		})
 	default:
 		return nil
 	}
@@ -280,6 +354,16 @@ func builtInInputValidator(operationType string) OperationInputValidator {
 	case "rabbitmq.publish":
 		return requireOperationInputStringFields("routingKey", "payload", "correlationId")
 	case "rabbitmq.expect":
+		return requireOperationInputFields("queue", "correlationId", "match")
+	case "hawkbit.managementGet":
+		return requireOperationInputStringFields("resource")
+	case "hawkbit.managementPost":
+		return requireOperationInputStringFields("resource", "payload")
+	case "hawkbit.directDeviceGet":
+		return requireOperationInputStringFields("controllerId")
+	case "hawkbit.publishGatewayMessage":
+		return validateHawkbitPublishInput
+	case "hawkbit.expectGatewayMessage":
 		return requireOperationInputFields("queue", "correlationId", "match")
 	case "udp.send":
 		return requireOperationInputStringFields("payload")

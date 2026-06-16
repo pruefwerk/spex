@@ -130,7 +130,7 @@
         "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
         "type": {
           "anyOf": [
-            { "enum": ["mqtt.publish", "redpanda.ping", "redpanda.contains", "graphql.expect", "mongodb.ping", "mongodb.expect", "postgresql.expect", "rabbitmq.publish", "rabbitmq.expect", "udp.send"] },
+            { "enum": ["mqtt.publish", "redpanda.ping", "redpanda.contains", "graphql.expect", "mongodb.ping", "mongodb.expect", "postgresql.expect", "rabbitmq.publish", "rabbitmq.expect", "hawkbit.managementGet", "hawkbit.managementPost", "hawkbit.directDeviceGet", "hawkbit.publishGatewayMessage", "hawkbit.expectGatewayMessage", "udp.send"] },
             { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9_.-]*$" }
           ]
         },
@@ -150,7 +150,8 @@
         "graphql": { "$ref": "#/$defs/graphqlExpectation" },
         "mongodb": { "$ref": "#/$defs/mongodbExpectation" },
         "postgresql": { "$ref": "#/$defs/postgresqlExpectation" },
-        "rabbitmq": { "$ref": "#/$defs/rabbitmqOperation" }
+        "rabbitmq": { "$ref": "#/$defs/rabbitmqOperation" },
+        "hawkbit": { "$ref": "#/$defs/hawkbitOperation" }
       }
     },
     "mqttPublish": {
@@ -247,6 +248,26 @@
       "properties": {
         "exchange": { "type": "string" },
         "routingKey": { "type": "string", "minLength": 1 },
+        "queue": { "type": "string", "minLength": 1 },
+        "payloadTemplateRef": { "type": "string", "minLength": 1 },
+        "correlationId": { "type": "string", "minLength": 1 },
+        "timeout": { "type": "string" },
+        "match": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/matcher" }
+        }
+      }
+    },
+    "hawkbitOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gatewayId": { "type": "string", "minLength": 1 },
+        "messageType": { "type": "string", "minLength": 1 },
+        "protocolVersion": { "enum": ["legacy", "old", "v1", "new", "v2", "current", "latest"] },
+        "topicStyle": { "enum": ["legacy", "old", "v1", "new", "v2", "current", "latest"] },
+        "direction": { "enum": ["gw2dm", "dm2gw"] },
         "queue": { "type": "string", "minLength": 1 },
         "payloadTemplateRef": { "type": "string", "minLength": 1 },
         "correlationId": { "type": "string", "minLength": 1 },

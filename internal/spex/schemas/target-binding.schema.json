@@ -56,6 +56,22 @@
             "credentialsRef": { "type": "string", "minLength": 1 }
           }
         },
+        "hawkbit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseURL"],
+          "properties": {
+            "baseURL": { "type": "string", "minLength": 1 },
+            "serverVersion": { "enum": ["", "legacy", "0.3.0M9", "latest", "current"] },
+            "tenant": { "type": "string", "minLength": 1 },
+            "credentialsRef": { "type": "string", "minLength": 1 },
+            "targetTokenRef": { "type": "string", "minLength": 1 },
+            "gatewayTokenRef": { "type": "string", "minLength": 1 },
+            "contentType": { "type": "string", "minLength": 1 },
+            "managementApiPath": { "type": "string", "minLength": 1 },
+            "ddiApiPath": { "type": "string", "minLength": 1 }
+          }
+        },
         "rabbitmq": {
           "type": "object",
           "additionalProperties": false,

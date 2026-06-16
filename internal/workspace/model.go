@@ -78,6 +78,7 @@ type Operation struct {
 	MongoDB   *MongoDBExpectation    `yaml:"mongodb"`
 	Postgres  *PostgreSQLExpectation `yaml:"postgresql"`
 	RabbitMQ  *RabbitMQOperation     `yaml:"rabbitmq"`
+	Hawkbit   *HawkbitOperation      `yaml:"hawkbit"`
 }
 
 type MQTTPublish struct {
@@ -132,6 +133,19 @@ type RabbitMQOperation struct {
 	Match              []Matcher `yaml:"match"`
 }
 
+type HawkbitOperation struct {
+	GatewayID          string    `yaml:"gatewayId"`
+	MessageType        string    `yaml:"messageType"`
+	ProtocolVersion    string    `yaml:"protocolVersion"`
+	TopicStyle         string    `yaml:"topicStyle"`
+	Direction          string    `yaml:"direction"`
+	Queue              string    `yaml:"queue"`
+	PayloadTemplateRef string    `yaml:"payloadTemplateRef"`
+	CorrelationID      string    `yaml:"correlationId"`
+	Timeout            string    `yaml:"timeout"`
+	Match              []Matcher `yaml:"match"`
+}
+
 type Matcher struct {
 	Path             string `yaml:"path"`
 	EqualsString     string `yaml:"equalsString"`
@@ -163,6 +177,7 @@ type BindingSpec struct {
 	MongoDB            MongoDBBinding    `yaml:"mongodb"`
 	PostgreSQL         PostgreSQLBinding `yaml:"postgresql"`
 	RabbitMQ           RabbitMQBinding   `yaml:"rabbitmq"`
+	Hawkbit            HawkbitBinding    `yaml:"hawkbit"`
 }
 
 type RBAC struct {
@@ -188,6 +203,18 @@ type MQTTBinding struct {
 	BrokerURL      string `yaml:"brokerURL"`
 	ClientIDPrefix string `yaml:"clientIdPrefix"`
 	CredentialsRef string `yaml:"credentialsRef"`
+}
+
+type HawkbitBinding struct {
+	BaseURL           string `yaml:"baseURL"`
+	ServerVersion     string `yaml:"serverVersion"`
+	Tenant            string `yaml:"tenant"`
+	CredentialsRef    string `yaml:"credentialsRef"`
+	TargetTokenRef    string `yaml:"targetTokenRef"`
+	GatewayTokenRef   string `yaml:"gatewayTokenRef"`
+	ContentType       string `yaml:"contentType"`
+	ManagementAPIPath string `yaml:"managementApiPath"`
+	DDIAPIPath        string `yaml:"ddiApiPath"`
 }
 
 type RedpandaBinding struct {

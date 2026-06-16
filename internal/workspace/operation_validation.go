@@ -214,6 +214,37 @@ func requireOperationInputStringFields(fields ...string) OperationInputValidator
 	}
 }
 
+func validateHawkbitPublishInput(input map[string]any) error {
+	if err := requireOperationInputStringFields("gatewayId", "messageType", "payload", "correlationId")(input); err != nil {
+		return err
+	}
+	if style, _ := input["topicStyle"].(string); style != "" {
+		if _, ok := normalizeHawkbitProtocolVersion(style); !ok {
+			return fmt.Errorf("with.topicStyle must be one of legacy, old, v1, new, v2, current, latest")
+		}
+		return nil
+	}
+	version, _ := input["protocolVersion"].(string)
+	if version == "" {
+		return fmt.Errorf("with.protocolVersion or with.topicStyle is required")
+	}
+	if _, ok := normalizeHawkbitProtocolVersion(version); !ok {
+		return fmt.Errorf("with.protocolVersion must be one of legacy, old, v1, new, v2, current, latest")
+	}
+	return nil
+}
+
+func normalizeHawkbitProtocolVersion(value string) (string, bool) {
+	switch strings.ToLower(value) {
+	case "legacy", "old", "v1":
+		return "old", true
+	case "new", "v2", "current", "latest":
+		return "new", true
+	default:
+		return "", false
+	}
+}
+
 func isEmptyOperationInputValue(value any) bool {
 	if value == nil {
 		return true

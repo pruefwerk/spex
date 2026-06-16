@@ -3,6 +3,7 @@ package workspace
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 const bindingRefKey = "bindingRef"
@@ -22,6 +23,9 @@ func NormalizeLegacyOperations(in Inputs) []GenericOperation {
 		}
 		if _, ok := generic.With[bindingRefKey]; !ok {
 			generic.With[bindingRefKey] = legacyBindingName(providerNameForOperationType(op.Type))
+			if strings.HasPrefix(op.Type, "hawkbit.management") || strings.HasPrefix(op.Type, "hawkbit.directDevice") {
+				generic.With[bindingRefKey] = "hawkbit.server"
+			}
 		}
 		switch op.Type {
 		case "mqtt.publish", "mqtt.roundtrip":
@@ -86,10 +90,50 @@ func NormalizeLegacyOperations(in Inputs) []GenericOperation {
 				}
 				generic.With["match"] = decodeJSONArray(renderMatchersJSON(op.RabbitMQ.Match, in.RunID, op.RabbitMQ.CorrelationID, resolvedParameters(in)))
 			}
+		case "hawkbit.publishGatewayMessage", "hawkbit.expectGatewayMessage":
+			if op.Hawkbit != nil {
+				generic.With["correlationId"] = op.Hawkbit.CorrelationID
+				switch op.Type {
+				case "hawkbit.publishGatewayMessage":
+					generic.With["gatewayId"] = renderTemplate(op.Hawkbit.GatewayID, in.RunID, op.Hawkbit.CorrelationID, resolvedParameters(in))
+					generic.With["messageType"] = renderTemplate(op.Hawkbit.MessageType, in.RunID, op.Hawkbit.CorrelationID, resolvedParameters(in))
+					if op.Hawkbit.ProtocolVersion != "" {
+						generic.With["protocolVersion"] = op.Hawkbit.ProtocolVersion
+					}
+					generic.With["topicStyle"] = hawkbitTopicStyle(op.Hawkbit)
+					if op.Hawkbit.Direction != "" {
+						generic.With["direction"] = op.Hawkbit.Direction
+					}
+					if op.Hawkbit.PayloadTemplateRef != "" {
+						generic.With["payloadTemplateRef"] = op.Hawkbit.PayloadTemplateRef
+					}
+					generic.With["clientId"] = legacyHawkbitClientID(in, op)
+					if op.Hawkbit.PayloadTemplateRef != "" {
+						template := in.Scenario.Spec.PayloadTemplates[op.Hawkbit.PayloadTemplateRef]
+						generic.With["payload"] = renderJSONTemplate(template.Body, in.RunID, op.Hawkbit.CorrelationID, resolvedParameters(in))
+					}
+				case "hawkbit.expectGatewayMessage":
+					generic.With["messageType"] = renderTemplate(op.Hawkbit.MessageType, in.RunID, op.Hawkbit.CorrelationID, resolvedParameters(in))
+					generic.With["queue"] = renderTemplate(op.Hawkbit.Queue, in.RunID, op.Hawkbit.CorrelationID, resolvedParameters(in))
+					generic.With["match"] = decodeJSONArray(renderMatchersJSON(op.Hawkbit.Match, in.RunID, op.Hawkbit.CorrelationID, resolvedParameters(in)))
+				}
+			}
 		}
 		out = append(out, generic)
 	}
 	return out
+}
+
+func hawkbitTopicStyle(op *HawkbitOperation) string {
+	if op == nil {
+		return ""
+	}
+	if op.ProtocolVersion != "" {
+		style, _ := normalizeHawkbitProtocolVersion(op.ProtocolVersion)
+		return style
+	}
+	style, _ := normalizeHawkbitProtocolVersion(op.TopicStyle)
+	return style
 }
 
 func decodeJSONMap(content string) map[string]any {
@@ -236,6 +280,28 @@ func legacyGenericBindings(binding TargetBinding) []GenericBinding {
 			"uri":            binding.Spec.RabbitMQ.URI,
 			"credentialsRef": binding.Spec.RabbitMQ.CredentialsRef,
 		}),
+		legacyGenericBinding("hawkbit", "hawkbit.gatewayBridge", map[string]any{
+			"mqttBrokerURL":          binding.Spec.MQTT.BrokerURL,
+			"mqttClientIDPrefix":     binding.Spec.MQTT.ClientIDPrefix,
+			"mqttCredentialsRef":     binding.Spec.MQTT.CredentialsRef,
+			"rabbitmqURI":            binding.Spec.RabbitMQ.URI,
+			"rabbitmqCredentialsRef": binding.Spec.RabbitMQ.CredentialsRef,
+		}),
+		{
+			Name: "hawkbit.server",
+			Kind: "hawkbit.updateServer",
+			With: map[string]any{
+				"baseURL":           binding.Spec.Hawkbit.BaseURL,
+				"serverVersion":     binding.Spec.Hawkbit.ServerVersion,
+				"tenant":            binding.Spec.Hawkbit.Tenant,
+				"credentialsRef":    binding.Spec.Hawkbit.CredentialsRef,
+				"targetTokenRef":    binding.Spec.Hawkbit.TargetTokenRef,
+				"gatewayTokenRef":   binding.Spec.Hawkbit.GatewayTokenRef,
+				"contentType":       binding.Spec.Hawkbit.ContentType,
+				"managementApiPath": binding.Spec.Hawkbit.ManagementAPIPath,
+				"ddiApiPath":        binding.Spec.Hawkbit.DDIAPIPath,
+			},
+		},
 	}
 }
 
@@ -280,6 +346,14 @@ func legacyMQTTClientID(in Inputs, op Operation) string {
 	return DNSLabel(prefix + "-" + in.ScenarioName + "-" + in.RunID + "-" + op.ID)
 }
 
+func legacyHawkbitClientID(in Inputs, op Operation) string {
+	prefix := in.Binding.Spec.MQTT.ClientIDPrefix
+	if prefix == "" {
+		prefix = "spex-hawkbit"
+	}
+	return DNSLabel(prefix + "-" + in.ScenarioName + "-" + in.RunID + "-" + op.ID)
+}
+
 func legacyBindingName(provider string) string {
 	return provider + ".default"
 }
@@ -310,6 +384,8 @@ func legacyOperationTimeout(op Operation) string {
 		return op.Postgres.Timeout
 	case op.RabbitMQ != nil:
 		return op.RabbitMQ.Timeout
+	case op.Hawkbit != nil:
+		return op.Hawkbit.Timeout
 	default:
 		return ""
 	}

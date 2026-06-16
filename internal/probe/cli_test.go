@@ -898,6 +898,214 @@ func TestRabbitMQRunWritesNormalizedFailureEnvelope(t *testing.T) {
 	}
 }
 
+func TestHawkbitPublishGatewayMessageUsesOldGatewayTopic(t *testing.T) {
+	dir := t.TempDir()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "publish-hawkbit",
+  "operationType": "hawkbit.publishGatewayMessage",
+  "provider": "hawkbit",
+  "binding": {
+    "name": "hawkbit.default",
+    "kind": "hawkbit.gatewayBridge",
+    "with": {
+      "mqttBrokerURL": "tcp://broker:1883",
+      "mqttCredentialsRef": "mqtt-credentials",
+      "rabbitmqURI": "amqp://rabbitmq:5672",
+      "rabbitmqCredentialsRef": "rabbitmq-credentials"
+    }
+  },
+  "with": {
+    "gatewayId": "CDEF",
+    "messageType": "UPDATE_ACTION_STATUS",
+    "topicStyle": "old",
+    "direction": "gw2dm",
+    "payload": "{\"correlationId\":\"hawkbit-1\"}",
+    "correlationId": "hawkbit-1",
+    "clientId": "client-1"
+  },
+  "timeout": "1s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+	fake := &fakeMQTTPublisher{}
+	withMQTTPublisher(t, fake)
+	t.Setenv("SPEX_MQTT_USERNAME", "user")
+	t.Setenv("SPEX_MQTT_PASSWORD", "pass")
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"hawkbit", "run",
+		"--operation-file", operation,
+		"--result-file", result,
+		"--timeout", "1s",
+		"--poll-interval", "10ms",
+	}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.request.Topic != "/gw-CDEF/dm/hawkbit/gw2dm/UPDATE_ACTION_STATUS" {
+		t.Fatalf("unexpected topic: %#v", fake.request)
+	}
+	if fake.request.BrokerURL != "tcp://broker:1883" || fake.request.ClientID != "client-1" {
+		t.Fatalf("unexpected request: %#v", fake.request)
+	}
+	if fake.request.Username != "user" || fake.request.Password != "pass" {
+		t.Fatalf("credentials not propagated: %#v", fake.request)
+	}
+	if !strings.Contains(stdout.String(), `"operationType":"hawkbit.publishGatewayMessage"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
+func TestHawkbitPublishGatewayMessageUsesNewGatewayTopic(t *testing.T) {
+	operation := probeLoweredOperation{
+		OperationType: "hawkbit.publishGatewayMessage",
+		With: map[string]any{
+			"gatewayId":       "1234567890ABCDEF",
+			"messageType":     "THING_CREATED",
+			"protocolVersion": "current",
+		},
+	}
+	if got := hawkbitMQTTTopic(operation); got != "gateway/1234567890ABCDEF/hawkbit/gw2dm/THING_CREATED" {
+		t.Fatalf("unexpected topic: %s", got)
+	}
+}
+
+func TestHawkbitPublishGatewayMessageUsesLegacyProtocolAlias(t *testing.T) {
+	operation := probeLoweredOperation{
+		OperationType: "hawkbit.publishGatewayMessage",
+		With: map[string]any{
+			"gatewayId":       "CDEF",
+			"messageType":     "UPDATE_ACTION_STATUS",
+			"protocolVersion": "v1",
+		},
+	}
+	if got := hawkbitMQTTTopic(operation); got != "/gw-CDEF/dm/hawkbit/gw2dm/UPDATE_ACTION_STATUS" {
+		t.Fatalf("unexpected topic: %s", got)
+	}
+}
+
+func TestHawkbitManagementPostUsesServerBindingAndBasicAuth(t *testing.T) {
+	dir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/v1/targets" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "admin" || password != "admin" {
+			t.Fatalf("basic auth not propagated")
+		}
+		if r.Header.Get("Content-Type") != "application/hal+json" {
+			t.Fatalf("unexpected content type: %s", r.Header.Get("Content-Type"))
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"controllerId":"0123456789ABCDEF"`) {
+			t.Fatalf("unexpected body: %s", string(body))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"created":true}`))
+	}))
+	defer server.Close()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "create-target",
+  "operationType": "hawkbit.managementPost",
+  "provider": "hawkbit",
+  "binding": {
+    "name": "hawkbit.server",
+    "kind": "hawkbit.updateServer",
+    "with": {
+      "baseURL": "`+server.URL+`",
+      "serverVersion": "0.3.0M9",
+      "credentialsRef": "hawkbit-credentials"
+    }
+  },
+  "with": {
+    "resource": "targets",
+    "payload": "[{\"controllerId\":\"0123456789ABCDEF\"}]",
+    "expectedStatus": 201,
+    "match": [{"path":"$.created","equalsBool":true}]
+  },
+  "timeout": "1s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+	t.Setenv("SPEX_HAWKBIT_USERNAME", "admin")
+	t.Setenv("SPEX_HAWKBIT_PASSWORD", "admin")
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"hawkbit", "run",
+		"--operation-file", operation,
+		"--result-file", result,
+		"--timeout", "1s",
+		"--poll-interval", "10ms",
+	}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"operationType":"hawkbit.managementPost"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
+func TestHawkbitDirectDeviceGetUsesTenantAndTargetToken(t *testing.T) {
+	dir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/DEFAULT/controller/v1/target-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "TargetToken secret-token" {
+			t.Fatalf("unexpected authorization: %s", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"polling":{"sleep":"00:05:00"}}}`))
+	}))
+	defer server.Close()
+	operation := writeTestFile(t, dir, "operation.json", `{
+  "operationId": "poll-target",
+  "operationType": "hawkbit.directDeviceGet",
+  "provider": "hawkbit",
+  "binding": {
+    "name": "hawkbit.server",
+    "kind": "hawkbit.updateServer",
+    "with": {
+      "baseURL": "`+server.URL+`",
+      "serverVersion": "latest",
+      "tenant": "DEFAULT",
+      "targetTokenRef": "hawkbit-target-token"
+    }
+  },
+  "with": {
+    "controllerId": "target-1",
+    "tokenType": "target",
+    "match": [{"path":"$.config.polling.sleep","equalsString":"00:05:00"}]
+  },
+  "timeout": "1s",
+  "dependsOn": []
+}`)
+	result := filepath.Join(dir, "result.json")
+	t.Setenv("SPEX_HAWKBIT_TARGET_TOKEN", "secret-token")
+
+	var stdout bytes.Buffer
+	err := Run([]string{
+		"hawkbit", "run",
+		"--operation-file", operation,
+		"--result-file", result,
+		"--timeout", "1s",
+		"--poll-interval", "10ms",
+	}, &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"operationType":"hawkbit.directDeviceGet"`) || !strings.Contains(stdout.String(), `"status":"passed"`) {
+		t.Fatalf("unexpected output: %s", stdout.String())
+	}
+}
+
 func TestGraphQLExpectRejectsFixtureResponseErrors(t *testing.T) {
 	dir := t.TempDir()
 	query := writeTestFile(t, dir, "query.graphql", `query { ok }`)

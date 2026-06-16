@@ -494,6 +494,35 @@ func buildPlan(in Inputs) generationPlan {
 			}
 			plan.Steps = append(plan.Steps, step)
 			ordinal++
+		case "hawkbit.publishGatewayMessage":
+			payloadFile := DNSLabel(op.ID) + ".json"
+			template := in.Scenario.Spec.PayloadTemplates[op.Hawkbit.PayloadTemplateRef]
+			plan.Payloads[payloadFile] = renderJSONTemplate(template.Body, in.RunID, op.Hawkbit.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         hawkbitProviderJob(in, scenarioSlug, ordinal, op),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
+		case "hawkbit.expectGatewayMessage":
+			matchersFile := DNSLabel(op.ID) + ".matchers.json"
+			plan.Matchers[matchersFile] = renderMatchersJSON(op.Hawkbit.Match, in.RunID, op.Hawkbit.CorrelationID, plan.Params)
+			step := generatedStep{
+				Ordinal:     ordinal,
+				OperationID: op.ID,
+				Type:        op.Type,
+				ApplyFile:   stepFile(ordinal, op.ID),
+				AssertFile:  assertFile(ordinal, op.ID),
+				Job:         hawkbitProviderJob(in, scenarioSlug, ordinal, op),
+				Assert:      probeJobAssert(in, scenarioSlug, ordinal, op.ID),
+			}
+			plan.Steps = append(plan.Steps, step)
+			ordinal++
 		case "redpanda.contains":
 			matchersFile := DNSLabel(op.ID) + ".matchers.json"
 			plan.Matchers[matchersFile] = renderMatchersJSON(op.Redpanda.Match, in.RunID, op.Redpanda.CorrelationID, plan.Params)
@@ -1125,6 +1154,10 @@ func postgresqlExpectJob(in Inputs, scenarioSlug string, ordinal int, op Operati
 	return genericProviderJob(in, scenarioSlug, ordinal, op)
 }
 
+func hawkbitProviderJob(in Inputs, scenarioSlug string, ordinal int, op Operation) string {
+	return genericProviderJob(in, scenarioSlug, ordinal, op)
+}
+
 func genericProviderJob(in Inputs, scenarioSlug string, ordinal int, op Operation) string {
 	capability, preferProbeImage := capabilityForOperationTypeWithOrigin(op.Type, in.Providers)
 	args := genericProbeArgs(capability.Probe, op.ID, genericOperationTimeout(in, op), defaultPollInterval(in))
@@ -1629,6 +1662,9 @@ func genericOperationTimeout(in Inputs, op Operation) string {
 	if op.Timeout != "" {
 		return op.Timeout
 	}
+	if timeout := legacyOperationTimeout(op); timeout != "" {
+		return timeout
+	}
 	return defaultTimeout(in)
 }
 
@@ -1800,6 +1836,32 @@ func secretEnvEntries(in Inputs, args []string) []probeEnvEntry {
 			"SPEX_RABBITMQ_USERNAME": "username",
 			"SPEX_RABBITMQ_PASSWORD": "password",
 		})
+	case len(args) >= 2 && args[0] == "hawkbit" && args[1] == "run":
+		entries := secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.MQTT.CredentialsRef], map[string]string{
+			"SPEX_MQTT_USERNAME": "username",
+			"SPEX_MQTT_PASSWORD": "password",
+		})
+		entries = append(entries, secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.RabbitMQ.CredentialsRef], map[string]string{
+			"SPEX_RABBITMQ_USERNAME": "username",
+			"SPEX_RABBITMQ_PASSWORD": "password",
+		})...)
+		entries = append(entries, secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.Hawkbit.CredentialsRef], map[string]string{
+			"SPEX_HAWKBIT_USERNAME": "username",
+			"SPEX_HAWKBIT_PASSWORD": "password",
+		})...)
+		entries = append(entries, secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.Hawkbit.TargetTokenRef], map[string]string{
+			"SPEX_HAWKBIT_TARGET_TOKEN": "token",
+		})...)
+		entries = append(entries, secretEnvEntriesForSecret(in.Binding.Spec.Secrets[in.Binding.Spec.Hawkbit.GatewayTokenRef], map[string]string{
+			"SPEX_HAWKBIT_GATEWAY_TOKEN": "token",
+		})...)
+		if isSSMReference(in.Binding.Spec.MQTT.BrokerURL) {
+			entries = append(entries, probeEnvEntry{Name: "SPEX_MQTT_BROKER_URL", SSMParameter: in.Binding.Spec.MQTT.BrokerURL})
+		}
+		if isSSMReference(in.Binding.Spec.Hawkbit.BaseURL) {
+			entries = append(entries, probeEnvEntry{Name: "SPEX_HAWKBIT_BASE_URL", SSMParameter: in.Binding.Spec.Hawkbit.BaseURL})
+		}
+		return entries
 	case len(args) >= 2 && args[0] == "redis" && args[1] == "run":
 		return secretEnvEntriesForSecret(in.Binding.Spec.Secrets[genericCredentialsRef(in.Binding, "redis.connection")], map[string]string{
 			"SPEX_REDIS_USERNAME": "username",
