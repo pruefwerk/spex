@@ -442,9 +442,11 @@ func (kafkaRedpandaClient) FindMatchingMessage(ctx context.Context, req redpanda
 		err       error
 	}
 	results := make(chan scanResult, len(offsets))
+	// Keep one scanner for this operation, including workers finishing after cancellation.
+	scan := scanRedpandaPartition
 	for partition, offset := range offsets {
 		go func(partition int, offset int64) {
-			message, err := scanRedpandaPartition(ctx, dialer, req.Brokers, topic, partition, offset, matchersFile)
+			message, err := scan(ctx, dialer, req.Brokers, topic, partition, offset, matchersFile)
 			results <- scanResult{
 				partition: partition,
 				message:   message,
