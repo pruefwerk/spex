@@ -1766,6 +1766,7 @@ type suiteFlags struct {
 	collectResources     bool
 	failFast             bool
 	includeTags          stringListFlag
+	includeAnyTags       stringListFlag
 	excludeTags          stringListFlag
 }
 
@@ -1804,6 +1805,7 @@ func parseSuiteFlags(command string, args []string) (suiteFlags, error) {
 	fs.BoolVar(&flags.collectResources, "collect-resource-usage", false, "collect best-effort kubectl top pod evidence after each scenario run")
 	fs.BoolVar(&flags.failFast, "fail-fast", false, "stop after the first scenario run failure")
 	fs.Var(&flags.includeTags, "include-tag", "include only scenarios with this tag; may be repeated or comma-separated")
+	fs.Var(&flags.includeAnyTags, "include-any-tag", "include scenarios with any selected tag; may be repeated or comma-separated")
 	fs.Var(&flags.excludeTags, "exclude-tag", "exclude scenarios with this tag; may be repeated or comma-separated")
 	if err := fs.Parse(args); err != nil {
 		return flags, err
@@ -1891,6 +1893,7 @@ func parseSuiteListFlags(args []string) (suiteFlags, string, error) {
 	fs.StringVar(&flags.repoRoot, "repo-root", "", "override ${repoRoot} for integration profile rendering")
 	fs.StringVar(&format, "format", "text", "output format: text or json")
 	fs.Var(&flags.includeTags, "include-tag", "include only scenarios with this tag; may be repeated or comma-separated")
+	fs.Var(&flags.includeAnyTags, "include-any-tag", "include scenarios with any selected tag; may be repeated or comma-separated")
 	fs.Var(&flags.excludeTags, "exclude-tag", "exclude scenarios with this tag; may be repeated or comma-separated")
 	if err := fs.Parse(args); err != nil {
 		return flags, "", err
@@ -2717,7 +2720,8 @@ func loadSuiteInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags)
 			if len(scenarioRef.Tags) > 0 {
 				inputs.Scenario.Metadata.Tags = mergeInputTags(inputs.Scenario.Metadata.Tags, scenarioRef.Tags)
 			}
-			if !matchesSuiteTagFilters(inputs.Scenario.Metadata.Tags, flags.includeTags, flags.excludeTags) {
+			if !matchesSuiteTagFilters(inputs.Scenario.Metadata.Tags, flags.includeTags, flags.excludeTags) ||
+				!matchesSuiteAnyTags(inputs.Scenario.Metadata.Tags, flags.includeAnyTags) {
 				continue
 			}
 			if scenarioRef.IntegrationProfilePath != "" {
@@ -2737,7 +2741,7 @@ func loadSuiteInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags)
 			ordinal++
 		}
 	}
-	if len(out) == 0 && (len(flags.includeTags) > 0 || len(flags.excludeTags) > 0) {
+	if len(out) == 0 && (len(flags.includeTags) > 0 || len(flags.includeAnyTags) > 0 || len(flags.excludeTags) > 0) {
 		return nil, fmt.Errorf("suite tag filters matched no scenarios")
 	}
 	return out, nil
@@ -2754,6 +2758,20 @@ func mergeInputTags(base, extra []string) []string {
 		out = append(out, tag)
 	}
 	return out
+}
+
+func matchesSuiteAnyTags(tags, includeAnyTags []string) bool {
+	if len(includeAnyTags) == 0 {
+		return true
+	}
+	for _, wanted := range includeAnyTags {
+		for _, tag := range tags {
+			if wanted == tag {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func matchesSuiteTagFilters(tags []string, includeTags, excludeTags []string) bool {

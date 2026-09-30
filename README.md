@@ -384,7 +384,7 @@ spec:
     - features/**/*.feature
 ```
 
-Feature files are parsed into `stepInvocations` and then expanded through `StepCatalog`. The binary does not execute arbitrary step functions and does not generate KUTTL directly from free-form text. Tags can be used for suite filtering with `--include-tag` and `--exclude-tag`:
+Feature files are parsed into `stepInvocations` and then expanded through `StepCatalog`. The binary does not execute arbitrary step functions and does not generate KUTTL directly from free-form text. Use `--include-tag` for AND matching, `--include-any-tag` for OR matching, and `--exclude-tag` to exclude scenarios. Exclusion takes precedence. Missing or empty include filters do not restrict scenarios.
 
 ```gherkin
 @smoke @mqtt
