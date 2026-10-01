@@ -2044,7 +2044,11 @@ func runSuiteWorkspacesSequential(workspaces []string, flags suiteFlags, limiter
 	for i, workspacePath := range workspaces {
 		outcome := suiteRunWorkspaceOutcome{Workspace: workspacePath, Execution: "executed"}
 		limiter.Wait()
-		if err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr); err != nil {
+		fmt.Fprintf(stdout, "Starting scenario %d/%d: %s\n", i+1, len(workspaces), filepath.Base(workspacePath))
+		startedAt := time.Now()
+		err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr)
+		writeScenarioCompletion(stdout, i, len(workspaces), workspacePath, startedAt, err)
+		if err != nil {
 			failed = append(failed, filepath.Base(workspacePath))
 			if failFast || (maxFailures > 0 && len(failed) >= maxFailures) {
 				stopReason = suiteStopReason(failFast)
@@ -2080,8 +2084,11 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 		limiter.Wait()
 		running++
 		workspacePath := workspaces[index]
+		fmt.Fprintf(stdout, "Starting scenario %d/%d: %s\n", index+1, len(workspaces), filepath.Base(workspacePath))
 		go func() {
+			startedAt := time.Now()
 			err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr)
+			writeScenarioCompletion(stdout, index, len(workspaces), workspacePath, startedAt, err)
 			results <- suiteWorkspaceResult{Index: index, Failed: err != nil}
 		}()
 	}
@@ -2119,6 +2126,14 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 		}
 	}
 	return outcomes, failed, stopReason
+}
+
+func writeScenarioCompletion(stdout io.Writer, index, total int, path string, startedAt time.Time, err error) {
+	result := "passed"
+	if err != nil {
+		result = "failed"
+	}
+	fmt.Fprintf(stdout, "Finished scenario %d/%d: %s — %s (%.1fs)\n", index+1, total, filepath.Base(path), result, time.Since(startedAt).Seconds())
 }
 
 type suiteRateLimiter struct {
@@ -4872,13 +4887,13 @@ func executeKUTTL(command, workspacePath, kubeContext string, stdout, stderr io.
 	cmd := exec.Command(command, "kuttl", "test", "--config", "kuttl-test.yaml")
 	cmd.Dir = workspacePath
 	capture := newLimitedCapture(maxKUTTLOutputSize)
-	cmd.Stdout = capture
-	cmd.Stderr = capture
+	// Use the same writer for both streams so os/exec serializes writes. Live
+	// output remains complete while retained report output stays bounded.
+	stream := io.MultiWriter(capture, stdout)
+	cmd.Stdout = stream
+	cmd.Stderr = stream
 	err := cmd.Run()
 	output := capture.String()
-	if output != "" {
-		fmt.Fprint(stdout, output)
-	}
 	if err == nil {
 		return kuttlResult{ScenarioResult: "passed", RunnerResult: "passed", Output: output}
 	}

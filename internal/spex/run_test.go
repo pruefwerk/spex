@@ -5182,6 +5182,11 @@ func TestSuiteRunWritesJUnitReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, message := range []string{"Starting scenario 1/5:", "Finished scenario 5/5:", "suite passed: 5 scenario(s)"} {
+		if !strings.Contains(stdout.String(), message) {
+			t.Fatalf("suite progress missing %q: %s", message, stdout.String())
+		}
+	}
 	content, err := os.ReadFile(filepath.Join(out, "reports", "suite-junit.xml"))
 	if err != nil {
 		t.Fatal(err)
