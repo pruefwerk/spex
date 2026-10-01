@@ -100,7 +100,10 @@ func Generate(out string, in Inputs) error {
 	}
 	for _, step := range plan.Steps {
 		files[filepath.Join("kuttl", plan.ScenarioSlug, step.ApplyFile)] = step.Job
-		files[filepath.Join("kuttl", plan.ScenarioSlug, step.AssertFile)] = step.Assert
+		// Assertion waits follow the Job's own deadline, never image preparation
+		// or Helm setup budgets. Capture failed probe logs before cleanup.
+		assertSettings := fmt.Sprintf("apiVersion: kuttl.dev/v1beta1\nkind: TestAssert\ntimeout: %d\ncollectors:\n  - type: pod\n    namespace: %s\n    selector: %s\n    container: probe\n---\n", probeAssertionTimeout(step.Job), yamlString(in.Namespace), yamlString("job-name="+jobName(plan.ScenarioSlug, step.Ordinal, step.OperationID)))
+		files[filepath.Join("kuttl", plan.ScenarioSlug, step.AssertFile)] = assertSettings + step.Assert
 	}
 	for name, content := range plan.Payloads {
 		files[filepath.Join("rendered", "payloads", name)] = content
@@ -1446,6 +1449,18 @@ func activeDeadlineSeconds(args []string) int {
 		return 1
 	}
 	return seconds
+}
+
+func probeAssertionTimeout(job string) int {
+	for _, line := range strings.Split(job, "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "activeDeadlineSeconds:"); ok {
+			var deadline int
+			if _, err := fmt.Sscanf(value, "%d", &deadline); err == nil && deadline > 0 {
+				return deadline + 15
+			}
+		}
+	}
+	return 120
 }
 
 func readQueryBody(in Inputs, queryFile string) string {
