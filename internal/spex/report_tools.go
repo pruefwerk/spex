@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pruefwerk/spex/internal/workspace"
 )
 
 type reportSummaryRow struct {
@@ -138,7 +140,9 @@ func summarizeReports(root string) (reportSummary, error) {
 						Scenario string `json:"scenario"`
 						RunID    string `json:"runId"`
 					}
-					if json.Unmarshal(contextData, &identity) != nil || identity.Scenario != report.Metadata.Name ||
+					// Reports use the generated DNS label, while context retains
+					// the original name. Apply the generator's normalization here.
+					if json.Unmarshal(contextData, &identity) != nil || identity.Scenario == "" || workspace.DNSLabel(identity.Scenario) != report.Metadata.Name ||
 						(identity.RunID != "" && (report.Metadata.RunID == nil || *report.Metadata.RunID != identity.RunID)) {
 						err = fmt.Errorf("report does not match generated scenario identity")
 					}

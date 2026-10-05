@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pruefwerk/spex/internal/workspace"
 )
 
 func summaryFixture(t *testing.T, root, name, result string) {
@@ -111,6 +113,62 @@ func TestReportSummaryRejectsReportFromPreviousRun(t *testing.T) {
 	out, err := summarizeReports(root)
 	if err != nil || out.Complete || out.Counts["error"] != 1 {
 		t.Fatalf("%+v %v", out, err)
+	}
+}
+
+func TestReportSummaryUsesGeneratedScenarioIdentity(t *testing.T) {
+	names := []string{
+		"aws-native-registration-establishes-routing-without--c9c4211973",
+		"bootstraps-cannot-reopen-migration-or-roll-back-aws--f40cdb88c9",
+		"AWS native registration with spaces_and.dots",
+		strings.Repeat("long-scenario-name-", 8),
+	}
+	for _, source := range names {
+		for _, result := range []string{"passed", "failed"} {
+			t.Run(source+"/"+result, func(t *testing.T) {
+				root := t.TempDir()
+				name := workspace.DNSLabel(source)
+				summaryFixture(t, root, name, result)
+				path := filepath.Join(root, name)
+				runID := "same-run"
+				data, err := os.ReadFile(filepath.Join(path, "reports/scenario-run-report.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var report ScenarioRunReport
+				if err := json.Unmarshal(data, &report); err != nil {
+					t.Fatal(err)
+				}
+				report.Metadata.RunID = &runID
+				data, _ = json.Marshal(report)
+				if err := os.WriteFile(filepath.Join(path, "reports/scenario-run-report.json"), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				data, _ = json.Marshal(map[string]string{"scenario": source, "runId": runID})
+				if err := os.WriteFile(filepath.Join(path, "scenario-context.json"), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				out, err := summarizeReports(root)
+				if err != nil || !out.Complete || out.Counts[result] != 1 || out.Counts["error"] != 0 {
+					t.Fatalf("valid normalized report rejected or result changed: %+v %v", out, err)
+				}
+			})
+		}
+	}
+}
+
+func TestReportSummaryRejectsUnrelatedScenarioIdentity(t *testing.T) {
+	for _, source := range []string{"", "different--scenario"} {
+		root := t.TempDir()
+		summaryFixture(t, root, "actual-scenario", "passed")
+		data, _ := json.Marshal(map[string]string{"scenario": source})
+		if err := os.WriteFile(filepath.Join(root, "actual-scenario/scenario-context.json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, err := summarizeReports(root)
+		if err != nil || out.Complete || out.Counts["error"] != 1 {
+			t.Fatalf("unrelated report accepted: %+v %v", out, err)
+		}
 	}
 }
 
