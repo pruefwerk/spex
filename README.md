@@ -1,5 +1,13 @@
 # spex
 
+Use [report summaries and Kubernetes diagnostics](docs/reporting-and-diagnostics.md)
+to inspect incomplete runs without adding project-specific reporting logic.
+
+The [HTTP integration bundle](bundles/http/README.md) provides HTTP commands and
+JSON assertions without project-specific endpoints. Releases package its source
+and schemas separately so projects can build the probe with their own base-image
+mirrors. GET requests poll; writes require an explicit opt-in to retry.
+
 spex lets testers describe acceptance scenarios once and generate an inspectable KUTTL workspace from that intent.
 
 It is built for Kubernetes-based integration testing where the test author should not have to hand-write KUTTL steps, probe Jobs, ConfigMaps, or report mapping. The current implementation focuses on provider-shaped operations for MQTT, Redpanda, Keycloak, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, and Kind-backed local proof runs.
@@ -205,6 +213,12 @@ spex suite compile --suite acceptance-tests/suite.yaml
 The scaffold includes `.schemas/*.schema.json`, `.vscode/settings.json`, `.gitignore`, `README.md`, `ci/spex-validate.sh`, `.github/workflows/spex.yaml`, and a Makefile with `doctor`, `validate`, `plan`, `explain`, `catalog`, `catalog-docs`, `compile`, `ci`, `run`, `clean`, and `schemas` targets. The generated workflow intentionally performs non-cluster checks only; platform teams can add a live `suite run` job once bindings, secrets, and cluster provisioning are available. Re-running `init scenario-repo` is intentionally non-destructive and fails if a scaffolded file already exists. The generated schemas intentionally catch common authoring mistakes early, including empty refs, empty matcher arrays, duplicate report formats, and empty secret key maps.
 
 Keep generated workspaces, live reports, KUTTL artifacts, and kubeconfigs out of source control. The scaffolded `.gitignore` excludes `generated/` and `reports/`; CI may upload those as short-lived artifacts after `doctor --scan-artifacts` has run. The artifact scan fails if a file named `kubeconfig`, a file ending in `.kubeconfig`, or kubeconfig-shaped content is present.
+
+Each compiled workspace includes `scenario-context.json` (`spex.context.v0.1`)
+with the scenario identity and inherited tags. Setup tools can read these tags
+instead of inferring requirements from directory names. Spex exports metadata;
+the project decides what its tags require. The context contains no credentials
+or resolved parameter values.
 
 The checked-in reference layout at `examples/reference-scenario-repo/` models the separate scenario repository shape with CI targets and an opt-in live proof workflow.
 

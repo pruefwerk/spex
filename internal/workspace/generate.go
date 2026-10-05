@@ -60,6 +60,17 @@ func Generate(out string, in Inputs) error {
 		return err
 	}
 	plan.Operations = loweredOperations
+	// Expose declarative scenario metadata to setup tools. They should not have
+	// to infer requirements from a generated directory name or parse Gherkin.
+	scenarioContext, err := json.MarshalIndent(map[string]any{
+		"apiVersion": "spex.context.v0.1",
+		"scenario":   in.ScenarioName,
+		"runId":      in.RunID,
+		"tags":       append([]string{}, in.Scenario.Metadata.Tags...),
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
 	dirs := []string{
 		filepath.Join(out, "kuttl", plan.ScenarioSlug),
 		filepath.Join(out, "rendered", "operations"),
@@ -78,10 +89,11 @@ func Generate(out string, in Inputs) error {
 	}
 
 	files := map[string]string{
-		"README.generated.md": generatedReadme(in),
-		"kuttl-test.yaml":     kuttlTest(in, integrationRenderContext{WorkspaceDir: workspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir}),
-		"execution-plan.yaml": executionPlan(plan),
-		"step-map.yaml":       stepMap(in, plan),
+		"scenario-context.json": string(scenarioContext) + "\n",
+		"README.generated.md":   generatedReadme(in),
+		"kuttl-test.yaml":       kuttlTest(in, integrationRenderContext{WorkspaceDir: workspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir}),
+		"execution-plan.yaml":   executionPlan(plan),
+		"step-map.yaml":         stepMap(in, plan),
 		filepath.Join("kuttl", plan.ScenarioSlug, "00-rerun-cleanup.yaml"):                                           cleanupStep(in, plan.ScenarioSlug, integrationRenderContext{WorkspaceDir: testStepWorkspaceDir, RepoRoot: repoRoot, IntegrationProfileDir: integrationProfileDir, ScenarioSlug: plan.ScenarioSlug}),
 		filepath.Join("kuttl", plan.ScenarioSlug, fmt.Sprintf("%02d-static-configmaps.yaml", staticStepOrdinal(in))): staticConfigMaps(in, plan),
 	}

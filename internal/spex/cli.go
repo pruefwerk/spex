@@ -78,6 +78,10 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runDoctor(args[1:], stdout)
 	case "release":
 		return runRelease(args[1:], stdout)
+	case "reports":
+		return runReportTools(args[1:], stdout)
+	case "diagnostics":
+		return runDiagnostics(args[1:], stdout)
 	case "run":
 		return runWorkspace(args[1:], stdout, stderr)
 	case "clean":
@@ -145,6 +149,8 @@ Commands:
   schema    list or print embedded JSON Schemas
   doctor    run host and suite preflight checks
   release   verify release artifacts
+  reports   summarize scenario reports or CI group execution results
+  diagnostics collect read-only Kubernetes diagnostics
   init      scaffold a scenario repository
   new       add a scenario file to a scenario repository
   explain   explain one scenario or suite expansion

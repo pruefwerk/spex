@@ -1,0 +1,9 @@
+type: object
+additionalProperties: false
+required:
+  - endpoint
+properties:
+  endpoint:
+    type: string
+  credentialsRef:
+    type: string

@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -214,6 +215,36 @@ func TestGenerateWorkspace(t *testing.T) {
 	} {
 		if !strings.Contains(string(graphQLJob), want) {
 			t.Fatalf("GraphQL Job missing %q", want)
+		}
+	}
+}
+
+func TestGeneratedScenarioContextPreservesTagsIndependentOfScenarioTitle(t *testing.T) {
+	scenarioPath, bindingPath := writeScenarioAndBinding(t, filepath.Join(t.TempDir(), "inputs"), "kubernetesSecret", "tcp://emqx.platform.svc.cluster.local:1883")
+	in, err := LoadInputs(scenarioPath, bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.RunID = "context-test"
+	in.Scenario.Metadata.Tags = []string{"acceptance", "requires-database"}
+	for _, name := range []string{"original-title", "entirely-different-title"} {
+		in.ScenarioName = name
+		out := t.TempDir()
+		if err := Generate(out, in); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(out, "scenario-context.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var context struct {
+			APIVersion string   `json:"apiVersion"`
+			Scenario   string   `json:"scenario"`
+			RunID      string   `json:"runId"`
+			Tags       []string `json:"tags"`
+		}
+		if json.Unmarshal(data, &context) != nil || context.APIVersion != "spex.context.v0.1" || context.Scenario != name || context.RunID != in.RunID || strings.Join(context.Tags, ",") != "acceptance,requires-database" {
+			t.Fatalf("scenario metadata lost: %s", data)
 		}
 	}
 }

@@ -1,0 +1,9 @@
+type: object
+additionalProperties: false
+required:
+  - statusCode
+properties:
+  statusCode:
+    type: integer
+  body:
+    type: string

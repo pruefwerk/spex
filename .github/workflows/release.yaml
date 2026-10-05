@@ -83,6 +83,17 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
 
+      - name: Package HTTP integration bundle
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -eu
+          scanner="$PWD/.bin/govulncheck"
+          (cd bundles/http/probe && go test -race ./... && go vet ./... && "$scanner" ./...)
+          archive="spex-http-bundle_${VERSION}.tar.gz"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf "dist/$archive" -C bundles/http . -C "$PWD" LICENSE
+          (cd dist && sha256sum "$archive" > "$archive.sha256")
+
       - name: Write release notes
         run: |
           cat > dist/release-notes.md <<EOF

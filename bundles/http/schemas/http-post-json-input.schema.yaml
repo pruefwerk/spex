@@ -1,0 +1,44 @@
+type: object
+required:
+  - method
+  - path
+  - expectedStatus
+properties:
+  bindingRef:
+    type: string
+  method:
+    type: string
+    enum:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+  path:
+    type: string
+  retryWrites:
+    # Repeat only an idempotent write with unchanged input.
+    type: boolean
+  contentType:
+    type: string
+  body:
+    type: string
+  bodyFieldsFrom:
+    type: object
+    additionalProperties: true
+  expectedBody:
+    type: string
+  expectedBodyFrom:
+    type: object
+    required: [path, pointer]
+    properties:
+      path: {type: string}
+      pointer: {type: string}
+  expectedFields:
+    type: object
+    additionalProperties: true
+  expectedArrayLength:
+    type: integer
+  expectedStatus:
+    type: integer
+  headers:
+    type: object

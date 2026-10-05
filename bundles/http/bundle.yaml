@@ -1,0 +1,69 @@
+apiVersion: spex.bundle.v0.1
+kind: IntegrationBundle
+metadata:
+  name: http
+  version: 0.1.0
+spec:
+  capabilities:
+    - type: http.postJson
+      bindingKind: http.endpoint
+      inputSchema:
+        path: schemas/http-post-json-input.schema.yaml
+      resultSchema:
+        path: schemas/http-post-json-result.schema.yaml
+      probe:
+        image: spex-http-probe:v0.1.0
+        command:
+          - run
+        env:
+          SPEX_HTTP_ENDPOINT:
+            fromBinding: endpoint
+          SPEX_HTTP_BEARER_TOKEN:
+            secretRef: credentials.token
+        input:
+          mode: operationFile
+          path: /spex/input/operation.json
+        output:
+          path: /spex/output/result.json
+    - type: http.requestJson
+      bindingKind: http.endpoint
+      inputSchema:
+        path: schemas/http-post-json-input.schema.yaml
+      resultSchema:
+        path: schemas/http-post-json-result.schema.yaml
+      probe:
+        image: spex-http-probe:v0.1.0
+        command:
+          - run
+        env:
+          SPEX_HTTP_ENDPOINT:
+            fromBinding: endpoint
+        input:
+          mode: operationFile
+          path: /spex/input/operation.json
+        output:
+          path: /spex/output/result.json
+    - type: http.authenticatedRequestJson
+      bindingKind: http.endpoint
+      inputSchema:
+        path: schemas/http-post-json-input.schema.yaml
+      resultSchema:
+        path: schemas/http-post-json-result.schema.yaml
+      probe:
+        image: spex-http-probe:v0.1.0
+        command:
+          - run
+        env:
+          SPEX_HTTP_ENDPOINT:
+            fromBinding: endpoint
+          SPEX_HTTP_BEARER_TOKEN:
+            secretRef: credentials.token
+        input:
+          mode: operationFile
+          path: /spex/input/operation.json
+        output:
+          path: /spex/output/result.json
+  bindingSchemas:
+    - kind: http.endpoint
+      schema:
+        path: schemas/http-endpoint.schema.yaml

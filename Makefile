@@ -26,6 +26,7 @@ LDFLAGS := -X 'github.com/pruefwerk/spex/internal/spex.Version=$(VERSION)' -X 'g
 
 test:
 	$(GO_TOOL) test ./...
+	cd bundles/http/probe && $(GO_TOOL) test ./...
 
 dependency-check:
 	$(GO_TOOL) mod verify
@@ -42,6 +43,7 @@ vulncheck:
 	env GOCACHE=$(CURDIR)/.cache/go-build $(GOVULNCHECK) ./...
 
 security-check: dependency-check vulncheck
+	cd bundles/http/probe && $(GO_TOOL) vet ./... && "$(abspath $(GOVULNCHECK))" ./...
 
 verify: dependency-check test smoke-integration-script release-archive-check
 
