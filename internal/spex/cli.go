@@ -1758,22 +1758,24 @@ Examples:
 }
 
 type suiteFlags struct {
-	suitePath            string
-	outPath              string
-	runID                string
-	kubeContext          string
-	namespace            string
-	probeImage           string
-	probeImagePullPolicy string
-	repoRoot             string
-	command              string
-	format               string
-	retainRuntime        bool
-	collectResources     bool
-	failFast             bool
-	includeTags          stringListFlag
-	includeAnyTags       stringListFlag
-	excludeTags          stringListFlag
+	beforeScenarioHook        string
+	beforeScenarioHookTimeout time.Duration
+	suitePath                 string
+	outPath                   string
+	runID                     string
+	kubeContext               string
+	namespace                 string
+	probeImage                string
+	probeImagePullPolicy      string
+	repoRoot                  string
+	command                   string
+	format                    string
+	retainRuntime             bool
+	collectResources          bool
+	failFast                  bool
+	includeTags               stringListFlag
+	includeAnyTags            stringListFlag
+	excludeTags               stringListFlag
 }
 
 type stringListFlag []string
@@ -1806,6 +1808,8 @@ func parseSuiteFlags(command string, args []string) (suiteFlags, error) {
 	fs.StringVar(&flags.probeImagePullPolicy, "probe-image-pull-policy", "", "override target binding probe imagePullPolicy")
 	fs.StringVar(&flags.repoRoot, "repo-root", "", "override ${repoRoot} for integration profile rendering")
 	fs.StringVar(&flags.command, "command", "kubectl", "KUTTL command executable")
+	fs.StringVar(&flags.beforeScenarioHook, "before-scenario-hook", "", "trusted executable returning per-scenario environment as JSON")
+	fs.DurationVar(&flags.beforeScenarioHookTimeout, "before-scenario-hook-timeout", 2*time.Minute, "before-scenario hook deadline")
 	fs.StringVar(&flags.format, "format", "text", "output format for commands that support it")
 	fs.BoolVar(&flags.retainRuntime, "retain-runtime-resources", false, "keep generated Jobs and runtime ConfigMaps after evidence collection")
 	fs.BoolVar(&flags.collectResources, "collect-resource-usage", false, "collect best-effort kubectl top pod evidence after each scenario run")
@@ -1818,6 +1822,9 @@ func parseSuiteFlags(command string, args []string) (suiteFlags, error) {
 	}
 	if err := rejectPositionalArgs(fs, "suite "+command); err != nil {
 		return flags, err
+	}
+	if flags.beforeScenarioHook != "" && (command != "run" || flags.beforeScenarioHookTimeout <= 0 || flags.beforeScenarioHookTimeout > 10*time.Minute) {
+		return flags, fmt.Errorf("before-scenario hook requires suite run and a timeout between zero and ten minutes")
 	}
 	if flags.suitePath == "" {
 		return flags, fmt.Errorf("suite %s requires --suite", command)
@@ -2052,7 +2059,7 @@ func runSuiteWorkspacesSequential(workspaces []string, flags suiteFlags, limiter
 		limiter.Wait()
 		fmt.Fprintf(stdout, "Starting scenario %d/%d: %s\n", i+1, len(workspaces), filepath.Base(workspacePath))
 		startedAt := time.Now()
-		err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr)
+		err := runSuiteScenario(workspacePath, flags, stdout, stderr)
 		writeScenarioCompletion(stdout, i, len(workspaces), workspacePath, startedAt, err)
 		if err != nil {
 			failed = append(failed, filepath.Base(workspacePath))
@@ -2093,7 +2100,7 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 		fmt.Fprintf(stdout, "Starting scenario %d/%d: %s\n", index+1, len(workspaces), filepath.Base(workspacePath))
 		go func() {
 			startedAt := time.Now()
-			err := runWorkspace(suiteWorkspaceRunArgs(workspacePath, flags), stdout, stderr)
+			err := runSuiteScenario(workspacePath, flags, stdout, stderr)
 			writeScenarioCompletion(stdout, index, len(workspaces), workspacePath, startedAt, err)
 			results <- suiteWorkspaceResult{Index: index, Failed: err != nil}
 		}()
@@ -4729,6 +4736,10 @@ spec:
 }
 
 func runWorkspace(args []string, stdout, stderr io.Writer) error {
+	return runWorkspaceWithEnvironment(args, stdout, stderr, nil)
+}
+
+func runWorkspaceWithEnvironment(args []string, stdout, stderr io.Writer, environment []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	workspacePath := fs.String("workspace", "", "generated workspace directory")
@@ -4769,17 +4780,17 @@ func runWorkspace(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "report written: %s\n", reportPath)
 		return stepMapErr
 	}
-	result := executeKUTTL(*command, *workspacePath, stepMap.Spec.KubeContext, stdout, stderr)
+	result := executeKUTTL(*command, *workspacePath, stepMap.Spec.KubeContext, stdout, stderr, environment)
 	finishedAt := time.Now().UTC()
 	if len(stepMap.Spec.Steps) > 0 && result.ScenarioResult != "not_run" {
-		collectEvidence(*command, *workspacePath, stepMap)
+		collectEvidence(*command, *workspacePath, stepMap, environment)
 		if *collectResourceUsage {
-			collectResourceUsageEvidence(*command, *workspacePath, stepMap)
+			collectResourceUsageEvidence(*command, *workspacePath, stepMap, environment)
 		}
 	}
 	cleanupErr := error(nil)
 	if !*retainRuntimeResources && result.ScenarioResult != "not_run" {
-		cleanupErr = cleanupRuntimeResources(*command, *workspacePath, stepMap, stdout)
+		cleanupErr = cleanupRuntimeResources(*command, *workspacePath, stepMap, stdout, environment)
 		if cleanupErr != nil {
 			class := "runtime_cleanup_failed"
 			message := strings.TrimSpace(cleanupErr.Error())
@@ -4844,12 +4855,12 @@ func runClean(args []string, stdout io.Writer) error {
 	return runCleanupCommands(*command, *workspacePath, stepMap, commands, stdout, "clean completed")
 }
 
-func cleanupRuntimeResources(command, workspacePath string, stepMap stepMapFile, stdout io.Writer) error {
+func cleanupRuntimeResources(command, workspacePath string, stepMap stepMapFile, stdout io.Writer, environment ...[]string) error {
 	if stepMap.Spec.Namespace == "" || stepMap.Metadata.Scenario == "" {
 		return nil
 	}
 	selector := "spex/owned=true,spex/scenario=" + stepMap.Metadata.Scenario
-	return runCleanupCommands(command, workspacePath, stepMap, runtimeCleanupCommands(stepMap, selector), stdout, "")
+	return runCleanupCommands(command, workspacePath, stepMap, runtimeCleanupCommands(stepMap, selector), stdout, "", environment...)
 }
 
 func runtimeCleanupCommands(stepMap stepMapFile, selector string) [][]string {
@@ -4859,10 +4870,10 @@ func runtimeCleanupCommands(stepMap stepMapFile, selector string) [][]string {
 	}
 }
 
-func runCleanupCommands(command, workspacePath string, stepMap stepMapFile, commands [][]string, stdout io.Writer, successMessage string) error {
+func runCleanupCommands(command, workspacePath string, stepMap stepMapFile, commands [][]string, stdout io.Writer, successMessage string, environment ...[]string) error {
 	for _, args := range commands {
 		args = kubectlArgsForWorkspace(workspacePath, stepMap.Spec.KubeContext, args...)
-		output, err := runBoundedCommand(maxCleanupOutputSize, command, args...)
+		output, err := runBoundedCommandWithEnvironment(maxCleanupOutputSize, command, scenarioCommandEnvironment(environment), args...)
 		if len(output) > 0 {
 			fmt.Fprint(stdout, string(output))
 		}
@@ -4888,10 +4899,11 @@ type kuttlResult struct {
 	Err            error
 }
 
-func executeKUTTL(command, workspacePath, kubeContext string, stdout, stderr io.Writer) kuttlResult {
+func executeKUTTL(command, workspacePath, kubeContext string, stdout, stderr io.Writer, environment ...[]string) kuttlResult {
 	_ = kubeContext
 	cmd := exec.Command(command, "kuttl", "test", "--config", "kuttl-test.yaml")
 	cmd.Dir = workspacePath
+	cmd.Env = scenarioCommandEnvironment(environment)
 	capture := newLimitedCapture(maxKUTTLOutputSize)
 	// Use the same writer for both streams so os/exec serializes writes. Live
 	// output remains complete while retained report output stays bounded.

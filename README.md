@@ -1,5 +1,8 @@
 # spex
 
+[Before-scenario hooks](docs/scenario-hooks.md) renew project-specific runtime
+credentials without changing the suite's compiled inputs or parent environment.
+
 Use [report summaries and Kubernetes diagnostics](docs/reporting-and-diagnostics.md)
 to inspect incomplete runs without adding project-specific reporting logic.
 

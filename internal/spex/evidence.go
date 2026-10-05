@@ -13,7 +13,7 @@ const maxEvidenceLogSize int64 = 16 << 20
 const maxEvidenceStatusSize int64 = 1 << 20
 const maxEvidenceResourceSize int64 = 1 << 20
 
-func collectEvidence(command, workspacePath string, stepMap stepMapFile) {
+func collectEvidence(command, workspacePath string, stepMap stepMapFile, environment ...[]string) {
 	logDir := filepath.Join(workspacePath, "evidence", "logs")
 	resultDir := filepath.Join(workspacePath, "evidence", "results")
 	statusDir := filepath.Join(workspacePath, "evidence", "status")
@@ -29,7 +29,7 @@ func collectEvidence(command, workspacePath string, stepMap stepMapFile) {
 	for _, step := range stepMap.Spec.Steps {
 		ordinal := twoDigit(step.Ordinal)
 		statusArgs := kubectlArgsForWorkspace(workspacePath, stepMap.Spec.KubeContext, "-n", stepMap.Spec.Namespace, "get", "job", step.JobName, "-o", "json")
-		statusOutput, statusErr := runBoundedCommand(maxEvidenceStatusSize, command, statusArgs...)
+		statusOutput, statusErr := runBoundedCommandWithEnvironment(maxEvidenceStatusSize, command, scenarioCommandEnvironment(environment), statusArgs...)
 		if statusErr == nil && len(statusOutput) > 0 {
 			statusPath := filepath.Join(statusDir, ordinal+"-"+step.OperationID+".job.json")
 			_ = writeEvidenceFile(statusPath, statusOutput)
@@ -37,7 +37,7 @@ func collectEvidence(command, workspacePath string, stepMap stepMapFile) {
 
 		selector := podLogSelector(step)
 		args := kubectlArgsForWorkspace(workspacePath, stepMap.Spec.KubeContext, "-n", stepMap.Spec.Namespace, "logs", "-l", selector)
-		output, err := runBoundedCommand(maxEvidenceLogSize, command, args...)
+		output, err := runBoundedCommandWithEnvironment(maxEvidenceLogSize, command, scenarioCommandEnvironment(environment), args...)
 		if err != nil {
 			continue
 		}
@@ -53,14 +53,14 @@ func collectEvidence(command, workspacePath string, stepMap stepMapFile) {
 	}
 }
 
-func collectResourceUsageEvidence(command, workspacePath string, stepMap stepMapFile) {
+func collectResourceUsageEvidence(command, workspacePath string, stepMap stepMapFile, environment ...[]string) {
 	resourceDir := filepath.Join(workspacePath, "evidence", "resources")
 	if err := ensureSafeDirectory(resourceDir, 0o755); err != nil {
 		return
 	}
 	scenarioSelector := "spex/owned=true,spex/scenario=" + stepMap.Metadata.Scenario
 	scenarioArgs := kubectlArgsForWorkspace(workspacePath, stepMap.Spec.KubeContext, "-n", stepMap.Spec.Namespace, "top", "pod", "-l", scenarioSelector, "--containers")
-	scenarioOutput, scenarioErr := runBoundedCommand(maxEvidenceResourceSize, command, scenarioArgs...)
+	scenarioOutput, scenarioErr := runBoundedCommandWithEnvironment(maxEvidenceResourceSize, command, scenarioCommandEnvironment(environment), scenarioArgs...)
 	if len(scenarioOutput) > 0 {
 		_ = writeEvidenceFile(filepath.Join(resourceDir, "scenario-pods.txt"), scenarioOutput)
 	}
@@ -71,7 +71,7 @@ func collectResourceUsageEvidence(command, workspacePath string, stepMap stepMap
 		ordinal := twoDigit(step.Ordinal)
 		selector := podLogSelector(step)
 		args := kubectlArgsForWorkspace(workspacePath, stepMap.Spec.KubeContext, "-n", stepMap.Spec.Namespace, "top", "pod", "-l", selector, "--containers")
-		output, err := runBoundedCommand(maxEvidenceResourceSize, command, args...)
+		output, err := runBoundedCommandWithEnvironment(maxEvidenceResourceSize, command, scenarioCommandEnvironment(environment), args...)
 		if len(output) > 0 {
 			_ = writeEvidenceFile(filepath.Join(resourceDir, ordinal+"-"+step.OperationID+".pods.txt"), output)
 		}
@@ -82,8 +82,13 @@ func collectResourceUsageEvidence(command, workspacePath string, stepMap stepMap
 }
 
 func runBoundedCommand(limit int64, command string, args ...string) ([]byte, error) {
+	return runBoundedCommandWithEnvironment(limit, command, nil, args...)
+}
+
+func runBoundedCommandWithEnvironment(limit int64, command string, environment []string, args ...string) ([]byte, error) {
 	capture := newLimitedCapture(limit)
 	cmd := exec.Command(command, args...)
+	cmd.Env = environment
 	cmd.Stdout = capture
 	cmd.Stderr = capture
 	err := cmd.Run()
