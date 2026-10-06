@@ -5,6 +5,7 @@ go 1.26.7
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/segmentio/kafka-go v0.4.49
 	go.mongodb.org/mongo-driver/v2 v2.6.0
