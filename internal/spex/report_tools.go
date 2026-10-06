@@ -29,10 +29,13 @@ type reportSummary struct {
 
 func runReportTools(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("reports requires summarize or groups")
+		return fmt.Errorf("reports requires summarize, scenario or groups")
 	}
 	if args[0] == "groups" {
 		return runGroupSummary(args[1:], stdout)
+	}
+	if args[0] == "scenario" {
+		return runCanonicalResultSummary(args[1:], stdout)
 	}
 	if args[0] != "summarize" {
 		return fmt.Errorf("unknown reports command %q", args[0])

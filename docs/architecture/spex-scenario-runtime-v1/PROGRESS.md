@@ -195,3 +195,26 @@ and catalog validators, and 25 Action tests against the candidate binary.
 Read-only scenario validation covers all 73 Gateway Migration scenarios; selecting
 verification, lifecycle and Modbus produces 31 tests. The Action also passes
 Pyright and Ruff. These results do not establish live acceptance parity.
+
+## Hosted qualification wiring — opt-in, not yet exercised live
+
+`reports scenario` reads canonical runtime artifacts without importing testbench
+semantics. It checks scenario identity, result schema and completion counts, and
+refuses historical multi-run directories. Its output contains only identifiers,
+enumerated outcomes and counts. Tests also check artifacts from an actual local
+scenario execution with simulated KUTTL.
+
+The testbench now reuses its prepare/run/cleanup lifecycle for opt-in scenario
+groups. Each invocation has an isolated safe artifact directory. Report failures
+fail successful executions but preserve test failures, cancellation and timeouts.
+Raw cluster diagnostics remain excluded from this path. A manual workflow input
+selects an explicit published candidate; an empty input preserves rc.37 and the
+legacy path. Local orchestration tests exercise reuse, cleanup and failure codes
+with fake external tools. Hosted execution and live parity remain BLOCKED until
+a candidate is available in the authorized GitHub environment.
+
+Local gates passed: 561 Go race tests, `go vet`, security/release checks, 133
+testbench harness tests, all suite/catalog validators and 25 Action tests.
+Workflow lint passes with the existing enterprise runner label explicitly
+allowed. Canonical baseline and Modbus group preparation also validate against
+the actual testbench configuration without running hooks or deployments.

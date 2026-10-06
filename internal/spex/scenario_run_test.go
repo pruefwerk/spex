@@ -59,6 +59,13 @@ func TestScenarioRunPersistsOnlySafeArtifacts(t *testing.T) {
 			t.Fatal("invalid result or overwritten rerun")
 		}
 		previous = summary.ArtifactDirectory
+		var report bytes.Buffer
+		if err := Run([]string{"reports", "scenario", "--out", summary.ArtifactDirectory}, &report, &report); err != nil {
+			t.Fatalf("cannot summarize runtime artifacts: %v", err)
+		}
+		if strings.Contains(report.String(), sentinel) {
+			t.Fatal("report summary leaked backend output")
+		}
 		wantID, _ := scenario.Identity(document)
 		if summary.ScenarioID != wantID {
 			t.Fatal("execution changed semantic identity")

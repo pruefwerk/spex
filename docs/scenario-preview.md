@@ -97,6 +97,14 @@ cancellation. A reporting or cleanup failure does not replace a primary test
 failure. If storage fails, the result file itself may be unavailable; the CLI
 still returns failure.
 
+`spex reports scenario --out DIR` checks one invocation's canonical result and
+prints identity, outcome and test counts. Use a fresh artifact base for each CI
+invocation, or point directly at one execution directory. The reader rejects
+missing, mismatched or multiple execution records and incomplete success claims.
+It prints no free-form backend messages. A collector failure should fail an
+otherwise successful CI step, but must not replace an existing execution failure
+or timeout. `reports summarize` continues to support legacy suite workspaces.
+
 ## Current qualification boundary
 
 Local tests exercise YAML and Gherkin authoring, committed-document overrides,

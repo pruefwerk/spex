@@ -7,6 +7,13 @@
       "evidence": "Docker daemon socket is absent; Kind executable is unavailable; custom ECR charts are accessible only in the enterprise GitHub environment.",
       "affects": ["fresh full acceptance baseline", "runtime acceptance parity", "inline live qualification", "file live qualification", "final full acceptance qualification"],
       "resolution": "Run the qualification workflows in the existing authorized GitHub environment after local checks pass. Do not mark live acceptance PASS from static validation."
+    },
+    {
+      "id": "hosted-scenario-qualification",
+      "status": "BLOCKED",
+      "evidence": "The testbench has an opt-in manual scenario_spex_version input, but this campaign has not published a scenario-capable Spex candidate or run that hosted path.",
+      "affects": ["hosted group lifecycle", "live credential renewal", "canonical artifact upload", "replacement of legacy CI entrypoint"],
+      "resolution": "Publish an explicitly approved candidate, manually select gateway-migration and that version in the enterprise workflow, and inspect every selected group's result before changing defaults."
     }
   ]
 }
