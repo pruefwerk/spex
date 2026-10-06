@@ -171,3 +171,27 @@ The GitHub workflow has not run, no remote repository/tag has been published,
 and no scenario-capable release is available for live installer qualification.
 Live migration acceptance, portable testbench lifecycle and CI adoption remain
 outstanding. This is not completion of Phases 8–12 or of the campaign.
+
+## Testbench adoption preparation — selection and renewal
+
+Typed selection arrays now delegate to the existing suite tag filters. Authoring
+overrides replace arrays, including explicit empty arrays. The runtime also
+exposes the existing per-scenario executable hook and bounded timeout. It checks
+workspace confinement and executability during preparation, but invokes hooks
+only during execution. Tests cover repeated renewal, absence of global environment
+mutation and credential sentinels in retained artifacts.
+
+The testbench has a minimal committed scenario and an opt-in authoring script.
+The script reuses existing group validation, delegates canonical construction to
+Spex and replaces itself with the CLI for cancellation propagation. Production
+CI and the dependency pin remain unchanged. Existing profiles still require the
+testbench working directory; the adapter preserves that legacy convention.
+
+Live qualification remains blocked. The production report collector and shared
+cluster lifecycle must be integrated before the scenario path can replace the
+current workflow. Local qualification passed: 551 Go race tests, `go vet`,
+security and production-candidate checks, 127 testbench harness tests, all suite
+and catalog validators, and 25 Action tests against the candidate binary.
+Read-only scenario validation covers all 73 Gateway Migration scenarios; selecting
+verification, lifecycle and Modbus produces 31 tests. The Action also passes
+Pyright and Ruff. These results do not establish live acceptance parity.

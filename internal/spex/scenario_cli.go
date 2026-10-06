@@ -99,6 +99,8 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 	if err != nil {
 		return err
 	}
+	// Profile paths refer to the explicit workspace, not the caller's cwd.
+	defaults.repoRoot = workspaceRoot
 	runtime := migrationRuntime{flags: defaults}
 	registry := scenarioruntime.NewRegistry()
 	if err := registry.Register(runtime); err != nil {

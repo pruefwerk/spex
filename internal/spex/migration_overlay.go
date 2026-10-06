@@ -2,6 +2,8 @@ package spex
 
 import (
 	"errors"
+	"os"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/pruefwerk/spex/internal/workspace"
@@ -16,6 +18,13 @@ type migrationOverlay struct {
 	Environment migrationEnvironmentOverlay `toml:"environment,omitempty"`
 	Probe       migrationProbeOverlay       `toml:"probe,omitempty"`
 	Execution   migrationExecutionOverlay   `toml:"execution,omitempty"`
+	Selection   migrationSelectionOverlay   `toml:"selection,omitempty"`
+}
+
+type migrationSelectionOverlay struct {
+	IncludeTags    *[]string `toml:"include_tags,omitempty"`
+	IncludeAnyTags *[]string `toml:"include_any_tags,omitempty"`
+	ExcludeTags    *[]string `toml:"exclude_tags,omitempty"`
 }
 
 type migrationEnvironmentOverlay struct {
@@ -29,12 +38,14 @@ type migrationProbeOverlay struct {
 }
 
 type migrationExecutionOverlay struct {
-	FailFast               *bool `toml:"fail_fast,omitempty"`
-	Repetitions            *int  `toml:"repetitions,omitempty"`
-	Concurrency            *int  `toml:"concurrency,omitempty"`
-	MaxFailures            *int  `toml:"max_failures,omitempty"`
-	RetainRuntimeResources *bool `toml:"retain_runtime_resources,omitempty"`
-	CollectResourceUsage   *bool `toml:"collect_resource_usage,omitempty"`
+	BeforeScenarioHook        *string `toml:"before_scenario_hook,omitempty"`
+	BeforeScenarioHookTimeout *string `toml:"before_scenario_hook_timeout,omitempty"`
+	FailFast                  *bool   `toml:"fail_fast,omitempty"`
+	Repetitions               *int    `toml:"repetitions,omitempty"`
+	Concurrency               *int    `toml:"concurrency,omitempty"`
+	MaxFailures               *int    `toml:"max_failures,omitempty"`
+	RetainRuntimeResources    *bool   `toml:"retain_runtime_resources,omitempty"`
+	CollectResourceUsage      *bool   `toml:"collect_resource_usage,omitempty"`
 }
 
 func decodeMigrationOverlay(raw scenario.RawRuntimeConfig) (migrationOverlay, error) {
@@ -45,6 +56,17 @@ func decodeMigrationOverlay(raw scenario.RawRuntimeConfig) (migrationOverlay, er
 	if overlay.Suite != nil {
 		if _, err := scenario.RelativePath(*overlay.Suite); err != nil {
 			return overlay, errors.New("runtime suite must be workspace-relative")
+		}
+	}
+	if hook := overlay.Execution.BeforeScenarioHook; hook != nil && *hook != "" {
+		if _, err := scenario.RelativePath(*hook); err != nil {
+			return overlay, errors.New("runtime hook must be workspace-relative")
+		}
+	}
+	if timeout := overlay.Execution.BeforeScenarioHookTimeout; timeout != nil {
+		duration, err := time.ParseDuration(*timeout)
+		if err != nil || duration <= 0 || duration > 10*time.Minute {
+			return overlay, errors.New("runtime hook timeout must be positive and at most ten minutes")
 		}
 	}
 	if overlay.Environment.Namespace != nil && *overlay.Environment.Namespace == "" {
@@ -83,6 +105,11 @@ func (migrationRuntime) MergeConfig(baseRaw, overrideRaw scenario.RawRuntimeConf
 		return scenario.RawRuntimeConfig{}, err
 	}
 	base.Suite = overlayValue(base.Suite, override.Suite)
+	base.Selection.IncludeTags = overlayStrings(base.Selection.IncludeTags, override.Selection.IncludeTags)
+	base.Selection.IncludeAnyTags = overlayStrings(base.Selection.IncludeAnyTags, override.Selection.IncludeAnyTags)
+	base.Selection.ExcludeTags = overlayStrings(base.Selection.ExcludeTags, override.Selection.ExcludeTags)
+	base.Execution.BeforeScenarioHook = overlayValue(base.Execution.BeforeScenarioHook, override.Execution.BeforeScenarioHook)
+	base.Execution.BeforeScenarioHookTimeout = overlayValue(base.Execution.BeforeScenarioHookTimeout, override.Execution.BeforeScenarioHookTimeout)
 	base.Environment.Namespace = overlayValue(base.Environment.Namespace, override.Environment.Namespace)
 	base.Environment.KubeContext = overlayValue(base.Environment.KubeContext, override.Environment.KubeContext)
 	base.Probe.Image = overlayValue(base.Probe.Image, override.Probe.Image)
@@ -98,6 +125,50 @@ func (migrationRuntime) MergeConfig(baseRaw, overrideRaw scenario.RawRuntimeConf
 		return scenario.RawRuntimeConfig{}, errors.New("cannot encode runtime overlay")
 	}
 	return scenario.ParseRuntimeConfig(data)
+}
+
+func overlayStrings(base, override *[]string) *[]string {
+	selected := base
+	if override != nil {
+		selected = override
+	}
+	if selected == nil {
+		return nil
+	}
+	copy := append([]string{}, (*selected)...)
+	return &copy
+}
+
+// Selection configures the existing resolver's filters; it does not reimplement
+// discovery. Hooks remain the runtime's existing trusted-executable mechanism.
+func (o migrationOverlay) ResolveControls(flags suiteFlags, root string) (suiteFlags, error) {
+	if o.Selection.IncludeTags != nil {
+		flags.includeTags = append(stringListFlag{}, (*o.Selection.IncludeTags)...)
+	}
+	if o.Selection.IncludeAnyTags != nil {
+		flags.includeAnyTags = append(stringListFlag{}, (*o.Selection.IncludeAnyTags)...)
+	}
+	if o.Selection.ExcludeTags != nil {
+		flags.excludeTags = append(stringListFlag{}, (*o.Selection.ExcludeTags)...)
+	}
+	if o.Execution.BeforeScenarioHook != nil {
+		flags.beforeScenarioHook = ""
+		if *o.Execution.BeforeScenarioHook != "" {
+			path, err := scenario.SourcePath(root, *o.Execution.BeforeScenarioHook)
+			if err != nil {
+				return flags, errors.New("runtime hook unavailable or outside workspace")
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.Mode()&0o111 == 0 {
+				return flags, errors.New("runtime hook is not executable")
+			}
+			flags.beforeScenarioHook = path
+		}
+	}
+	if o.Execution.BeforeScenarioHookTimeout != nil {
+		flags.beforeScenarioHookTimeout, _ = time.ParseDuration(*o.Execution.BeforeScenarioHookTimeout)
+	}
+	return flags, nil
 }
 
 // Apply copies the values it changes. It neither reloads configuration nor

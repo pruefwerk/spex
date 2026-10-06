@@ -34,6 +34,10 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 		return nil, err
 	}
 	flags := r.flags
+	flags, err = overlay.ResolveControls(flags, request.Workspace)
+	if err != nil {
+		return nil, err
+	}
 	if overlay.Suite != nil {
 		flags.suitePath, err = scenario.SourcePath(request.Workspace, *overlay.Suite)
 		if err != nil {

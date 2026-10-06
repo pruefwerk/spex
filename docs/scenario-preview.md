@@ -20,6 +20,30 @@ are allowed. Test references must stay inside the workspace, including through
 symlinks. Existing test-file include semantics remain unchanged. Inline sources
 use the workspace as their source directory.
 
+Existing profiles can still contain working-directory-relative paths. Run from
+the runtime repository root when using those profiles; `--workspace` does not
+change the process working directory or reinterpret legacy profile paths.
+
+## Selection and credential renewal
+
+The migration runtime accepts `selection.include_tags`, `include_any_tags` and
+`exclude_tags` arrays inside `runtime_config`. They use the existing suite tag
+filters: all required tags, at least one optional tag, and no excluded tags.
+An absent array inherits; a supplied array replaces it, including `[]` to clear
+the filter. Selection feeds the existing discovery machinery. Other value
+overrides still apply after inherited configuration resolves.
+
+`execution.before_scenario_hook` selects an existing trusted executable relative
+to the workspace. The runtime rejects escaping paths and non-executable files.
+An explicit empty string clears the hook. `before_scenario_hook_timeout` accepts
+a positive duration up to ten minutes; the existing default is two minutes.
+Validation and explanation never invoke the hook. Execution invokes it before
+each selected test, including repetitions, using the existing JSON environment
+contract. Credentials remain in memory and do not enter canonical artifacts.
+Only select reviewed repository code: a hook is executable code, not untrusted
+scenario text. This exposes an existing runtime facility, not a generic lifecycle
+language or a GitHub-specific credential mechanism.
+
 Spex accepts its existing YAML test definitions and Gherkin features. A `.spex`
 file contains YAML. Inline text beginning with a Gherkin `Feature:` declaration
 (after comments or tags) uses the existing Gherkin parser. Inline sources do not
