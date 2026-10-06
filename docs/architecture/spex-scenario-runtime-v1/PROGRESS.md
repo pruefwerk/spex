@@ -84,7 +84,8 @@ qualification retains the recorded infrastructure blocker.
 - Qualify scenario run against the live migration environment.
 - Persist canonical artifacts and versioned results; qualify redaction and all
   primary/secondary failure paths before exposing execution publicly.
-- Implement the thin Action in the initialized `pruefwerk/spex-action` repository.
+- Qualify and publish the local `pruefwerk/spex-action` implementation after the
+  scenario-capable Spex release and hosted/live gates pass.
 - Qualify inline, file and committed-scenario authoring and local reproduction.
 - Adapt migration-testbench CI and portable environment lifecycle without
   duplicating its existing configuration or deployment machinery.
@@ -144,3 +145,29 @@ tests, `go vet`, 122 testbench harness tests, suite/catalog validation, and the
 existing security and production-candidate checks.
 Live qualification, the Action, long-running credential renewal through the new
 entrypoint, and testbench CI adoption remain outstanding.
+
+## Phase 7 — local composite Action
+
+The new `pruefwerk/spex-action` repository now contains the composite metadata,
+Python transport/bootstrap, tests, documentation and a qualification workflow.
+It delegates scenario construction and execution to the same CLI used locally.
+Inline source and runtime configuration travel through private input files;
+other values use argv. The wrapper neither parses TOML nor merges runtime fields.
+
+Users select an explicit executable or published Spex version. Installation
+reuses the existing release archive and requires its checksum. The wrapper
+exports paths/identity, forwards cancellation, and preserves a primary exit code
+when output writing or temporary-file cleanup also fails. Artifact upload stays
+with the caller. Exactly three primary authoring examples are documented.
+
+Local qualification passed: 17 adapter/installer unit tests plus seven tests
+against the candidate Spex binary with simulated KUTTL, Python lint/format and
+workflow lint. These tests include all authoring modes, local canonical replay,
+runtime discovery, failure outputs and SIGTERM propagation. Existing Spex and
+testbench local regression gates also passed. The Action qualification document
+records the precise scope and remaining blockers.
+
+The GitHub workflow has not run, no remote repository/tag has been published,
+and no scenario-capable release is available for live installer qualification.
+Live migration acceptance, portable testbench lifecycle and CI adoption remain
+outstanding. This is not completion of Phases 8–12 or of the campaign.

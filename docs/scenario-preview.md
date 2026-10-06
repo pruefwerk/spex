@@ -1,7 +1,8 @@
 # Scenario authoring preview
 
 This checkpoint supports `spex scenario build`, `validate`, `explain` and `run`.
-The GitHub Action and live runtime qualification remain unfinished. Continue to
+The local `pruefwerk/spex-action` implementation now supports these commands;
+hosted Action and live runtime qualification remain unfinished. Continue to
 use the existing suite commands for production acceptance runs until qualification
 finishes.
 
@@ -80,7 +81,7 @@ confinement and non-overwriting output. Execution equivalence tests use a local
 test runner, not live Kubernetes services. Fresh live acceptance remains blocked
 by the infrastructure listed in the architecture qualification report.
 
-The GitHub Action and testbench CI adoption remain under development. The preview
+Hosted Action qualification and testbench CI adoption remain outstanding. The preview
 does not expand secret references into canonical TOML. Never place literal
 credentials in inline test text or scenario metadata. Live acceptance, credential
 renewal across long runs and service-repository adoption still require qualification.
