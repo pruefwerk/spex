@@ -1,0 +1,12 @@
+{
+  "schema": "spex.qualification-blockers/v1",
+  "blockers": [
+    {
+      "id": "live-acceptance-infrastructure",
+      "status": "BLOCKED",
+      "evidence": "Docker daemon socket is absent; Kind executable is unavailable; custom ECR charts are accessible only in the enterprise GitHub environment.",
+      "affects": ["fresh full acceptance baseline", "runtime acceptance parity", "inline live qualification", "file live qualification", "final full acceptance qualification"],
+      "resolution": "Run the qualification workflows in the existing authorized GitHub environment after local checks pass. Do not mark live acceptance PASS from static validation."
+    }
+  ]
+}
