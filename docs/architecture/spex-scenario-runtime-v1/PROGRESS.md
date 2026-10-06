@@ -31,3 +31,27 @@ Validation: 518 Spex race tests across 10 packages; `go vet`; security and
 production-candidate gates; all 122 testbench harness tests passed. Runtime tests
 exercise ordering, cancellation, runtime selection and primary-failure retention.
 No production runtime or new CLI command is wired yet. Live tests remain blocked.
+
+## Phase 3 — local adapter; live parity blocked
+
+The legacy `suite run` entrypoint and the in-process migration runtime now share
+`runResolvedSuite`. The adapter calls `LoadScenarioSuite` and `loadSuiteInputs`;
+it does not reproduce the testbench's configuration model. Empty-overlay tests
+compare resolved configurations and discovery directly. A second test compares
+JUnit evidence from the legacy and shared execution paths.
+
+Context-aware variants propagate cancellation through hooks, KUTTL, evidence
+commands and rate limiting. Unix commands run in isolated process groups when
+cancellable. Runtime cleanup gets a separate 30-second budget; legacy callers
+retain their existing execution interface. The adapter distinguishes mapped
+operation failures from setup, runner and missing-evidence failures.
+
+The adapter remains internal and accepts only inherited suite configuration.
+Typed overlays, explicit source handling, scenario CLI, secret-safe artifacts,
+Action implementation and CI adoption are not implemented yet. Do not use this
+checkpoint as a release candidate for the completed scenario product.
+
+Local qualification: 529 Spex race tests, `go vet`, all 122 testbench harness
+tests, all testbench suite validators (including 73 Gateway Migration scenarios),
+catalog validation, and the security/production-candidate gates passed. Fresh
+full acceptance parity remains blocked by the Phase 0 infrastructure constraints.

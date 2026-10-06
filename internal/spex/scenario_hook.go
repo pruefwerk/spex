@@ -20,10 +20,14 @@ var hookEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Each scenario receives its own environment; concurrent runs never mutate the
 // parent process or share a credential file.
 func runSuiteScenario(path string, flags suiteFlags, stdout, stderr io.Writer) error {
+	ctx := suiteContext(flags)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var environment []string
 	if flags.beforeScenarioHook != "" {
 		var err error
-		environment, err = executeScenarioHook(path, flags.beforeScenarioHook, flags.beforeScenarioHookTimeout)
+		environment, err = executeScenarioHookContext(ctx, path, flags.beforeScenarioHook, flags.beforeScenarioHookTimeout)
 		if err != nil {
 			class := "before_scenario_hook_failed"
 			message := "Before-scenario hook failed; scenario did not run"
@@ -36,17 +40,29 @@ func runSuiteScenario(path string, flags suiteFlags, stdout, stderr io.Writer) e
 			return fmt.Errorf("%s", message)
 		}
 	}
-	return runWorkspaceWithEnvironment(suiteWorkspaceRunArgs(path, flags), stdout, stderr, environment)
+	return runWorkspaceContext(ctx, suiteWorkspaceRunArgs(path, flags), stdout, stderr, environment)
+}
+
+func suiteContext(flags suiteFlags) context.Context {
+	if flags.ctx != nil {
+		return flags.ctx
+	}
+	return context.Background()
 }
 
 func executeScenarioHook(path, executable string, timeout time.Duration) ([]string, error) {
+	return executeScenarioHookContext(context.Background(), path, executable, timeout)
+}
+
+func executeScenarioHookContext(parent context.Context, path, executable string, timeout time.Duration) ([]string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("invalid hook workspace")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, executable)
+	cancelCommandTree(cmd)
 	cmd.Env = mergeScenarioEnvironment([]string{"SPEX_SCENARIO_WORKSPACE=" + absolute})
 	cmd.WaitDelay = 2 * time.Second
 	output := newLimitedCapture(64 << 10)

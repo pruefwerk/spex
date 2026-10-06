@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1758,6 +1759,7 @@ Examples:
 }
 
 type suiteFlags struct {
+	ctx                       context.Context
 	beforeScenarioHook        string
 	beforeScenarioHookTimeout time.Duration
 	suitePath                 string
@@ -1982,6 +1984,15 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	return runResolvedSuite(resolved, inputs, flags, stdout, stderr)
+}
+
+// runResolvedSuite owns execution for both legacy suites and scenario runtimes.
+// Callers resolve configuration before entering this environment-mutating path.
+func runResolvedSuite(resolved workspace.ResolvedScenarioSuite, inputs []workspace.Inputs, flags suiteFlags, stdout, stderr io.Writer) error {
+	if err := suiteContext(flags).Err(); err != nil {
+		return err
+	}
 	outRoot := suiteOutputRoot(resolved, flags)
 	if err := validateOutputDir(outRoot); err != nil {
 		return err
@@ -2056,7 +2067,12 @@ func runSuiteWorkspacesSequential(workspaces []string, flags suiteFlags, limiter
 	stopReason := ""
 	for i, workspacePath := range workspaces {
 		outcome := suiteRunWorkspaceOutcome{Workspace: workspacePath, Execution: "executed"}
-		limiter.Wait()
+		if err := limiter.WaitContext(suiteContext(flags)); err != nil {
+			for _, skipped := range workspaces[i:] {
+				outcomes = append(outcomes, suiteRunWorkspaceOutcome{Workspace: skipped, Execution: "skipped"})
+			}
+			return outcomes, append(failed, "cancelled"), "cancelled"
+		}
 		fmt.Fprintf(stdout, "Starting scenario %d/%d: %s\n", i+1, len(workspaces), filepath.Base(workspacePath))
 		startedAt := time.Now()
 		err := runSuiteScenario(workspacePath, flags, stdout, stderr)
@@ -2094,7 +2110,7 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 	stopReason := ""
 	stopped := false
 	start := func(index int) {
-		limiter.Wait()
+		_ = limiter.WaitContext(suiteContext(flags))
 		running++
 		workspacePath := workspaces[index]
 		fmt.Fprintf(stdout, "Starting scenario %d/%d: %s\n", index+1, len(workspaces), filepath.Base(workspacePath))
@@ -2105,13 +2121,16 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 			results <- suiteWorkspaceResult{Index: index, Failed: err != nil}
 		}()
 	}
-	for next < len(workspaces) && running < concurrency {
+	for next < len(workspaces) && running < concurrency && suiteContext(flags).Err() == nil {
 		start(next)
 		next++
 	}
 	for running > 0 {
 		result := <-results
 		running--
+		if suiteContext(flags).Err() != nil {
+			stopped, stopReason = true, "cancelled"
+		}
 		outcomes[result.Index] = suiteRunWorkspaceOutcome{Workspace: workspaces[result.Index], Execution: "executed"}
 		if result.Failed {
 			failures++
@@ -2129,6 +2148,10 @@ func runSuiteWorkspacesConcurrent(workspaces []string, flags suiteFlags, concurr
 		outcomes[i] = suiteRunWorkspaceOutcome{Workspace: workspaces[i], Execution: "skipped"}
 	}
 	var failed []string
+	if suiteContext(flags).Err() != nil {
+		stopReason = "cancelled"
+		failed = append(failed, "cancelled")
+	}
 	for _, outcome := range outcomes {
 		if outcome.Execution != "executed" {
 			continue
@@ -2166,15 +2189,29 @@ func newSuiteRateLimiter(rateLimit workspace.SuiteRateLimit) suiteRateLimiter {
 }
 
 func (l *suiteRateLimiter) Wait() {
+	_ = l.WaitContext(context.Background())
+}
+
+func (l *suiteRateLimiter) WaitContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if l.interval <= 0 {
-		return
+		return nil
 	}
 	now := time.Now()
 	if !l.next.IsZero() && now.Before(l.next) {
-		time.Sleep(l.next.Sub(now))
+		timer := time.NewTimer(l.next.Sub(now))
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
 		now = time.Now()
 	}
 	l.next = now.Add(l.interval)
+	return nil
 }
 
 type lockedWriter struct {
@@ -4740,6 +4777,13 @@ func runWorkspace(args []string, stdout, stderr io.Writer) error {
 }
 
 func runWorkspaceWithEnvironment(args []string, stdout, stderr io.Writer, environment []string) error {
+	return runWorkspaceContext(context.Background(), args, stdout, stderr, environment)
+}
+
+func runWorkspaceContext(ctx context.Context, args []string, stdout, stderr io.Writer, environment []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	workspacePath := fs.String("workspace", "", "generated workspace directory")
@@ -4780,17 +4824,26 @@ func runWorkspaceWithEnvironment(args []string, stdout, stderr io.Writer, enviro
 		fmt.Fprintf(stdout, "report written: %s\n", reportPath)
 		return stepMapErr
 	}
-	result := executeKUTTL(*command, *workspacePath, stepMap.Spec.KubeContext, stdout, stderr, environment)
+	result := executeKUTTLContext(ctx, *command, *workspacePath, stepMap.Spec.KubeContext, stdout, stderr, environment)
 	finishedAt := time.Now().UTC()
 	if len(stepMap.Spec.Steps) > 0 && result.ScenarioResult != "not_run" {
-		collectEvidence(*command, *workspacePath, stepMap, environment)
+		collectEvidenceContext(ctx, *command, *workspacePath, stepMap, environment)
 		if *collectResourceUsage {
-			collectResourceUsageEvidence(*command, *workspacePath, stepMap, environment)
+			collectResourceUsageEvidenceContext(ctx, *command, *workspacePath, stepMap, environment)
 		}
 	}
 	cleanupErr := error(nil)
-	if !*retainRuntimeResources && result.ScenarioResult != "not_run" {
-		cleanupErr = cleanupRuntimeResources(*command, *workspacePath, stepMap, stdout, environment)
+	if !*retainRuntimeResources && (result.ScenarioResult != "not_run" || ctx.Err() != nil) {
+		if ctx.Done() != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			selector := "spex/owned=true,spex/scenario=" + stepMap.Metadata.Scenario
+			if stepMap.Spec.Namespace != "" && stepMap.Metadata.Scenario != "" {
+				cleanupErr = runCleanupCommandsContext(cleanupCtx, *command, *workspacePath, stepMap, runtimeCleanupCommands(stepMap, selector), stdout, "", environment)
+			}
+			cancel()
+		} else {
+			cleanupErr = cleanupRuntimeResources(*command, *workspacePath, stepMap, stdout, environment)
+		}
 		if cleanupErr != nil {
 			class := "runtime_cleanup_failed"
 			message := strings.TrimSpace(cleanupErr.Error())
@@ -4871,9 +4924,13 @@ func runtimeCleanupCommands(stepMap stepMapFile, selector string) [][]string {
 }
 
 func runCleanupCommands(command, workspacePath string, stepMap stepMapFile, commands [][]string, stdout io.Writer, successMessage string, environment ...[]string) error {
+	return runCleanupCommandsContext(context.Background(), command, workspacePath, stepMap, commands, stdout, successMessage, environment...)
+}
+
+func runCleanupCommandsContext(ctx context.Context, command, workspacePath string, stepMap stepMapFile, commands [][]string, stdout io.Writer, successMessage string, environment ...[]string) error {
 	for _, args := range commands {
 		args = kubectlArgsForWorkspace(workspacePath, stepMap.Spec.KubeContext, args...)
-		output, err := runBoundedCommandWithEnvironment(maxCleanupOutputSize, command, scenarioCommandEnvironment(environment), args...)
+		output, err := runBoundedCommandContext(ctx, maxCleanupOutputSize, command, scenarioCommandEnvironment(environment), args...)
 		if len(output) > 0 {
 			fmt.Fprint(stdout, string(output))
 		}
@@ -4900,8 +4957,14 @@ type kuttlResult struct {
 }
 
 func executeKUTTL(command, workspacePath, kubeContext string, stdout, stderr io.Writer, environment ...[]string) kuttlResult {
+	return executeKUTTLContext(context.Background(), command, workspacePath, kubeContext, stdout, stderr, environment...)
+}
+
+func executeKUTTLContext(ctx context.Context, command, workspacePath, kubeContext string, stdout, stderr io.Writer, environment ...[]string) kuttlResult {
 	_ = kubeContext
-	cmd := exec.Command(command, "kuttl", "test", "--config", "kuttl-test.yaml")
+	cmd := exec.CommandContext(ctx, command, "kuttl", "test", "--config", "kuttl-test.yaml")
+	cancelCommandTree(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = workspacePath
 	cmd.Env = scenarioCommandEnvironment(environment)
 	capture := newLimitedCapture(maxKUTTLOutputSize)
@@ -4912,6 +4975,10 @@ func executeKUTTL(command, workspacePath, kubeContext string, stdout, stderr io.
 	cmd.Stderr = stream
 	err := cmd.Run()
 	output := capture.String()
+	if ctx.Err() != nil {
+		class, message := "cancelled", "Scenario execution cancelled"
+		return kuttlResult{ScenarioResult: "not_run", RunnerResult: "error", FailureClass: &class, FailureMessage: &message, Output: output, Err: ctx.Err()}
+	}
 	if err == nil {
 		return kuttlResult{ScenarioResult: "passed", RunnerResult: "passed", Output: output}
 	}
