@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/pruefwerk/spex/pkg/scenario"
 	"github.com/pruefwerk/spex/pkg/scenarioruntime"
@@ -22,11 +24,17 @@ func (f *scenarioFiles) Set(value string) error { *f = append(*f, value); return
 // GitHub adapters must call these authoring commands rather than interpreting
 // TOML, merging configuration, or constructing shell commands themselves.
 func runScenarioCommand(args []string, stdout io.Writer) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runScenarioCommandContext(ctx, args, stdout)
+}
+
+func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return ExitError{Code: ExitValidation, Err: errors.New("scenario requires build, validate, or explain")}
+		return ExitError{Code: ExitValidation, Err: errors.New("scenario requires build, validate, explain, or run")}
 	}
 	command := args[0]
-	if command != "build" && command != "validate" && command != "explain" {
+	if command != "build" && command != "validate" && command != "explain" && command != "run" {
 		return ExitError{Code: ExitValidation, Err: errors.New("unknown scenario command")}
 	}
 	fs := flag.NewFlagSet("scenario "+command, flag.ContinueOnError)
@@ -34,6 +42,10 @@ func runScenarioCommand(args []string, stdout io.Writer) error {
 	root := fs.String("workspace", ".", "repository root for all test paths")
 	var source, runtimeID, name, description, timeout, inlineFile, configFile, output string
 	var files scenarioFiles
+	artifactDirectory := ".spex/runs"
+	if command == "run" {
+		fs.StringVar(&artifactDirectory, "artifact-directory", artifactDirectory, "workspace-relative artifact base")
+	}
 	if command == "build" {
 		fs.StringVar(&source, "scenario", "", "committed scenario to overlay")
 		fs.StringVar(&runtimeID, "runtime", "", "runtime identifier")
@@ -141,8 +153,11 @@ func runScenarioCommand(args []string, stdout io.Writer) error {
 			return ExitError{Code: ExitValidation, Err: err}
 		}
 	}
-	prepared, err := registry.Prepare(context.Background(), scenarioruntime.ResolveRequest{Scenario: document, Workspace: workspaceRoot})
+	prepared, err := registry.Prepare(ctx, scenarioruntime.ResolveRequest{Scenario: document, Workspace: workspaceRoot})
 	if err != nil {
+		if ctx.Err() != nil {
+			return ExitError{Code: 130, Err: errors.New("scenario cancelled before execution")}
+		}
 		var sourceError *scenarioSourceError
 		if errors.As(err, &sourceError) {
 			err = sourceError
@@ -167,6 +182,37 @@ func runScenarioCommand(args []string, stdout io.Writer) error {
 	if command == "validate" {
 		fmt.Fprintf(stdout, "scenario valid: %s\n", id)
 		return nil
+	}
+	if command == "run" {
+		sink, err := scenarioruntime.NewFileArtifacts(workspaceRoot, artifactDirectory, id)
+		if err != nil {
+			return ExitError{Code: ExitPreflight, Err: err}
+		}
+		defer sink.Close()
+		result, runErr := scenarioruntime.Run(ctx, prepared, sink)
+		if err := json.NewEncoder(stdout).Encode(struct {
+			ScenarioID        string                  `json:"scenario_id"`
+			ScenarioPath      string                  `json:"scenario_path"`
+			ResultPath        string                  `json:"result_path"`
+			ArtifactDirectory string                  `json:"artifact_directory"`
+			Runtime           string                  `json:"runtime"`
+			Outcome           scenarioruntime.Outcome `json:"outcome"`
+		}{id, filepath.Join(sink.Directory(), "scenario.toml"), filepath.Join(sink.Directory(), "result.json"), sink.Directory(), document.Runtime, result.Outcome}); err != nil {
+			if runErr == nil {
+				runErr = errors.New("could not write run summary")
+			}
+		}
+		if runErr == nil {
+			return nil
+		}
+		code := ExitPreflight
+		if result.Outcome == scenarioruntime.Failed {
+			code = ExitRuntime
+		}
+		if result.Outcome == scenarioruntime.Cancelled {
+			code = 130
+		}
+		return ExitError{Code: code, Err: runErr}
 	}
 	return json.NewEncoder(stdout).Encode(struct {
 		ID      string                      `json:"scenario_id"`

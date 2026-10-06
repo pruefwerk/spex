@@ -39,6 +39,9 @@ type runtimeTestSink string
 
 func (s runtimeTestSink) Directory() string { return string(s) }
 func (s runtimeTestSink) Write(name string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(string(s), name)), 0o700); err != nil {
+		return err
+	}
 	return os.WriteFile(filepath.Join(string(s), name), data, 0o600)
 }
 

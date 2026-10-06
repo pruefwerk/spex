@@ -184,8 +184,8 @@ func (r *preparedMigrationRuntime) RedactedDescription() any {
 	}{"migration-testbench/v1", Version}
 }
 
-func (r *preparedMigrationRuntime) Execute(ctx context.Context, plan scenarioruntime.ExecutionPlan, sink scenarioruntime.ArtifactSink) (scenarioruntime.ExecutionResult, error) {
-	result := scenarioruntime.ExecutionResult{Outcome: scenarioruntime.Error, Cleanup: "not_run"}
+func (r *preparedMigrationRuntime) Execute(ctx context.Context, plan scenarioruntime.ExecutionPlan, sink scenarioruntime.ArtifactSink) (result scenarioruntime.ExecutionResult, executeErr error) {
+	result = scenarioruntime.ExecutionResult{Outcome: scenarioruntime.Error, Cleanup: "not_run"}
 	p, ok := plan.(migrationExecutionPlan)
 	if !ok || p.owner != r || sink == nil {
 		return result, errors.New("invalid runtime execution plan or artifact sink")
@@ -200,9 +200,42 @@ func (r *preparedMigrationRuntime) Execute(ctx context.Context, plan scenariorun
 	defer cancel()
 	flags := r.flags
 	flags.ctx = executionCtx
-	flags.outPath = filepath.Join(sink.Directory(), "artifacts")
-	err := runResolvedSuite(r.resolved, r.inputs, flags, io.Discard, io.Discard)
+	private, err := os.MkdirTemp("", "spex-scenario-")
+	if err != nil {
+		return result, errors.New("cannot create private execution workspace")
+	}
+	defer func() {
+		if err := os.RemoveAll(private); err != nil {
+			result.Problems = append(result.Problems, scenarioruntime.Problem{Phase: "cleanup", Code: "workspace_cleanup_failed", Message: "Private execution workspace cleanup failed"})
+			if result.Outcome == scenarioruntime.Passed {
+				result.Outcome = scenarioruntime.Error
+			}
+			if executeErr == nil {
+				executeErr = errors.New("private workspace cleanup failed")
+			}
+		}
+	}()
+	flags.outPath = filepath.Join(private, "workspaces")
+	err = runResolvedSuite(r.resolved, r.inputs, flags, io.Discard, io.Discard)
 	result = migrationExecutionEvidence(flags.outPath, len(p.summary.Tests), flags.retainRuntime)
+	allowedNames := map[string]bool{}
+	for _, t := range p.summary.Tests {
+		allowedNames[t.Name] = true
+	}
+	for i := range result.Tests {
+		if !allowedNames[result.Tests[i].Name] {
+			result.Tests[i].Name = fmt.Sprintf("test-%d", i)
+		}
+	}
+	if evidenceErr := persistMigrationEvidence(flags.outPath, sink); evidenceErr != nil {
+		result.Problems = append(result.Problems, scenarioruntime.Problem{Phase: "reporting", Code: "evidence_write_failed", Message: "Safe test evidence could not be persisted"})
+		if result.Outcome == scenarioruntime.Passed {
+			result.Outcome = scenarioruntime.Error
+		}
+		if err == nil {
+			err = evidenceErr
+		}
+	}
 	if ctx.Err() != nil {
 		if result.Outcome != scenarioruntime.Failed {
 			result.Outcome = scenarioruntime.Cancelled
@@ -219,8 +252,60 @@ func (r *preparedMigrationRuntime) Execute(ctx context.Context, plan scenariorun
 	return result, nil
 }
 
+// Do not copy raw logs, generated manifests, kubeconfig or resolved bindings.
+// Backend responses and setup output can contain credentials unknown to Spex.
+// Export a typed projection instead of guessing which strings need redaction.
+func persistMigrationEvidence(root string, sink scenarioruntime.ArtifactSink) error {
+	type step struct {
+		Ordinal  int    `json:"ordinal"`
+		Internal bool   `json:"internal"`
+		Outcome  string `json:"outcome"`
+	}
+	type test struct {
+		Index   int    `json:"index"`
+		Outcome string `json:"outcome"`
+		Steps   []step `json:"steps"`
+	}
+	evidence := struct {
+		Schema string `json:"schema"`
+		Tests  []test `json:"tests"`
+	}{Schema: "spex.migration-evidence/v1", Tests: []test{}}
+	paths, err := filepath.Glob(filepath.Join(root, "*", "reports", "scenario-run-report.json"))
+	if err != nil {
+		return errors.New("cannot collect evidence")
+	}
+	for index, path := range paths {
+		data, err := readRegularEvidenceFile(path, maxScenarioReportSummarySize)
+		if err != nil {
+			return errors.New("cannot read test evidence")
+		}
+		var report ScenarioRunReport
+		if json.Unmarshal(data, &report) != nil {
+			return errors.New("invalid test evidence")
+		}
+		item := test{Index: index, Outcome: safeEvidenceOutcome(report.Status.Result), Steps: []step{}}
+		for ordinal, s := range report.Steps {
+			item.Steps = append(item.Steps, step{Ordinal: ordinal, Internal: s.Internal, Outcome: safeEvidenceOutcome(s.Result)})
+		}
+		evidence.Tests = append(evidence.Tests, item)
+	}
+	data, err := json.Marshal(evidence)
+	if err != nil {
+		return errors.New("cannot encode test evidence")
+	}
+	return sink.Write("artifacts/test-evidence.json", data)
+}
+
+func safeEvidenceOutcome(value string) string {
+	switch value {
+	case "passed", "failed", "error", "not_run", "skipped", "cancelled":
+		return value
+	}
+	return "unknown"
+}
+
 func migrationExecutionEvidence(root string, expected int, retained bool) scenarioruntime.ExecutionResult {
-	result := scenarioruntime.ExecutionResult{Outcome: scenarioruntime.Passed, Cleanup: "succeeded", Artifacts: []string{"artifacts"}}
+	result := scenarioruntime.ExecutionResult{Outcome: scenarioruntime.Passed, Cleanup: "succeeded", Artifacts: []string{"artifacts/test-evidence.json"}}
 	paths, _ := filepath.Glob(filepath.Join(root, "*", "reports", "scenario-run-report.json"))
 	for _, path := range paths {
 		content, err := os.ReadFile(path)
@@ -243,7 +328,10 @@ func migrationExecutionEvidence(root string, expected int, retained bool) scenar
 				}
 			}
 		}
-		if report.Status.FailureClass != nil && *report.Status.FailureClass == "runtime_cleanup_failed" {
+		if report.Status.FailureClass != nil && *report.Status.FailureClass == "cancelled" {
+			outcome = scenarioruntime.Cancelled
+		}
+		if report.Status.CleanupFailed || (report.Status.FailureClass != nil && *report.Status.FailureClass == "runtime_cleanup_failed") {
 			result.Cleanup = "failed"
 			result.Problems = append(result.Problems, scenarioruntime.Problem{Phase: "cleanup", Code: "runtime_cleanup_failed", Message: "Runtime resource cleanup failed"})
 		}

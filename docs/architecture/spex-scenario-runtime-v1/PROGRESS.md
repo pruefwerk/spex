@@ -81,7 +81,7 @@ qualification retains the recorded infrastructure blocker.
 ## Remaining campaign work
 
 - Complete the typed overlay surface against actual scenario requirements.
-- Finish scenario run after qualifying secret-safe execution artifacts.
+- Qualify scenario run against the live migration environment.
 - Persist canonical artifacts and versioned results; qualify redaction and all
   primary/secondary failure paths before exposing execution publicly.
 - Implement the thin Action in the initialized `pruefwerk/spex-action` repository.
@@ -116,3 +116,31 @@ qualification passed: 539 Spex race tests, `go vet`, all 122 testbench harness
 tests, suite/catalog validation, and existing security/production-candidate
 checks. This is not completion of Phase 5 or of the campaign. Live acceptance
 retains the recorded infrastructure blocker.
+
+## Phase 6 — run artifacts and failure preservation
+
+`scenario run` now executes the prepared runtime and writes a canonical scenario,
+plan, runtime identity, versioned result and typed step-outcome evidence. Artifact
+writes use a confined filesystem root and exclusive creation. Reruns use separate
+execution directories beneath the unchanged semantic scenario hash.
+
+The migration adapter runs existing tools in a private temporary workspace. It
+exports only a typed evidence projection, not raw logs, manifests, kubeconfig or
+resolved bindings. Normal completion and cancellation remove that workspace;
+forced termination or host failure can leave transient files behind. This is
+an artifact export boundary, not a claim that underlying tools never write
+sensitive transient files. Detailed backend diagnostics remain intentionally
+excluded until a stronger runtime-specific redaction contract is qualified.
+
+Reporting failures retain a primary failure. Reports now record cleanup failure
+separately instead of replacing the original failure class. CLI cancellation
+propagates to execution and returns 130; mapped test failures return 3 and
+infrastructure/artifact failures return 4. Existing legacy entrypoints remain.
+
+New local tests exercise reruns, artifact confinement, sentinel secrets from
+environment/backend output, cancellation results, preparation failures and
+primary/secondary failure ordering. Local qualification passed: 547 Spex race
+tests, `go vet`, 122 testbench harness tests, suite/catalog validation, and the
+existing security and production-candidate checks.
+Live qualification, the Action, long-running credential renewal through the new
+entrypoint, and testbench CI adoption remain outstanding.

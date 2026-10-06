@@ -147,7 +147,7 @@ Commands:
   run       run a generated KUTTL workspace and write reports
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
-  scenario  build, validate, or explain a canonical TOML scenario (preview)
+  scenario  build, validate, explain, or run a canonical TOML scenario (preview)
   catalog   list, explain, check, or document reusable catalogs
   bundle    list, explain, lock, verify, or vendor resolved integration bundles
   schema    list or print embedded JSON Schemas
@@ -4863,12 +4863,15 @@ func runWorkspaceContext(ctx context.Context, args []string, stdout, stderr io.W
 			if message == "" {
 				message = "runtime cleanup failed"
 			}
-			result.RunnerResult = "error"
-			result.FailureClass = &class
-			result.FailureMessage = &message
+			if result.Err == nil {
+				result.RunnerResult = "error"
+				result.FailureClass = &class
+				result.FailureMessage = &message
+			}
 		}
 	}
 	reportPath, reportErr := WriteReport(ReportInput{
+		CleanupFailed:  cleanupErr != nil,
 		Workspace:      *workspacePath,
 		StartedAt:      startedAt,
 		FinishedAt:     finishedAt,
@@ -4879,7 +4882,7 @@ func runWorkspaceContext(ctx context.Context, args []string, stdout, stderr io.W
 		KUTTLOutput:    result.Output,
 	})
 	if reportErr != nil {
-		return reportErr
+		return errors.Join(result.Err, cleanupErr, reportErr)
 	}
 	fmt.Fprintf(stdout, "report written: %s\n", reportPath)
 	if result.Err != nil {

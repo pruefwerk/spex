@@ -19,6 +19,7 @@ const maxProbeResultFileSize int64 = 16 << 20
 const maxJobStatusFileSize int64 = 1 << 20
 
 type ReportInput struct {
+	CleanupFailed  bool
 	Workspace      string
 	StartedAt      time.Time
 	FinishedAt     time.Time
@@ -44,6 +45,7 @@ type ReportMetadata struct {
 }
 
 type ReportStatus struct {
+	CleanupFailed  bool    `yaml:"cleanupFailed,omitempty" json:"cleanupFailed,omitempty"`
 	Result         string  `yaml:"result" json:"result"`
 	ScenarioResult string  `yaml:"scenarioResult" json:"scenarioResult"`
 	RunnerResult   string  `yaml:"runnerResult" json:"runnerResult"`
@@ -168,6 +170,7 @@ func WriteReport(input ReportInput) (string, error) {
 			RunID: reportRunID(stepMap),
 		},
 		Status: ReportStatus{
+			CleanupFailed:  input.CleanupFailed,
 			Result:         deriveResult(input.RunnerResult, effectiveScenarioResult),
 			ScenarioResult: effectiveScenarioResult,
 			RunnerResult:   input.RunnerResult,
