@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pruefwerk/spex/pkg/scenario"
 )
@@ -178,6 +179,15 @@ func (p Prepared) Execute(ctx context.Context, sink ArtifactSink) (ExecutionResu
 	}
 	if p.Runtime == nil || p.Plan == nil {
 		return ExecutionResult{}, errors.New("scenario was not prepared")
+	}
+	if p.Scenario.Metadata.Timeout != nil {
+		duration, err := time.ParseDuration(*p.Scenario.Metadata.Timeout)
+		if err != nil || duration <= 0 {
+			return ExecutionResult{}, errors.New("invalid scenario timeout")
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, duration)
+		defer cancel()
 	}
 	result := ExecutionResult{Outcome: Cancelled, Cleanup: "not_run"}
 	if ctx.Err() == nil {

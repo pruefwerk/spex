@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/pruefwerk/spex/internal/workspace"
+	"github.com/pruefwerk/spex/pkg/scenario"
 	"github.com/pruefwerk/spex/pkg/scenarioruntime"
 )
 
@@ -25,12 +26,20 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// This initial adapter deliberately accepts only the parity case. Later
-	// phases add typed overlays and explicit sources without duplicating resolution.
-	if !request.Scenario.RuntimeConfig.Empty() || len(request.Scenario.Tests) != 0 {
-		return nil, errors.New("runtime overlays and explicit sources are not enabled yet")
+	overlay, err := decodeMigrationOverlay(request.Scenario.RuntimeConfig)
+	if err != nil {
+		return nil, err
+	}
+	if len(request.Scenario.Tests) != 0 {
+		return nil, errors.New("explicit runtime sources are not enabled yet")
 	}
 	flags := r.flags
+	if overlay.Suite != nil {
+		flags.suitePath, err = scenario.SourcePath(request.Workspace, *overlay.Suite)
+		if err != nil {
+			return nil, errors.New("runtime suite is unavailable or outside workspace")
+		}
+	}
 	if flags.suitePath == "" {
 		return nil, errors.New("runtime requires an existing suite selection")
 	}
@@ -45,13 +54,18 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err != nil {
 		return nil, errors.New("could not resolve runtime inputs")
 	}
-	return &preparedMigrationRuntime{resolved: resolved, inputs: inputs, flags: flags}, nil
+	resolved, inputs, flags, err = overlay.Apply(resolved, inputs, flags)
+	if err != nil {
+		return nil, err
+	}
+	return &preparedMigrationRuntime{resolved: resolved, inputs: inputs, flags: flags, overridePresent: !request.Scenario.RuntimeConfig.Empty()}, nil
 }
 
 type preparedMigrationRuntime struct {
-	resolved workspace.ResolvedScenarioSuite
-	inputs   []workspace.Inputs
-	flags    suiteFlags
+	resolved        workspace.ResolvedScenarioSuite
+	inputs          []workspace.Inputs
+	flags           suiteFlags
+	overridePresent bool
 }
 
 type migrationExecutionPlan struct {
@@ -74,7 +88,20 @@ func (r *preparedMigrationRuntime) Plan(ctx context.Context) (scenarioruntime.Ex
 	if err != nil {
 		return nil, err
 	}
-	summary := scenarioruntime.PlanSummary{ConfigurationSources: []string{"suite", "target binding", "catalogs", "integration profile"}}
+	summary := scenarioruntime.PlanSummary{ConfigurationSources: []string{"suite"}}
+	if r.resolved.BindingPath != "" {
+		summary.ConfigurationSources = append(summary.ConfigurationSources, "target binding")
+	}
+	if len(r.resolved.CatalogPaths) > 0 {
+		summary.ConfigurationSources = append(summary.ConfigurationSources, "catalogs")
+	}
+	for _, input := range inputs {
+		if input.Integration != nil {
+			summary.ConfigurationSources = append(summary.ConfigurationSources, "integration profile")
+			break
+		}
+	}
+	summary.OverridePresent = r.overridePresent
 	for _, input := range inputs {
 		summary.Tests = append(summary.Tests, scenarioruntime.TestDescription{Name: input.ScenarioName, Source: filepath.Base(input.ScenarioPath)})
 	}

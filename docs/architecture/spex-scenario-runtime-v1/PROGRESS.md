@@ -46,12 +46,52 @@ cancellable. Runtime cleanup gets a separate 30-second budget; legacy callers
 retain their existing execution interface. The adapter distinguishes mapped
 operation failures from setup, runner and missing-evidence failures.
 
-The adapter remains internal and accepts only inherited suite configuration.
-Typed overlays, explicit source handling, scenario CLI, secret-safe artifacts,
-Action implementation and CI adoption are not implemented yet. Do not use this
-checkpoint as a release candidate for the completed scenario product.
+At the Phase 3 checkpoint, the internal adapter accepted only inherited suite
+configuration. Phase 4 extends that surface below. Do not use these checkpoints
+as a release candidate for the completed scenario product.
 
 Local qualification: 529 Spex race tests, `go vet`, all 122 testbench harness
 tests, all testbench suite validators (including 73 Gateway Migration scenarios),
 catalog validation, and the security/production-candidate gates passed. Fresh
 full acceptance parity remains blocked by the Phase 0 infrastructure constraints.
+
+## Phase 4 — first typed overlay surface
+
+The runtime decodes strict TOML into optional typed fields and applies them after
+the existing resolver finishes. Supported fields currently cover suite selection,
+environment namespace/context, probe image/pull policy, and execution controls
+(fail-fast, repetitions, concurrency, maximum failures, resource retention and
+resource-usage collection). Suite selection chooses an existing configuration;
+it does not create a second configuration model. Unknown fields fail validation.
+
+The pure application operation preserves inherited values and input storage.
+Authoring merges use explicit typed fields, not recursive maps or reflection.
+Tests cover absent values, nested overrides, explicit false/zero, legal empty
+context, invalid values, unknown keys and secret-safe error text. Scenario
+execution also propagates its metadata timeout to the runtime.
+
+This is a deliberately limited surface: no map/array override fields or service
+image overrides are exposed yet. Their semantics and tests remain outstanding;
+this checkpoint does not satisfy the entire Phase 4 acceptance matrix. No new
+CLI or Action entrypoint exposes the adapter yet. Local qualification passed:
+533 Spex race tests, `go vet`, 122 testbench harness tests, suite/catalog
+validation, and the existing security and production-candidate checks. Live
+qualification retains the recorded infrastructure blocker.
+
+## Remaining campaign work
+
+- Complete the typed overlay surface against actual scenario requirements.
+- Add explicit external and inline sources through the existing Spex parsers.
+- Implement scenario validate/build/run/explain, with strict runtime validation.
+- Persist canonical artifacts and versioned results; qualify redaction and all
+  primary/secondary failure paths before exposing execution publicly.
+- Implement the thin Action in the initialized `pruefwerk/spex-action` repository.
+- Qualify inline, file and committed-scenario authoring and local reproduction.
+- Adapt migration-testbench CI and portable environment lifecycle without
+  duplicating its existing configuration or deployment machinery.
+- Write usage documentation and exactly three primary examples.
+- Run the full release matrix and produce `FINAL_REPORT.md`. Live acceptance
+  requires the authorized environment recorded in `blockers.json`.
+
+The migration-testbench dependency pin and production CI remain unchanged. No
+release or remote publication has been made during this campaign.

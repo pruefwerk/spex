@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pruefwerk/spex/pkg/scenario"
 )
@@ -15,6 +16,7 @@ type fake struct {
 	resolveErr, planErr, executeErr error
 	result                          ExecutionResult
 	cancel                          context.CancelFunc
+	waitForCancellation             bool
 }
 
 func (f *fake) ID() string { return "test/v1" }
@@ -31,7 +33,31 @@ func (f *fake) Plan(ctx context.Context) (ExecutionPlan, error) {
 }
 func (f *fake) Execute(ctx context.Context, p ExecutionPlan, a ArtifactSink) (ExecutionResult, error) {
 	f.calls = append(f.calls, "execute", "cleanup")
+	if f.waitForCancellation {
+		select {
+		case <-ctx.Done():
+			return ExecutionResult{Cleanup: "succeeded"}, ctx.Err()
+		case <-time.After(time.Second):
+			return ExecutionResult{}, errors.New("timeout did not propagate")
+		}
+	}
 	return f.result, f.executeErr
+}
+
+func TestScenarioTimeoutReachesRuntime(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(&fake{waitForCancellation: true})
+	req := request()
+	timeout := "10ms"
+	req.Scenario.Metadata.Timeout = &timeout
+	p, err := r.Prepare(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := p.Execute(context.Background(), nil)
+	if result.Outcome != Cancelled || !errors.Is(err, context.DeadlineExceeded) || result.Cleanup != "succeeded" {
+		t.Fatalf("timeout classification: %+v, %v", result, err)
+	}
 }
 func (f *fake) RedactedDescription() any { return struct{}{} }
 
