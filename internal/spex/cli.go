@@ -63,6 +63,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runCompile(args[1:], stdout)
 	case "suite":
 		return runSuite(args[1:], stdout, stderr)
+	case "scenario":
+		return runScenarioCommand(args[1:], stdout)
 	case "init":
 		return runInit(args[1:], stdout)
 	case "new":
@@ -145,6 +147,7 @@ Commands:
   run       run a generated KUTTL workspace and write reports
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
+  scenario  build, validate, or explain a canonical TOML scenario (preview)
   catalog   list, explain, check, or document reusable catalogs
   bundle    list, explain, lock, verify, or vendor resolved integration bundles
   schema    list or print embedded JSON Schemas
@@ -2750,6 +2753,10 @@ func suiteOutputRoot(resolved workspace.ResolvedScenarioSuite, flags suiteFlags)
 }
 
 func loadSuiteInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags) ([]workspace.Inputs, error) {
+	return loadSuiteSourceInputs(resolved, flags, nil)
+}
+
+func loadSuiteSourceInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags, inline map[string][]byte) ([]workspace.Inputs, error) {
 	var out []workspace.Inputs
 	catalogs, err := workspace.LoadCatalogBundle(resolved.CatalogPaths)
 	if err != nil {
@@ -2767,7 +2774,13 @@ func loadSuiteInputs(resolved workspace.ResolvedScenarioSuite, flags suiteFlags)
 		}
 	}
 	for _, scenarioRef := range scenarioRefs {
-		scenarioInputs, err := workspace.LoadInputsWithCatalogsManyAndProviders(scenarioRef.Path, scenarioRef.BindingPath, catalogs, resolved.Providers)
+		var scenarioInputs []workspace.Inputs
+		var err error
+		if content, ok := inline[scenarioRef.Path]; ok {
+			scenarioInputs, err = workspace.LoadSourceInputs(content, scenarioRef.Path, scenarioRef.BindingPath, catalogs, resolved.Providers)
+		} else {
+			scenarioInputs, err = workspace.LoadInputsWithCatalogsManyAndProviders(scenarioRef.Path, scenarioRef.BindingPath, catalogs, resolved.Providers)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", scenarioRef.Path, err)
 		}

@@ -82,6 +82,37 @@ func LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath string, ca
 	if err != nil {
 		return nil, fmt.Errorf("scenario: %w", err)
 	}
+	return loadScenarioInputs(scenarios, scenarioPath, bindingPath, catalogs, providers)
+}
+
+// LoadSourceInputs parses an in-memory source with the same parsers and
+// validation as a file. sourcePath supplies its language extension and base
+// directory for existing relative references; no temporary file is required.
+func LoadSourceInputs(content []byte, sourcePath, bindingPath string, catalogs CatalogBundle, providers []Provider) ([]Inputs, error) {
+	var scenarios []Scenario
+	if strings.HasSuffix(sourcePath, ".feature") {
+		if len(content) > int(maxFeatureInputFileSize) {
+			return nil, fmt.Errorf("feature exceeds size limit")
+		}
+		var err error
+		scenarios, err = parseFeatureScenarios(content, sourcePath)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if len(content) > int(maxYAMLInputFileSize) {
+			return nil, fmt.Errorf("scenario exceeds size limit")
+		}
+		var source Scenario
+		if err := decodeYAMLInto(content, &source); err != nil {
+			return nil, err
+		}
+		scenarios = []Scenario{source}
+	}
+	return loadScenarioInputs(scenarios, sourcePath, bindingPath, catalogs, providers)
+}
+
+func loadScenarioInputs(scenarios []Scenario, scenarioPath, bindingPath string, catalogs CatalogBundle, providers []Provider) ([]Inputs, error) {
 	binding, err := loadYAML[TargetBinding](bindingPath)
 	if err != nil {
 		return nil, fmt.Errorf("binding: %w", err)
@@ -165,6 +196,10 @@ func loadFeatureScenarios(path string) ([]Scenario, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseFeatureScenarios(content, path)
+}
+
+func parseFeatureScenarios(content []byte, path string) ([]Scenario, error) {
 	featureText, err := expandScenarioOutlines(string(content))
 	if err != nil {
 		return nil, err
@@ -1455,6 +1490,10 @@ func loadYAMLInto(path string, out any) error {
 	if err != nil {
 		return err
 	}
+	return decodeYAMLInto(content, out)
+}
+
+func decodeYAMLInto(content []byte, out any) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(out); err != nil {

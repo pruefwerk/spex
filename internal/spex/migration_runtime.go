@@ -2,11 +2,14 @@ package spex
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pruefwerk/spex/internal/workspace"
 	"github.com/pruefwerk/spex/pkg/scenario"
@@ -30,9 +33,6 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err != nil {
 		return nil, err
 	}
-	if len(request.Scenario.Tests) != 0 {
-		return nil, errors.New("explicit runtime sources are not enabled yet")
-	}
 	flags := r.flags
 	if overlay.Suite != nil {
 		flags.suitePath, err = scenario.SourcePath(request.Workspace, *overlay.Suite)
@@ -50,15 +50,79 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err != nil {
 		return nil, errors.New("could not resolve runtime suite")
 	}
-	inputs, err := loadSuiteInputs(resolved, flags)
+	inline := map[string][]byte{}
+	logicalSources := map[string]string{}
+	if len(request.Scenario.Tests) > 0 {
+		existingRefs := resolved.ScenarioRefs
+		resolved.ScenarioRefs = nil
+		resolved.ScenarioPaths = nil
+		for index, source := range request.Scenario.Tests {
+			var sourcePath string
+			if source.File != nil {
+				sourcePath, err = scenario.SourcePath(request.Workspace, *source.File)
+				if err != nil {
+					return nil, &scenarioSourceError{index: index}
+				}
+				logicalSources[sourcePath] = *source.File
+			} else {
+				content := []byte(*source.Inline)
+				digest := sha256.Sum256(content)
+				sourcePath = filepath.Join(request.Workspace, fmt.Sprintf("inline-%x-%d%s", digest[:12], index, inlineSourceExtension(*source.Inline)))
+				inline[sourcePath] = content
+				logicalSources[sourcePath] = fmt.Sprintf("scenario.toml:test[%d]", index)
+			}
+			matched := false
+			if source.File != nil {
+				for _, existing := range existingRefs {
+					if filepath.Clean(existing.Path) == filepath.Clean(sourcePath) {
+						resolved.ScenarioRefs = append(resolved.ScenarioRefs, existing)
+						matched = true
+					}
+				}
+			}
+			if !matched {
+				resolved.ScenarioRefs = append(resolved.ScenarioRefs, workspace.ResolvedScenarioRef{Path: sourcePath, BindingPath: resolved.BindingPath, IntegrationProfilePath: resolved.IntegrationProfilePath})
+			}
+		}
+	}
+	inputs, err := loadSuiteSourceInputs(resolved, flags, inline)
 	if err != nil {
+		for _, ref := range resolved.ScenarioRefs {
+			if len(request.Scenario.Tests) > 0 && strings.HasPrefix(err.Error(), ref.Path+":") {
+				for index, source := range request.Scenario.Tests {
+					if (source.File != nil && logicalSources[ref.Path] == *source.File) || logicalSources[ref.Path] == fmt.Sprintf("scenario.toml:test[%d]", index) {
+						return nil, &scenarioSourceError{index: index}
+					}
+				}
+			}
+		}
 		return nil, errors.New("could not resolve runtime inputs")
 	}
 	resolved, inputs, flags, err = overlay.Apply(resolved, inputs, flags)
 	if err != nil {
 		return nil, err
 	}
-	return &preparedMigrationRuntime{resolved: resolved, inputs: inputs, flags: flags, overridePresent: !request.Scenario.RuntimeConfig.Empty()}, nil
+	return &preparedMigrationRuntime{resolved: resolved, inputs: inputs, flags: flags, overridePresent: !request.Scenario.RuntimeConfig.Empty(), logicalSources: logicalSources}, nil
+}
+
+type scenarioSourceError struct{ index int }
+
+func (e *scenarioSourceError) Error() string {
+	return fmt.Sprintf("scenario.toml:test[%d]: invalid Spex source or binding", e.index)
+}
+
+func inlineSourceExtension(source string) string {
+	for _, line := range strings.Split(source, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "@") {
+			continue
+		}
+		if strings.HasPrefix(line, "Feature:") {
+			return ".feature"
+		}
+		break
+	}
+	return ".spex"
 }
 
 type preparedMigrationRuntime struct {
@@ -66,6 +130,7 @@ type preparedMigrationRuntime struct {
 	inputs          []workspace.Inputs
 	flags           suiteFlags
 	overridePresent bool
+	logicalSources  map[string]string
 }
 
 type migrationExecutionPlan struct {
@@ -103,7 +168,11 @@ func (r *preparedMigrationRuntime) Plan(ctx context.Context) (scenarioruntime.Ex
 	}
 	summary.OverridePresent = r.overridePresent
 	for _, input := range inputs {
-		summary.Tests = append(summary.Tests, scenarioruntime.TestDescription{Name: input.ScenarioName, Source: filepath.Base(input.ScenarioPath)})
+		source := r.logicalSources[input.ScenarioPath]
+		if source == "" {
+			source = filepath.Base(input.ScenarioPath)
+		}
+		summary.Tests = append(summary.Tests, scenarioruntime.TestDescription{Name: input.ScenarioName, Source: source})
 	}
 	return migrationExecutionPlan{owner: r, summary: summary}, nil
 }

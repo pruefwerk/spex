@@ -81,8 +81,7 @@ qualification retains the recorded infrastructure blocker.
 ## Remaining campaign work
 
 - Complete the typed overlay surface against actual scenario requirements.
-- Add explicit external and inline sources through the existing Spex parsers.
-- Implement scenario validate/build/run/explain, with strict runtime validation.
+- Finish scenario run after qualifying secret-safe execution artifacts.
 - Persist canonical artifacts and versioned results; qualify redaction and all
   primary/secondary failure paths before exposing execution publicly.
 - Implement the thin Action in the initialized `pruefwerk/spex-action` repository.
@@ -95,3 +94,25 @@ qualification retains the recorded infrastructure blocker.
 
 The migration-testbench dependency pin and production CI remain unchanged. No
 release or remote publication has been made during this campaign.
+
+## Phase 5 — source handling and authoring CLI preview
+
+Explicit file sources and inline sources now use the same YAML/Gherkin parsers,
+catalog expansion, binding validation and shared suite executor. Inline validation
+does not materialize files. Existing explicit file selections preserve matching
+suite-level per-source parameters, tags, binding and profile overrides. New
+sources inherit the suite's base binding and profile. Logical inline errors and
+plan summaries identify `scenario.toml:test[n]`.
+
+The CLI now exposes build, validate and explain. The builder accepts source files
+and TOML fragments as files, preserves explicit authoring precedence and writes
+only after runtime validation. Canonical output uses confined filesystem access,
+private file permissions and exclusive creation; it cannot overwrite an existing
+file or follow an output symlink outside the workspace.
+
+`scenario run` remains deliberately unavailable until execution artifact safety
+is qualified. The preview is documented in `docs/scenario-preview.md`. Local
+qualification passed: 539 Spex race tests, `go vet`, all 122 testbench harness
+tests, suite/catalog validation, and existing security/production-candidate
+checks. This is not completion of Phase 5 or of the campaign. Live acceptance
+retains the recorded infrastructure blocker.
