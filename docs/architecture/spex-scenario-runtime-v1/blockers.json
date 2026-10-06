@@ -10,10 +10,10 @@
     },
     {
       "id": "hosted-scenario-qualification",
-      "status": "BLOCKED",
-      "evidence": "The testbench has an opt-in manual scenario_spex_version input, but this campaign has not published a scenario-capable Spex candidate or run that hosted path.",
+      "status": "PENDING",
+      "evidence": "Spex v0.1.0-rc.38 is published. Full Gateway Migration scenario-path qualification was dispatched at https://github.com/VFCOM-DigitalEngineering-ST-GK/migration-testbench/actions/runs/37524238938 on testbench commit c932888607948093267c15e67cae181b10cb591b. Initial group selection passed; acceptance results are pending.",
       "affects": ["hosted group lifecycle", "live credential renewal", "canonical artifact upload", "replacement of legacy CI entrypoint"],
-      "resolution": "Publish an explicitly approved candidate, manually select gateway-migration and that version in the enterprise workflow, and inspect every selected group's result before changing defaults."
+      "resolution": "Inspect all selected groups and canonical artifacts from the dispatched run before changing defaults. Do not infer acceptance success from release gates or workflow startup."
     }
   ]
 }

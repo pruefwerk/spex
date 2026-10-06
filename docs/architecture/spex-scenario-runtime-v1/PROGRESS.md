@@ -218,3 +218,17 @@ testbench harness tests, all suite/catalog validators and 25 Action tests.
 Workflow lint passes with the existing enterprise runner label explicitly
 allowed. Canonical baseline and Modbus group preparation also validate against
 the actual testbench configuration without running hooks or deployments.
+
+## rc.38 publication and hosted qualification
+
+Published `v0.1.0-rc.38` from `3a02c430f68327c9d2f36976df6483b973eb0b1c`.
+The hosted release workflow passed security, production-candidate, archive and
+HTTP bundle gates: https://github.com/pruefwerk/spex/actions/runs/37523865313.
+The release remains a prerelease, not a claim of full scenario-runtime parity.
+
+Dispatched all Gateway Migration groups through the opt-in scenario path on
+testbench commit `c932888607948093267c15e67cae181b10cb591b`:
+https://github.com/VFCOM-DigitalEngineering-ST-GK/migration-testbench/actions/runs/37524238938.
+Initial group selection passed; acceptance results remain pending. The ordinary
+testbench workflow still defaults to rc.37 and the legacy path. The Action has
+not been published by this checkpoint.
