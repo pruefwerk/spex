@@ -326,4 +326,20 @@ Local regression qualification: 648 Go race tests passed (the optional live
 MongoDB test was skipped in this run), all 70 Action tests passed against the
 candidate, and Go vet/whitespace checks passed. The testbench's 73 Gateway Migration
 scenarios and shared step catalog validated without deployment. No hosted workflow,
-live migration or AWS run was executed. These APIs/CLI additions are unreleased.
+live migration or AWS run was executed. These APIs/CLI additions were unreleased
+at that local qualification checkpoint.
+
+## rc.39 publication
+
+Published `v0.1.0-rc.39` from `0763f8ffcbf50713e6898b7bd09e9d8187a96b04`.
+The [hosted release workflow](https://github.com/pruefwerk/spex/actions/runs/37642771860)
+passed security, production-candidate, archive and HTTP bundle gates. The
+[release](https://github.com/pruefwerk/spex/releases/tag/v0.1.0-rc.39) is a published
+prerelease, not a claim of production receiver deployment or live AWS qualification.
+
+Both downloadable archives passed checksum verification. The testbench HTTP bundle
+installer consumed rc.39 successfully, and its workflow/local instructions now
+pin that release. The default testbench execution remains the legacy suite path;
+scenario-runtime qualification remains explicit. No testbench acceptance workflow
+was dispatched. The success-only credential-hook fixture now allows ten seconds
+for process startup; dedicated expiry tests and production timeouts are unchanged.
