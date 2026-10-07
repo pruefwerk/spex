@@ -87,7 +87,9 @@ func Run(ctx context.Context, p Prepared, sink ArtifactSink) (ExecutionResult, e
 	if err != nil {
 		return ExecutionResult{}, err
 	}
-	plan, err := json.Marshal(p.Plan.Summary())
+	summary := p.Plan.Summary()
+	summary.ResourceClaims = p.claims
+	plan, err := json.Marshal(summary)
 	if err != nil {
 		return ExecutionResult{}, errors.New("cannot serialize plan")
 	}
@@ -102,6 +104,7 @@ func Run(ctx context.Context, p Prepared, sink ArtifactSink) (ExecutionResult, e
 		if err := sink.Write(file.name, file.data); err != nil {
 			id, _ := scenario.Identity(p.Scenario)
 			result := ExecutionResult{Schema: "spex.result/v1", ScenarioID: id, Runtime: p.Scenario.Runtime, Outcome: Error, Cleanup: "not_run", Tests: []TestResult{}, Artifacts: []string{}, Problems: []Problem{{Phase: "preparation", Code: "artifact_preparation_failed", Message: "Execution description could not be persisted; execution did not start"}}}
+			result.RuntimeRelease = p.Scenario.RuntimeRelease
 			data, _ := json.Marshal(result)
 			_ = sink.Write("result.json", data)
 			return result, errors.New("cannot persist execution description; execution did not start")

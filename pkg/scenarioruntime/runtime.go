@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pruefwerk/spex/pkg/resourceclaims"
 	"github.com/pruefwerk/spex/pkg/scenario"
 )
 
@@ -36,9 +37,10 @@ type PreparedRuntime interface {
 // safe summary is serialized; a plan is never deserialized into executable code.
 type ExecutionPlan interface{ Summary() PlanSummary }
 type PlanSummary struct {
-	Tests                []TestDescription `json:"tests"`
-	ConfigurationSources []string          `json:"configuration_sources"`
-	OverridePresent      bool              `json:"override_present"`
+	Tests                []TestDescription      `json:"tests"`
+	ConfigurationSources []string               `json:"configuration_sources"`
+	OverridePresent      bool                   `json:"override_present"`
+	ResourceClaims       []resourceclaims.Claim `json:"resource_claims,omitempty"`
 }
 type TestDescription struct {
 	Name   string `json:"name"`
@@ -69,14 +71,19 @@ type TestResult struct {
 	Outcome Outcome `json:"outcome"`
 }
 type ExecutionResult struct {
-	Schema     string       `json:"schema"`
-	ScenarioID string       `json:"scenario_id"`
-	Runtime    string       `json:"runtime"`
-	Outcome    Outcome      `json:"outcome"`
-	Tests      []TestResult `json:"tests"`
-	Artifacts  []string     `json:"artifacts"`
-	Cleanup    string       `json:"cleanup"`
-	Problems   []Problem    `json:"problems,omitempty"`
+	Schema         string                 `json:"schema"`
+	ScenarioID     string                 `json:"scenario_id"`
+	Runtime        string                 `json:"runtime"`
+	RuntimeRelease string                 `json:"runtime_release,omitempty"`
+	Outcome        Outcome                `json:"outcome"`
+	Tests          []TestResult           `json:"tests"`
+	Artifacts      []string               `json:"artifacts"`
+	Cleanup        string                 `json:"cleanup"`
+	Problems       []Problem              `json:"problems,omitempty"`
+	ResourceClaims *resourceclaims.Report `json:"resource_claims,omitempty"`
+	// The runtime must verify application postconditions and any in-flight work,
+	// independently of deleting temporary resources, before setting this flag.
+	ResourceClaimsSafeToRelease bool `json:"resource_claims_safe_to_release,omitempty"`
 }
 
 // PhaseError deliberately omits the underlying error text: configuration and
@@ -90,11 +97,24 @@ func (e *PhaseError) Error() string { return "scenario " + e.Phase + " failed" }
 func (e *PhaseError) Unwrap() error { return e.cause }
 
 type Registry struct {
-	mu       sync.RWMutex
-	runtimes map[string]Runtime
+	mu          sync.RWMutex
+	runtimes    map[string]Runtime
+	coordinator *resourceclaims.Coordinator
 }
 
-func NewRegistry() *Registry { return &Registry{runtimes: map[string]Runtime{}} }
+type RegistryOption func(*Registry)
+
+func WithResourceClaims(coordinator *resourceclaims.Coordinator) RegistryOption {
+	return func(registry *Registry) { registry.coordinator = coordinator }
+}
+
+func NewRegistry(options ...RegistryOption) *Registry {
+	registry := &Registry{runtimes: map[string]Runtime{}}
+	for _, option := range options {
+		option(registry)
+	}
+	return registry
+}
 func (r *Registry) Register(runtime Runtime) error {
 	if runtime == nil {
 		return errors.New("runtime is required")
@@ -125,9 +145,11 @@ func (r *Registry) Lookup(id string) (Runtime, error) {
 }
 
 type Prepared struct {
-	Scenario scenario.Scenario
-	Runtime  PreparedRuntime
-	Plan     ExecutionPlan
+	Scenario    scenario.Scenario
+	Runtime     PreparedRuntime
+	Plan        ExecutionPlan
+	claims      []resourceclaims.Claim
+	coordinator *resourceclaims.Coordinator
 }
 
 // Prepare enforces validation and lifecycle order without executing any tests.
@@ -142,6 +164,12 @@ func (r *Registry) Prepare(ctx context.Context, request ResolveRequest) (Prepare
 	runtime, err := r.Lookup(canonical.Runtime)
 	if err != nil {
 		return Prepared{}, &PhaseError{Phase: "runtime selection", cause: err}
+	}
+	if canonical.RuntimeRelease != "" {
+		versioned, ok := runtime.(interface{ Release() string })
+		if !ok || versioned.Release() != canonical.RuntimeRelease {
+			return Prepared{}, &PhaseError{Phase: "runtime selection", cause: errors.New("runtime release is unavailable")}
+		}
 	}
 	if err = scenario.ValidateSources(canonical, request.Workspace); err != nil {
 		return Prepared{}, &PhaseError{Phase: "source validation", cause: err}
@@ -167,7 +195,14 @@ func (r *Registry) Prepare(ctx context.Context, request ResolveRequest) (Prepare
 	if err = ctx.Err(); err != nil {
 		return Prepared{}, &PhaseError{Phase: "cancelled", cause: err}
 	}
-	return Prepared{Scenario: canonical, Runtime: prepared, Plan: plan}, nil
+	claims, err := resourceclaims.Normalize(plan.Summary().ResourceClaims)
+	if err != nil {
+		return Prepared{}, &PhaseError{Phase: "resource claims", cause: err}
+	}
+	if len(claims) > 0 && (r.coordinator == nil || r.coordinator.Store == nil) {
+		return Prepared{}, &PhaseError{Phase: "resource claims", cause: errors.New("resource coordinator is required")}
+	}
+	return Prepared{Scenario: canonical, Runtime: prepared, Plan: plan, claims: claims, coordinator: r.coordinator}, nil
 }
 
 // Execute preserves a test failure when evidence collection or cleanup also
@@ -190,14 +225,18 @@ func (p Prepared) Execute(ctx context.Context, sink ArtifactSink) (ExecutionResu
 		defer cancel()
 	}
 	result := ExecutionResult{Outcome: Cancelled, Cleanup: "not_run"}
+	if len(p.claims) > 0 {
+		result.ResourceClaims = &resourceclaims.Report{Claims: append([]resourceclaims.Claim(nil), p.claims...), Status: "not_acquired"}
+	}
 	if ctx.Err() == nil {
-		result, err = p.Runtime.Execute(ctx, p.Plan, sink)
+		result, err = p.executeCoordinated(ctx, sink)
 	} else {
 		err = ctx.Err()
 	}
 	result.Schema = "spex.result/v1"
 	result.ScenarioID = id
 	result.Runtime = p.Scenario.Runtime
+	result.RuntimeRelease = p.Scenario.RuntimeRelease
 	if result.Tests == nil {
 		result.Tests = []TestResult{}
 	}

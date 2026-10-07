@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 )
 
 const Schema = "spex.scenario/v1"
+const RequestSchema = "spex.scenario-request/v1"
 const MaxDocumentBytes = 4 << 20
 
 type Metadata struct {
@@ -34,11 +36,14 @@ type TestSource struct {
 }
 
 type Scenario struct {
-	Schema        string
-	Runtime       string
-	Metadata      Metadata
-	Tests         []TestSource
-	RuntimeConfig RawRuntimeConfig
+	Schema         string
+	Runtime        string
+	RuntimeRelease string
+	Metadata       Metadata
+	Tests          []TestSource
+	Dependencies   []string
+	RuntimeConfig  RawRuntimeConfig
+	RuntimeOverlay RawRuntimeConfig
 }
 
 // RawRuntimeConfig owns canonical TOML bytes. Accessors copy storage so callers
@@ -73,14 +78,25 @@ func (r RawRuntimeConfig) DecodeStrict(destination any) error {
 }
 
 type document struct {
-	Schema        string         `toml:"schema"`
-	Runtime       string         `toml:"runtime"`
-	Metadata      *Metadata      `toml:"scenario,omitempty"`
-	Tests         []TestSource   `toml:"tests,omitempty"`
-	RuntimeConfig map[string]any `toml:"runtime_config,omitempty"`
+	Schema         string         `toml:"schema"`
+	Runtime        string         `toml:"runtime"`
+	RuntimeRelease string         `toml:"runtime_release,omitempty"`
+	Metadata       *Metadata      `toml:"scenario,omitempty"`
+	Tests          []TestSource   `toml:"tests,omitempty"`
+	Dependencies   []string       `toml:"dependencies,omitempty"`
+	RuntimeConfig  map[string]any `toml:"runtime_config,omitempty"`
+	RuntimeOverlay map[string]any `toml:"runtime_overlay,omitempty"`
 }
 
 func Parse(data []byte) (Scenario, error) {
+	return parse(data, false)
+}
+
+// ParseRequest accepts authoring requests as well as complete scenarios.
+// A request must be resolved by a receiver before it can execute.
+func ParseRequest(data []byte) (Scenario, error) { return parse(data, true) }
+
+func parse(data []byte, request bool) (Scenario, error) {
 	if len(data) > MaxDocumentBytes {
 		return Scenario{}, errors.New("scenario exceeds size limit")
 	}
@@ -96,11 +112,19 @@ func Parse(data []byte) (Scenario, error) {
 	if err != nil {
 		return Scenario{}, err
 	}
-	s := Scenario{Schema: wire.Schema, Runtime: wire.Runtime, Tests: wire.Tests, RuntimeConfig: config}
+	overlayBytes, err := toml.Marshal(wire.RuntimeOverlay)
+	if err != nil {
+		return Scenario{}, errors.New("invalid runtime overlay")
+	}
+	overlay, err := ParseRuntimeConfig(overlayBytes)
+	if err != nil {
+		return Scenario{}, err
+	}
+	s := Scenario{Schema: wire.Schema, Runtime: wire.Runtime, RuntimeRelease: wire.RuntimeRelease, Tests: wire.Tests, Dependencies: wire.Dependencies, RuntimeConfig: config, RuntimeOverlay: overlay}
 	if wire.Metadata != nil {
 		s.Metadata = *wire.Metadata
 	}
-	return Canonicalize(s)
+	return canonicalize(s, request)
 }
 
 var runtimePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*/v[1-9][0-9]*$`)
@@ -108,14 +132,33 @@ var runtimePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*/v[1-9][0-9]*$`)
 func RuntimeID(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 
 func Canonicalize(s Scenario) (Scenario, error) {
+	return canonicalize(s, false)
+}
+
+func CanonicalizeRequest(s Scenario) (Scenario, error) { return canonicalize(s, true) }
+
+func canonicalize(s Scenario, request bool) (Scenario, error) {
 	out := s
 	out.Schema = strings.ToLower(strings.TrimSpace(s.Schema))
 	out.Runtime = RuntimeID(s.Runtime)
-	if out.Schema != Schema {
+	draft := request && out.Schema == RequestSchema
+	if out.Schema != Schema && !draft {
 		return Scenario{}, errors.New("unsupported scenario schema")
 	}
-	if !runtimePattern.MatchString(out.Runtime) {
+	if draft {
+		selector, err := ParseRuntimeSelector(s.Runtime)
+		if err != nil {
+			return Scenario{}, err
+		}
+		out.Runtime = selector.String()
+	} else if !runtimePattern.MatchString(out.Runtime) {
 		return Scenario{}, errors.New("invalid or missing runtime identifier")
+	}
+	if !draft && !out.RuntimeOverlay.Empty() {
+		return Scenario{}, errors.New("unresolved runtime overlay")
+	}
+	if out.RuntimeRelease != "" && (draft || !releasePattern.MatchString(out.RuntimeRelease) || out.RuntimeRelease == "latest") {
+		return Scenario{}, errors.New("invalid resolved runtime release")
 	}
 	if s.Metadata.Timeout != nil {
 		duration, err := time.ParseDuration(*s.Metadata.Timeout)
@@ -126,6 +169,19 @@ func Canonicalize(s Scenario) (Scenario, error) {
 		out.Metadata.Timeout = &value
 	}
 	out.Tests = make([]TestSource, len(s.Tests))
+	out.Dependencies = make([]string, 0, len(s.Dependencies))
+	seen := map[string]bool{}
+	for _, dependency := range s.Dependencies {
+		path, err := RelativePath(dependency)
+		if err != nil {
+			return Scenario{}, errors.New("invalid dependency path")
+		}
+		if !seen[path] {
+			out.Dependencies = append(out.Dependencies, path)
+			seen[path] = true
+		}
+	}
+	sort.Strings(out.Dependencies)
 	for i, test := range s.Tests {
 		if (test.File == nil) == (test.Inline == nil) {
 			return Scenario{}, fmt.Errorf("test[%d] requires exactly one of file and inline", i)
@@ -193,7 +249,7 @@ func SourcePath(workspace, relative string) (string, error) {
 }
 
 func ValidateSources(s Scenario, workspace string) error {
-	if err := ValidateGeneric(s); err != nil {
+	if _, err := CanonicalizeRequest(s); err != nil {
 		return err
 	}
 	for i, source := range s.Tests {
@@ -203,11 +259,22 @@ func ValidateSources(s Scenario, workspace string) error {
 			}
 		}
 	}
+	for _, dependency := range s.Dependencies {
+		if _, err := SourcePath(workspace, dependency); err != nil {
+			return errors.New("dependency unavailable or outside workspace")
+		}
+	}
 	return nil
 }
 
 func SerializeCanonical(s Scenario) ([]byte, error) {
-	s, err := Canonicalize(s)
+	return serialize(s, false)
+}
+
+func SerializeRequest(s Scenario) ([]byte, error) { return serialize(s, true) }
+
+func serialize(s Scenario, request bool) ([]byte, error) {
+	s, err := canonicalize(s, request)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +282,11 @@ func SerializeCanonical(s Scenario) ([]byte, error) {
 	if err := toml.Unmarshal(s.RuntimeConfig.Bytes(), &config); err != nil {
 		return nil, errors.New("invalid runtime configuration")
 	}
-	wire := document{Schema: s.Schema, Runtime: s.Runtime, Tests: s.Tests, RuntimeConfig: config}
+	var overlay map[string]any
+	if err := toml.Unmarshal(s.RuntimeOverlay.Bytes(), &overlay); err != nil {
+		return nil, errors.New("invalid runtime overlay")
+	}
+	wire := document{Schema: s.Schema, Runtime: s.Runtime, RuntimeRelease: s.RuntimeRelease, Tests: s.Tests, Dependencies: s.Dependencies, RuntimeConfig: config, RuntimeOverlay: overlay}
 	if s.Metadata.Name != "" || s.Metadata.Description != "" || s.Metadata.Timeout != nil {
 		wire.Metadata = &s.Metadata
 	}
@@ -253,11 +324,45 @@ func Build(runtime string, overrides AuthoringOverrides, merge ConfigMerger) (Sc
 }
 
 func MergeAuthoringOverrides(base Scenario, o AuthoringOverrides, committed bool, merge ConfigMerger) (Scenario, error) {
+	return mergeAuthoring(base, o, committed, merge, false)
+}
+
+// AuthorRequest retains both configuration layers until a receiver selects the
+// runtime and applies its typed merger. No caller-side runtime is required.
+func AuthorRequest(base Scenario, o AuthoringOverrides, committed bool) (Scenario, error) {
+	base.Schema = RequestSchema
+	if base.RuntimeRelease != "" {
+		base.Runtime += "@" + base.RuntimeRelease
+		base.RuntimeRelease = ""
+	}
+	if o.RuntimeConfig != nil {
+		if !base.RuntimeOverlay.Empty() {
+			return Scenario{}, errors.New("request already has a final runtime overlay")
+		}
+		base.RuntimeOverlay = *o.RuntimeConfig
+		o.RuntimeConfig = nil
+	}
+	return mergeAuthoring(base, o, committed, nil, true)
+}
+
+func mergeAuthoring(base Scenario, o AuthoringOverrides, committed bool, merge ConfigMerger, request bool) (Scenario, error) {
 	if committed && o.Tests != nil {
 		return Scenario{}, errors.New("scenario file cannot be combined with author-provided test sources")
 	}
 	if o.Runtime != nil {
-		if committed && RuntimeID(*o.Runtime) != RuntimeID(base.Runtime) {
+		mismatch := RuntimeID(*o.Runtime) != RuntimeID(base.Runtime)
+		if request {
+			before, err := ParseRuntimeSelector(base.Runtime)
+			if err != nil {
+				return Scenario{}, err
+			}
+			after, err := ParseRuntimeSelector(*o.Runtime)
+			if err != nil {
+				return Scenario{}, err
+			}
+			mismatch = before.Contract != "" && (after.Contract != before.Contract || (before.Release != "" && before.Release != "latest" && after.Release != before.Release))
+		}
+		if committed && mismatch {
 			return Scenario{}, errors.New("scenario runtime mismatch")
 		}
 		base.Runtime = *o.Runtime
@@ -284,5 +389,5 @@ func MergeAuthoringOverrides(base Scenario, o AuthoringOverrides, committed bool
 		}
 		base.RuntimeConfig = config
 	}
-	return Canonicalize(base)
+	return canonicalize(base, request)
 }

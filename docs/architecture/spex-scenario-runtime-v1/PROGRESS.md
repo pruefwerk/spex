@@ -232,3 +232,98 @@ https://github.com/VFCOM-DigitalEngineering-ST-GK/migration-testbench/actions/ru
 Initial group selection passed; acceptance results remain pending. The ordinary
 testbench workflow still defaults to rc.37 and the legacy path. The Action has
 not been published by this checkpoint.
+
+## Architecture revision: remote submission client
+
+The user selected remote workflow execution to decouple the caller's build image,
+tools and network from acceptance infrastructure. The in-process runtime remains
+inside the receiver. A Spex client now packages inputs and implements GitHub
+dispatch/correlation/wait/cancellation/result verification; spex-action owns only
+input/output transport and GitHub artifact upload. Local execution remains explicit.
+
+This supersedes automatic runtime checkout in the Action. The new package/submit
+commands are not in rc.38. The receiver contract, admission policy, result envelope
+and remaining limitations are documented. Mock API tests do not establish live
+remote execution; implementing and qualifying the testbench receiver is required
+before release. The previous hosted rc.38 run qualifies a different, local-CLI path.
+
+Local qualification: 576 Go race tests, 31 Action tests, Python lint/type checks,
+workflow lint, Go vet and the existing security/release gates passed. All 133
+testbench harness tests and its suite/catalog validators passed with the candidate
+client. Receipt tests reject incomplete success and keep misleading receiver
+success out of retained results. No remote workflow was dispatched and no release
+was published for this architecture revision.
+
+## Runtime-owned receiver API
+
+The Action now sends opaque authoring requests without installing Spex. Public
+`pkg/receiver` validates the transport, invokes shared `pkg/definition` authoring
+and runtime selection, and executes through `scenarioruntime.Run`. The CLI shares
+the extracted definition loader. `pkg/migrationtestbench` exposes the existing
+adapter with a trusted suite and release pin.
+
+Spex supplies only an example workflow under `examples/receiver`. Production
+workflows belong to runtime repositories. Authenticated source fetching, durable
+request claims and deployment policy remain explicit host responsibilities.
+See [the receiver contract](../../receiver.md).
+
+Contract tests exercise the real Action builder and receipt validator. Adapter
+tests use a simulated Kubernetes runner. These checks do not establish live
+GitHub execution or qualify the production migration-testbench receiver.
+
+Local qualification on 2026-10-07: 620 Go race tests passed with the cross-repository
+Action contract test enabled; 37 HTTP probe tests and 70 Action tests passed.
+Go vet, module verification, example workflow lint and whitespace checks passed.
+No production receiver was deployed, no remote workflow was dispatched and no
+release was published.
+
+## Resource coordination mechanism
+
+Spex now supplies `pkg/resourceclaims`: atomic shared/exclusive claim sets,
+cancellable conflict waits, explicit safe release and verified recovery. Memory,
+durable local-file and shared MongoDB stores separate single-process tests,
+same-host processes and independent runners. No adapter expires abandoned owners.
+
+Runtime plans declare physical identities. The registry and receiver acquire
+claims before environment mutation, persist acquisition evidence, and include
+disposition in the execution result. Runtime attestation of safe reuse remains
+separate from temporary-resource cleanup. Unresolved claims preserve primary
+failures and prevent a passing test from becoming a successful execution.
+
+See [resource claims](../../resource-claims.md) for the host contract, backend
+scope, recovery and limitations. The migration-testbench runtime does not yet
+declare its resources or configure the production coordinator. This mechanism
+does not remove its existing execution blockers or establish AWS isolation.
+
+Local qualification on 2026-10-07: 644 Go race tests passed, including the real
+Action compatibility contract and a disposable MongoDB replica-set test with two
+independent clients. The separate HTTP probe module passed 37 tests. Go vet,
+module verification and whitespace checks passed. Package execution was serialized
+for this full run after parallel package load exceeded an existing one-second
+credential-hook fixture deadline. Process-exit tests verify retained local-file
+claims; live MongoDB tests verify contention, recovery and concurrent updates.
+The disposable MongoDB container and its test database were removed. No live AWS
+or hosted receiver qualification was performed, and no release was published.
+All 70 Action tests also passed against the just-built candidate executable.
+
+## Migration-testbench resource contracts
+
+The existing suite runtime now supports a trusted resource contract through
+`migrationtestbench.WithResourceContract`. It checks canonical scenario identity
+and the exact selected plan, preserves the resolver/executor and persists the
+contract. Shared-resource release requires a host-owned safety verifier, separate
+from temporary cleanup. The local CLI supports resource-free contracts; shared
+claims still require a receiver coordinator and have no CLI bypass.
+
+The testbench scenario runner resolves a contract before execution. Private Kind
+stacks declare no shared-stack resources. Its AWS policy resolver produces stable
+physical keys, normalizes EUIs and rejects uncontracted tests. Policies and backend
+configuration remain trusted host inputs, not submitted definitions. Production
+AWS execution remains blocked pending the receiver, target policies, safety
+verifier, ownership ledger and three-part reporting.
+
+Local regression qualification: 648 Go race tests passed (the optional live
+MongoDB test was skipped in this run), all 70 Action tests passed against the
+candidate, and Go vet/whitespace checks passed. The testbench's 73 Gateway Migration
+scenarios and shared step catalog validated without deployment. No hosted workflow,
+live migration or AWS run was executed. These APIs/CLI additions are unreleased.

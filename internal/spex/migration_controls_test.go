@@ -76,7 +76,9 @@ func TestMigrationHookRenewsEachTestWithoutPersistingCredentials(t *testing.T) {
 	r := scenarioruntime.NewRegistry()
 	_ = r.Register(migrationRuntime{flags: flags})
 	inline := scenarioSmokeSource
-	document := scenario.Scenario{Schema: scenario.Schema, Runtime: "migration-testbench/v1", Tests: []scenario.TestSource{{Inline: &inline}}, RuntimeConfig: overlayTOML(t, "[execution]\nrepetitions = 2\nbefore_scenario_hook = 'renew'\nbefore_scenario_hook_timeout = '1s'")}
+	// This checks renewal and secret handling, not timeout enforcement. Allow
+	// process startup under release-build load; dedicated hook tests cover expiry.
+	document := scenario.Scenario{Schema: scenario.Schema, Runtime: "migration-testbench/v1", Tests: []scenario.TestSource{{Inline: &inline}}, RuntimeConfig: overlayTOML(t, "[execution]\nrepetitions = 2\nbefore_scenario_hook = 'renew'\nbefore_scenario_hook_timeout = '10s'")}
 	p, err := r.Prepare(context.Background(), scenarioruntime.ResolveRequest{Scenario: document, Workspace: root})
 	if err != nil {
 		t.Fatal(err)

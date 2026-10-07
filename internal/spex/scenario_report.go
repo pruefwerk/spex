@@ -92,8 +92,14 @@ func runCanonicalResultSummary(args []string, out io.Writer) error {
 		return errors.New("invalid scenario outcome")
 	}
 	fmt.Fprintf(out, "Scenario %s: %s\nTests reported: %d of %d; passed: %d; failed: %d; error: %d; cancelled: %d\n", id, result.Outcome, len(result.Tests), len(plan.Tests), counts[scenarioruntime.Passed], counts[scenarioruntime.Failed], counts[scenarioruntime.Error], counts[scenarioruntime.Cancelled])
+	if result.ResourceClaims != nil {
+		fmt.Fprintf(out, "Resource claims: %s; resources: %d; wait: %dms\n", result.ResourceClaims.Status, len(result.ResourceClaims.Claims), result.ResourceClaims.WaitMilliseconds)
+	}
 	if result.Outcome != scenarioruntime.Passed {
 		return errors.New("scenario did not pass")
+	}
+	if len(plan.ResourceClaims) > 0 && (result.ResourceClaims == nil || result.ResourceClaims.Status != "released") {
+		return errors.New("resource claims remain unresolved")
 	}
 	if len(plan.Tests) == 0 || len(result.Tests) != len(plan.Tests) || counts[scenarioruntime.Passed] != len(plan.Tests) || len(result.Problems) > 0 || (result.Cleanup != "succeeded" && result.Cleanup != "not_run") {
 		return errors.New("complete successful execution is not proven")

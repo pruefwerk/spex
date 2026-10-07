@@ -8,12 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pruefwerk/spex/pkg/resourceclaims"
 	"github.com/pruefwerk/spex/pkg/scenario"
 	"github.com/pruefwerk/spex/pkg/scenarioruntime"
 )
 
 func TestCanonicalReportSummary(t *testing.T) {
-	for _, state := range []string{"passed", "failed", "cancelled", "missing", "mismatch", "partial", "cleanup", "multiple", "symlink"} {
+	for _, state := range []string{"passed", "failed", "cancelled", "missing", "mismatch", "partial", "cleanup", "multiple", "symlink", "claims-missing", "claims-recovery", "claims-released"} {
 		t.Run(state, func(t *testing.T) {
 			root := t.TempDir()
 			doc := scenario.Scenario{Schema: scenario.Schema, Runtime: "migration-testbench/v1"}
@@ -29,6 +30,10 @@ func TestCanonicalReportSummary(t *testing.T) {
 				result.Tests = nil
 			case "cleanup":
 				result.Problems = []scenarioruntime.Problem{{Message: "SENTINEL"}}
+			case "claims-recovery":
+				result.ResourceClaims = &resourceclaims.Report{Status: "recovery_required"}
+			case "claims-released":
+				result.ResourceClaims = &resourceclaims.Report{Status: "released"}
 			}
 			write := func(name string, data []byte) {
 				t.Helper()
@@ -41,7 +46,11 @@ func TestCanonicalReportSummary(t *testing.T) {
 			if state != "missing" {
 				write("result.json", data)
 			}
-			data, _ = json.Marshal(scenarioruntime.PlanSummary{Tests: []scenarioruntime.TestDescription{{Name: "SENTINEL"}}})
+			plan := scenarioruntime.PlanSummary{Tests: []scenarioruntime.TestDescription{{Name: "SENTINEL"}}}
+			if strings.HasPrefix(state, "claims-") {
+				plan.ResourceClaims = []resourceclaims.Claim{{Resource: "SENTINEL", Access: resourceclaims.Exclusive}}
+			}
+			data, _ = json.Marshal(plan)
 			write("plan.json", data)
 			if state == "multiple" {
 				if err := os.Mkdir(filepath.Join(root, "old"), 0o700); err != nil {
@@ -56,7 +65,7 @@ func TestCanonicalReportSummary(t *testing.T) {
 			}
 			var output bytes.Buffer
 			err := Run([]string{"reports", "scenario", "--out", root}, &output, &output)
-			if (err == nil) != (state == "passed") {
+			if (err == nil) != (state == "passed" || state == "claims-released") {
 				t.Fatalf("state %s: %v", state, err)
 			}
 			if strings.Contains(output.String(), "SENTINEL") || (err != nil && strings.Contains(err.Error(), "SENTINEL")) {

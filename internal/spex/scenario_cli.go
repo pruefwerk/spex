@@ -1,6 +1,7 @@
 package spex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/pruefwerk/spex/internal/migrationresources"
 	"github.com/pruefwerk/spex/pkg/scenario"
 	"github.com/pruefwerk/spex/pkg/scenarioruntime"
 )
@@ -34,19 +36,36 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 		return ExitError{Code: ExitValidation, Err: errors.New("scenario requires build, validate, explain, or run")}
 	}
 	command := args[0]
-	if command != "build" && command != "validate" && command != "explain" && command != "run" {
+	if command == "submit" {
+		err := runRemoteSubmission(ctx, args[1:], stdout)
+		var exit ExitError
+		if err != nil && !errors.As(err, &exit) {
+			return ExitError{Code: ExitPreflight, Err: err}
+		}
+		return err
+	}
+	if command != "build" && command != "package" && command != "validate" && command != "explain" && command != "run" {
 		return ExitError{Code: ExitValidation, Err: errors.New("unknown scenario command")}
 	}
 	fs := flag.NewFlagSet("scenario "+command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	root := fs.String("workspace", ".", "repository root for all test paths")
 	var source, runtimeID, name, description, timeout, inlineFile, configFile, output string
-	var files scenarioFiles
+	var files, supportFiles scenarioFiles
+	var definitionInline string
+	var definitionFiles scenarioFiles
+	authoring := command == "build" || command == "package"
+	resourceContract := ""
+	if !authoring {
+		fs.StringVar(&resourceContract, "resource-contract", "", "trusted runtime resource contract; shared claims require a receiver coordinator")
+	}
 	artifactDirectory := ".spex/runs"
 	if command == "run" {
 		fs.StringVar(&artifactDirectory, "artifact-directory", artifactDirectory, "workspace-relative artifact base")
 	}
-	if command == "build" {
+	if authoring {
+		fs.StringVar(&definitionInline, "definition-inline-file", "", "file containing inline TOML, YAML or Gherkin")
+		fs.Var(&definitionFiles, "definition-file", "workspace-relative TOML, YAML or Gherkin path/glob; repeat for test files")
 		fs.StringVar(&source, "scenario", "", "committed scenario to overlay")
 		fs.StringVar(&runtimeID, "runtime", "", "runtime identifier")
 		fs.StringVar(&name, "name", "", "scenario name")
@@ -56,11 +75,14 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 		fs.StringVar(&configFile, "runtime-config-file", "", "file containing a runtime TOML fragment")
 		fs.StringVar(&output, "out", ".spex/scenario.toml", "new canonical file, relative to workspace")
 		fs.Var(&files, "spex-file", "external test source, repeat for multiple files")
+		if command == "package" {
+			fs.Var(&supportFiles, "support-file", "additional workspace-relative source dependency")
+		}
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return ExitError{Code: ExitValidation, Err: errors.New("invalid scenario command arguments")}
 	}
-	if (command == "build" && fs.NArg() != 0) || (command != "build" && fs.NArg() != 1) {
+	if (authoring && fs.NArg() != 0) || (!authoring && fs.NArg() != 1) {
 		return ExitError{Code: ExitValidation, Err: errors.New("scenario validate/explain require one file; build accepts flags only")}
 	}
 	workspaceRoot, err := filepath.Abs(*root)
@@ -77,16 +99,48 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 		}
 		return data, nil
 	}
-	if command != "build" {
+	if !authoring {
 		source = fs.Arg(0)
 	}
 	var document scenario.Scenario
+	var definitionTests []scenario.TestSource
+	committed := source != ""
+	unified, legacy := false, false
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "definition-inline-file", "definition-file":
+			unified = true
+		case "scenario", "inline-file", "spex-file", "support-file":
+			legacy = true
+		}
+	})
+	if unified {
+		if legacy {
+			return ExitError{Code: ExitValidation, Err: errors.New("definition inputs cannot be combined with legacy source flags")}
+		}
+		if definitionInline == "" && len(definitionFiles) == 0 {
+			return ExitError{Code: ExitValidation, Err: errors.New("definition input is empty")}
+		}
+		parsed, tests, err := loadDefinitions(definitionInline, definitionFiles, workspaceRoot, read, command == "package")
+		if err != nil {
+			return ExitError{Code: ExitValidation, Err: err}
+		}
+		definitionTests = tests
+		if parsed != nil {
+			document = *parsed
+			committed = true
+		}
+	}
 	if source != "" {
 		data, err := read(source)
 		if err != nil {
 			return ExitError{Code: ExitValidation, Err: err}
 		}
-		document, err = scenario.Parse(data)
+		if command == "package" {
+			document, err = scenario.ParseRequest(data)
+		} else {
+			document, err = scenario.Parse(data)
+		}
 		if err != nil {
 			return ExitError{Code: ExitValidation, Err: err}
 		}
@@ -106,8 +160,8 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 	if err := registry.Register(runtime); err != nil {
 		return err
 	}
-	if command == "build" {
-		overrides := scenario.AuthoringOverrides{}
+	if authoring {
+		overrides := scenario.AuthoringOverrides{Tests: definitionTests}
 		fs.Visit(func(f *flag.Flag) {
 			switch f.Name {
 			case "runtime":
@@ -128,8 +182,10 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 			if err != nil {
 				return ExitError{Code: ExitValidation, Err: err}
 			}
-			text := string(content)
-			overrides.Tests = []scenario.TestSource{{Inline: &text}}
+			overrides.Tests, err = splitInlineSources(string(content))
+			if err != nil {
+				return ExitError{Code: ExitValidation, Err: err}
+			}
 		}
 		for _, file := range files {
 			value := file
@@ -146,13 +202,40 @@ func runScenarioCommandContext(ctx context.Context, args []string, stdout io.Wri
 			}
 			overrides.RuntimeConfig = &config
 		}
-		if source == "" {
+		if command == "package" {
+			document, err = scenario.AuthorRequest(document, overrides, committed)
+		} else if !committed {
 			document, err = scenario.Build(runtimeID, overrides, runtime.MergeConfig)
 		} else {
 			document, err = scenario.MergeAuthoringOverrides(document, overrides, true, runtime.MergeConfig)
 		}
 		if err != nil {
 			return ExitError{Code: ExitValidation, Err: err}
+		}
+	}
+	if command == "package" {
+		// Author without resolving suites or preparing the runtime on the caller.
+		return packageScenario(document, workspaceRoot, output, supportFiles, stdout)
+	}
+	if resourceContract != "" {
+		data, readErr := read(resourceContract)
+		if readErr != nil {
+			return ExitError{Code: ExitValidation, Err: readErr}
+		}
+		var contract migrationresources.ResourceContract
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		var trailing any
+		if decoder.Decode(&contract) != nil || decoder.Decode(&trailing) != io.EOF {
+			return ExitError{Code: ExitValidation, Err: errors.New("invalid runtime resource contract")}
+		}
+		wrapped, wrapErr := migrationresources.WithResourceContract(releasedMigrationRuntime{runtime, Version}, contract, nil)
+		if wrapErr != nil {
+			return ExitError{Code: ExitValidation, Err: wrapErr}
+		}
+		registry = scenarioruntime.NewRegistry()
+		if err := registry.Register(wrapped); err != nil {
+			return err
 		}
 	}
 	prepared, err := registry.Prepare(ctx, scenarioruntime.ResolveRequest{Scenario: document, Workspace: workspaceRoot})

@@ -1,0 +1,79 @@
+# Example only. Copy and adapt in the RUNTIME repository, not the Spex repository.
+# Adapt all four ci/receiver-* entrypoints; see entrypoints.md for examples.
+name: Receiver example
+run-name: spex:${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      transport_schema:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+      request_sha256:
+        required: true
+        type: string
+      source_repository:
+        required: true
+        type: string
+      source_run_id:
+        required: true
+        type: string
+      source_artifact_id:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate source, verify artifact and fetch exact source commit
+        id: admission
+        env:
+          TRANSPORT_SCHEMA: ${{ inputs.transport_schema }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_READ_TOKEN: ${{ secrets.SOURCE_READ_TOKEN }}
+        run: ./ci/receiver-admit-and-fetch
+      - name: Install pinned receiver tools without modifying the test environment
+        run: ./ci/receiver-setup
+      - name: Execute through the Spex receiver API
+        id: execute
+        continue-on-error: true
+        env:
+          ADMISSION_CONTEXT: ${{ steps.admission.outputs.context-path }}
+        run: ./ci/receiver-run
+      - name: Upload receiver receipt even after failed acceptance
+        if: always() && steps.execute.outputs.receipt-path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: spex-result-${{ inputs.request_id }}
+          path: ${{ steps.execute.outputs.receipt-path }}
+          if-no-files-found: error
+      - name: Upload canonical scenario and redacted evidence
+        if: always() && steps.execute.outputs.evidence-directory != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: spex-evidence-${{ inputs.request_id }}
+          path: ${{ steps.execute.outputs.evidence-directory }}
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Bound cleanup of host-owned infrastructure
+        if: always()
+        timeout-minutes: 2
+        run: ./ci/receiver-cleanup
+      - name: Preserve failed execution after uploading evidence
+        if: always()
+        env:
+          EXECUTION_OUTCOME: ${{ steps.execute.outcome }}
+        run: test "$EXECUTION_OUTCOME" = success
