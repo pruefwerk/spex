@@ -1,6 +1,29 @@
 # Scenario runtime v1 qualification
 
-Date: 8 October 2026. Published release candidate: `v0.1.0-rc.42`.
+Updated: 9 October 2026. Published release candidate: `v0.1.0-rc.43`.
+
+## rc.43 release qualification
+
+The organization source selector replaces mandatory per-workflow, branch and actor
+lists for internal hosts. GitHub-verified ownership and non-public visibility form
+the coarse boundary; finer restrictions remain optional. Existing exact-repository
+policies, integrity checks, source correlation and replay protection remain supported.
+
+Tag `v0.1.0-rc.43` points to `da17ed307457a954326d4124e55b4fea0b7eaa4f`.
+[Release run 37854675727](https://github.com/pruefwerk/spex/actions/runs/37854675727)
+passed security, race/static analysis, production-candidate and packaging gates.
+Downloaded binary and HTTP-bundle checksums passed; version and provenance records
+match the tag's commit. Local qualification passed 806 root race tests and 37 HTTP
+bundle tests.
+
+Migration-testbench commit `f7499e5` updates tooling, HTTP-bundle and qualification
+module pins together. Standalone race/static/module qualification passed against
+the published rc.43 module, including decoding the deployed organization policy.
+All 24 suite entrypoints and the 42-step catalog validated; ownership selection
+contains ten scenarios. The commit selects ownership-only CI. Hosted acceptance
+and positive caller-to-receiver execution remain separate, outstanding gates.
+
+The remaining sections retain the earlier campaign's evidence and limitations.
 
 ## Implementation
 
