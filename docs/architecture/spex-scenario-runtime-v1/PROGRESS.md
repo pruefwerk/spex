@@ -441,3 +441,12 @@ reachable `x/text` vulnerability; updated fixture dependencies and its builder
 passed 160 race tests, static analysis, Linux compilation and a fresh scan with no
 reachable findings. The hosted ownership group is pending on testbench `f256c0e`;
 this does not yet qualify the complete private-chart suite or receiver transport.
+
+Testbench `d75acbb` makes project fixtures use the pinned SDK's HTTP bundle rather
+than an ignored checkout download. All 44 project race checks passed against a
+clean Git snapshot. Hosted runtime/security and ownership checks restarted on
+that commit; their completion remains a separate gate.
+
+Hosted runtime run `37839862617` passed on `d75acbb`, including fixture race and
+security checks. Ownership run `37839862440` passed selection and validation steps;
+acceptance completion remains pending. Receiver admission remains deny-by-default.

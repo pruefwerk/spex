@@ -106,7 +106,12 @@ compiler in CI. It also fixes a reachable fixture `x/text` finding, updates the
 fixture builder, and adds fixture race/security gates. All 160 fixture race tests,
 static analysis, Linux compilation and a fresh scan passed locally; the scan
 reports no reachable vulnerabilities, not an absence of dependency advisories.
-Hosted ownership qualification has restarted and remains pending.
+Testbench commit `d75acbb` also removes the unit fixtures' accidental dependency
+on a downloaded `.spex/http-bundle`. Fixtures now use assets from the pinned SDK
+module. All 44 project race checks passed against a clean Git snapshot without
+downloaded assets. Hosted runtime qualification run `37839862617` passed,
+including fixture race/security and bootstrap syntax checks. Ownership acceptance
+run `37839862440` is still pending; its selection and validation steps passed.
 
 Finish that selected-group run before treating the extracted host as deployment
 qualified. Fresh full-suite and scenario-input hosted qualification remain
