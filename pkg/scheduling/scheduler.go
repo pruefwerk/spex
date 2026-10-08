@@ -196,6 +196,12 @@ func (s *Scheduler) Acquire(ctx context.Context, request, worker string) (*Sessi
 			return &Session{s, entry}, report, nil
 		}
 		if !errors.Is(err, ErrBusy) {
+			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+				// Cancellation can race the transaction after the loop's check.
+				// Reconcile with a fresh context: withdraw only a confirmed queued
+				// entry, and retain capacity if admission might have committed.
+				break
+			}
 			report.Status = "unknown"
 			return nil, report, err
 		}

@@ -410,3 +410,22 @@ suite entrypoints and the 42-step catalog validated with the updated executable.
 The live shared-daemon qualifier passed cancellation and survivor-isolation
 checks. These changes have not been published and do not establish private-chart
 or AWS acceptance.
+
+## Publication qualification — 2026-10-08
+
+The configured host was committed as `ff01f77` and tagged rc.40. Local security,
+race, static and production/archive checks passed, as did 70 Action adapter tests.
+Standalone testbench qualification and live overlapping Kind cancellation passed
+against the downloaded rc.40 module with `GOWORK=off`.
+
+GitHub rejected rc.40 before creating a release. A unit fixture wrote temporary
+scope values to the enclosing job's `GITHUB_ENV`, contaminating the next test
+invocation. Fixtures now isolate GitHub command files. Cancellation could also
+arrive between the scheduler's context check and admission transaction; confirmed
+queued entries now withdraw under a fresh cleanup context, while uncertain running
+slots remain reserved. Deterministic regressions and 20 repeated race-test runs
+passed. The replacement candidate is rc.41; rc.40's tag remains unchanged.
+
+The [qualification report](FINAL_REPORT.md) distinguishes local checks from
+private-chart acceptance and positive receiver execution. The receiver allowlist
+remains empty until a caller repository and ref receive explicit approval.

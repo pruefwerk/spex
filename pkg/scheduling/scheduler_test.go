@@ -129,6 +129,53 @@ func TestCancellationWithdrawsOnlyWaitingRequest(t *testing.T) {
 	}
 }
 
+type cancelAdmissionStore struct {
+	memory MemoryStore
+	cancel context.CancelFunc
+	calls  int
+	commit bool
+}
+
+func (s *cancelAdmissionStore) Transaction(ctx context.Context, action func(*State) error) error {
+	s.calls++
+	if s.calls == 2 {
+		if s.commit {
+			if err := s.memory.Transaction(ctx, action); err != nil {
+				return err
+			}
+		}
+		s.cancel()
+		return ctx.Err()
+	}
+	return s.memory.Transaction(ctx, action)
+}
+
+func TestCancellationDuringAdmissionReconcilesQueuedAndCommittedSlots(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		t.Run(fmt.Sprint(commit), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			store := &cancelAdmissionStore{cancel: cancel, commit: commit}
+			s := scheduler(1)
+			s.Store = store
+			lease, report, err := s.Acquire(ctx, "request", "worker")
+			if lease != nil || !errors.Is(err, context.Canceled) {
+				t.Fatal(lease, report, err)
+			}
+			state, err := s.Inspect(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !commit && (report.Status != "cancelled" || len(state.Entries) != 0) {
+				t.Fatal("cancelled queue entry was not withdrawn", report, state)
+			}
+			if commit && (report.Status != "unknown" || len(state.Entries) != 1 || state.Entries[0].Status != "running") {
+				t.Fatal("uncertain admission lost its reserved slot", report, state)
+			}
+		})
+	}
+}
+
 func TestUnverifiedSlotConsumesCapacityUntilExplicitRecovery(t *testing.T) {
 	s := scheduler(1)
 	lease, report, _ := s.Acquire(context.Background(), "first", "worker")

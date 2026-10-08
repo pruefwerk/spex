@@ -14,6 +14,10 @@ import (
 
 func configuredFixture(t *testing.T) (string, string) {
 	t.Helper()
+	// Unit tests must never write commands into the enclosing GitHub job.
+	for _, key := range []string{"GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY"} {
+		t.Setenv(key, "")
+	}
 	root := t.TempDir()
 	d := hostconfig.Defaults()
 	d.Suite = "suite-kind-example.yaml"
@@ -153,5 +157,24 @@ func TestPreparationUsesDeclaredEnvironmentKey(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "SPEX_EXECUTION_SCOPE") || strings.Contains(out.String(), "MTB_SCOPE_FILE") {
 		t.Fatal(out.String())
+	}
+}
+
+func TestFixtureDoesNotWriteEnclosingGitHubEnvironment(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "runner-env")
+	const original = "EXISTING=value\n"
+	if err := os.WriteFile(file, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GITHUB_ENV", file)
+	root, config := configuredFixture(t)
+	t.Chdir(root)
+	var out bytes.Buffer
+	if Run(context.Background(), []string{"--config", config, "execution", "prepare"}, &out, &out, "test") != 0 {
+		t.Fatal(out.String())
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || string(data) != original {
+		t.Fatal("fixture changed enclosing GitHub job", err)
 	}
 }

@@ -1,6 +1,6 @@
 # Scenario runtime v1 qualification
 
-Date: 8 October 2026. Release candidate: `v0.1.0-rc.40`.
+Date: 8 October 2026. Release candidate: `v0.1.0-rc.41`.
 
 ## Implementation
 
@@ -78,6 +78,14 @@ non-reachable dependency advisories remain visible in scanner output.
 Release qualification checks archive integrity and the packaged executable.
 Migration-testbench validation covers 24 suite entrypoints and its 42-step catalog,
 including 73 gateway-migration scenarios. Workflow lint checks pass.
+
+GitHub rejected rc.40 before publication. Its second test invocation inherited
+temporary scope variables because a unit fixture wrote to the enclosing job's
+`GITHUB_ENV`. The fixture now isolates GitHub command files, with a regression
+check. GitHub also exposed cancellation between the scheduler's context check
+and its admission transaction. The scheduler now reconciles a confirmed queued
+entry using a fresh context; uncertain running slots remain reserved. Deterministic
+tests cover both outcomes. rc.40's tag remains intact but has no published release.
 
 ## Publication gates and limitations
 

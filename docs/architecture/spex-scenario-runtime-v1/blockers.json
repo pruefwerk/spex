@@ -11,7 +11,7 @@
     {
       "id": "hosted-scenario-qualification",
       "status": "PENDING",
-      "evidence": "The v0.1.0-rc.40 candidate passes local quality checks. Coordinated testbench pins and fresh hosted qualification are pending. The historical rc.38 run is no longer retrievable and cannot establish candidate acceptance.",
+      "evidence": "GitHub rejected rc.40 before publication. The rc.41 candidate fixes test-fixture job contamination and reconciles cancellation during admission. Coordinated testbench pins and fresh hosted qualification are pending. The historical rc.38 run is no longer retrievable and cannot establish candidate acceptance.",
       "affects": ["hosted group lifecycle", "live credential renewal", "canonical artifact upload", "replacement of legacy CI entrypoint"],
       "resolution": "Inspect fresh selected-group results and canonical artifacts after publication and pin updates. Do not infer acceptance success from release gates or workflow startup."
     },
