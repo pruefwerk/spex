@@ -255,14 +255,16 @@ func (r *preparedMigrationRuntime) Execute(ctx context.Context, plan scenariorun
 // Export a typed projection instead of guessing which strings need redaction.
 func persistMigrationEvidence(root string, sink scenarioruntime.ArtifactSink) error {
 	type step struct {
-		Ordinal  int    `json:"ordinal"`
-		Internal bool   `json:"internal"`
-		Outcome  string `json:"outcome"`
+		Ordinal      int    `json:"ordinal"`
+		Internal     bool   `json:"internal"`
+		Outcome      string `json:"outcome"`
+		FailureClass string `json:"failure_class,omitempty"`
 	}
 	type test struct {
-		Index   int    `json:"index"`
-		Outcome string `json:"outcome"`
-		Steps   []step `json:"steps"`
+		Index        int    `json:"index"`
+		Outcome      string `json:"outcome"`
+		Steps        []step `json:"steps"`
+		FailureClass string `json:"failure_class,omitempty"`
 	}
 	evidence := struct {
 		Schema string `json:"schema"`
@@ -281,9 +283,9 @@ func persistMigrationEvidence(root string, sink scenarioruntime.ArtifactSink) er
 		if json.Unmarshal(data, &report) != nil {
 			return errors.New("invalid test evidence")
 		}
-		item := test{Index: index, Outcome: safeEvidenceOutcome(report.Status.Result), Steps: []step{}}
+		item := test{Index: index, Outcome: safeEvidenceOutcome(report.Status.Result), Steps: []step{}, FailureClass: safeEvidenceFailureClass(report.Status.FailureClass)}
 		for ordinal, s := range report.Steps {
-			item.Steps = append(item.Steps, step{Ordinal: ordinal, Internal: s.Internal, Outcome: safeEvidenceOutcome(s.Result)})
+			item.Steps = append(item.Steps, step{Ordinal: ordinal, Internal: s.Internal, Outcome: safeEvidenceOutcome(s.Result), FailureClass: safeEvidenceFailureClass(s.FailureClass)})
 		}
 		evidence.Tests = append(evidence.Tests, item)
 	}
@@ -292,6 +294,22 @@ func persistMigrationEvidence(root string, sink scenarioruntime.ArtifactSink) er
 		return errors.New("cannot encode test evidence")
 	}
 	return sink.Write("artifacts/test-evidence.json", data)
+}
+
+// Reports can include arbitrary backend failure strings. Retain only codes
+// Spex defines; never copy messages or accept a code based on its shape alone.
+func safeEvidenceFailureClass(value *string) string {
+	if value == nil {
+		return ""
+	}
+	switch *value {
+	case "before_scenario_hook_failed", "workspace_completeness_failure",
+		"kuttl_execution_failure", "unmapped_kuttl_failure", "runtime_cleanup_failed",
+		"cancelled", "probe_job_failed", "probe_result_failed", "probe_result_error",
+		"probe_result_cancelled":
+		return *value
+	}
+	return ""
 }
 
 func safeEvidenceOutcome(value string) string {

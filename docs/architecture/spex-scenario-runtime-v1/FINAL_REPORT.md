@@ -1,6 +1,7 @@
 # Scenario runtime v1 qualification
 
-Date: 8 October 2026. Release candidate: `v0.1.0-rc.41`.
+Date: 8 October 2026. Published baseline: `v0.1.0-rc.41`.
+Qualified follow-up candidate: `v0.1.0-rc.42`.
 
 ## Implementation
 
@@ -110,8 +111,20 @@ Testbench commit `d75acbb` also removes the unit fixtures' accidental dependency
 on a downloaded `.spex/http-bundle`. Fixtures now use assets from the pinned SDK
 module. All 44 project race checks passed against a clean Git snapshot without
 downloaded assets. Hosted runtime qualification run `37839862617` passed,
-including fixture race/security and bootstrap syntax checks. Ownership acceptance
-run `37839862440` is still pending; its selection and validation steps passed.
+including fixture race/security and bootstrap syntax checks. Ownership run
+`37839862440` passed selection and validation but failed before deployment. A
+repeat run retained canonical evidence after testbench `163535c` removed an upload
+condition tied to the authoring mode.
+
+Testbench `b3257ed` fixes the adapter's working directory: execution operations now
+enter the trusted checkout, while other helpers retain caller-relative paths.
+The nested-workspace regression failed before the fix and passed afterward; all
+project race/static checks passed. Hosted acceptance has restarted.
+
+rc.42 additionally retains allowlisted Spex failure codes in safe evidence. It
+still excludes backend messages and unknown codes. Sentinel tests, root/HTTP-probe
+security and race gates, static analysis and archive qualification passed locally.
+Publication and coordinated testbench pins remain pending for this follow-up.
 
 Finish that selected-group run before treating the extracted host as deployment
 qualified. Fresh full-suite and scenario-input hosted qualification remain

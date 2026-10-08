@@ -450,3 +450,13 @@ that commit; their completion remains a separate gate.
 Hosted runtime run `37839862617` passed on `d75acbb`, including fixture race and
 security checks. Ownership run `37839862440` passed selection and validation steps;
 acceptance completion remains pending. Receiver admission remains deny-by-default.
+
+Ownership execution failed before application setup. Testbench `163535c` retains
+canonical evidence for both authoring modes. `b3257ed` fixes a reproduced adapter
+directory mismatch: execution commands enter the trusted checkout; other helpers
+retain caller-relative paths. The regression failed before the fix and passed
+afterward, and project race/static checks passed. Acceptance has restarted.
+
+The rc.42 follow-up retains only allowlisted Spex failure classifications in safe
+evidence, never raw backend messages or unknown codes. Sentinel regression,
+security, race, static and production/archive gates passed locally.
