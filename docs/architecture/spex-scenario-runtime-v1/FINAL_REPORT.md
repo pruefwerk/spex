@@ -89,12 +89,29 @@ tests cover both outcomes. rc.40's tag remains intact but has no published relea
 
 ## Publication gates and limitations
 
-Publish the candidate through the release workflow, verify its recorded commit
-and checksums, then update all testbench executable, HTTP-bundle and Go-module pins
-together. Qualify testbench without a local Go workspace override. Run a selected
-commit-tag group in company CI before treating the extracted host as deployment
-qualified. Positive receiver qualification must use an explicitly approved caller;
-the default policy intentionally rejects every caller.
+rc.41 is [published](https://github.com/pruefwerk/spex/releases/tag/v0.1.0-rc.41).
+Its [release workflow](https://github.com/pruefwerk/spex/actions/runs/37837425065)
+passed. Downloaded archive checksums, version metadata and provenance identify
+commit `b5e714280e5a7f964610cf474cc280d6a204bdbf`.
+
+Testbench commit `9162d7e` updated executable, HTTP-bundle and Go-module pins
+together. Standalone qualification used `GOWORK=off` and the downloaded rc.41
+module; no local replacement supplied the SDK. All suites, the catalog, selected
+ownership scenarios, 70 Action tests and live overlapping Kind isolation passed
+locally against that version.
+
+The first enterprise qualification exposed its runner's `CGO_ENABLED=0` default.
+Testbench commit `f256c0e` explicitly enables CGO for race tests and prepares the C
+compiler in CI. It also fixes a reachable fixture `x/text` finding, updates the
+fixture builder, and adds fixture race/security gates. All 160 fixture race tests,
+static analysis, Linux compilation and a fresh scan passed locally; the scan
+reports no reachable vulnerabilities, not an absence of dependency advisories.
+Hosted ownership qualification has restarted and remains pending.
+
+Finish that selected-group run before treating the extracted host as deployment
+qualified. Fresh full-suite and scenario-input hosted qualification remain
+outstanding. Positive receiver qualification must use an explicitly approved
+caller; the default policy intentionally rejects every caller.
 
 This report does not claim complete v1 acceptance qualification. The machine-readable
 [blocker record](blockers.json) tracks unresolved hosted gates. No dynamic plugins,

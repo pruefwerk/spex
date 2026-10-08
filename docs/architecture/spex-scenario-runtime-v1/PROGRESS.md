@@ -429,3 +429,15 @@ passed. The replacement candidate is rc.41; rc.40's tag remains unchanged.
 The [qualification report](FINAL_REPORT.md) distinguishes local checks from
 private-chart acceptance and positive receiver execution. The receiver allowlist
 remains empty until a caller repository and ref receive explicit approval.
+
+rc.41 is published from `b5e7142`. Release run `37837425065` passed, and downloaded
+archives passed checksum and commit-provenance checks. Testbench pins now consume
+rc.41 without workspace replacement. Standalone race/static checks, all suite and
+catalog validators, 70 Action tests and live shared-daemon isolation passed.
+
+The enterprise runner disables CGO by default. Testbench now explicitly enables
+CGO for race tests and prepares a compiler in CI. A separate fixture scan found a
+reachable `x/text` vulnerability; updated fixture dependencies and its builder
+passed 160 race tests, static analysis, Linux compilation and a fresh scan with no
+reachable findings. The hosted ownership group is pending on testbench `f256c0e`;
+this does not yet qualify the complete private-chart suite or receiver transport.

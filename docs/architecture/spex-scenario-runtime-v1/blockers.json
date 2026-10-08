@@ -11,7 +11,7 @@
     {
       "id": "hosted-scenario-qualification",
       "status": "PENDING",
-      "evidence": "GitHub rejected rc.40 before publication. The rc.41 candidate fixes test-fixture job contamination and reconciles cancellation during admission. Coordinated testbench pins and fresh hosted qualification are pending. The historical rc.38 run is no longer retrievable and cannot establish candidate acceptance.",
+      "evidence": "rc.41 is published after successful release qualification at https://github.com/pruefwerk/spex/actions/runs/37837425065. Testbench tool, bundle and module pins use rc.41; standalone checks pass without workspace replacement. Hosted ownership qualification restarted on testbench commit f256c0e after fixing CGO-disabled runner defaults and a reachable fixture dependency finding. Full-suite and scenario-input hosted qualification remain outstanding.",
       "affects": ["hosted group lifecycle", "live credential renewal", "canonical artifact upload", "replacement of legacy CI entrypoint"],
       "resolution": "Inspect fresh selected-group results and canonical artifacts after publication and pin updates. Do not infer acceptance success from release gates or workflow startup."
     },
