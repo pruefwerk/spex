@@ -11,7 +11,7 @@
     {
       "id": "hosted-scenario-qualification",
       "status": "PENDING",
-      "evidence": "rc.41 is published and hosted runtime/security run 37839862617 passed. Ownership execution failed before deployment. Testbench b3257ed fixes a reproduced adapter working-directory mismatch and reruns acceptance; canonical evidence is now retained for both authoring paths. rc.42 adds safe allowlisted failure classifications and passes local release gates. Full-suite, scenario-input and positive receiver hosted qualification remain outstanding.",
+      "evidence": "rc.42 is published after release run 37845026810 passed. Testbench 580ba30 pins rc.42; ownership run 37845674927 is queued. Hosted runtime/security gates passed on the preceding pins. Testbench b3257ed fixes a reproduced adapter working-directory mismatch; canonical evidence is retained for both authoring paths and rc.42 retains safe failure classifications. Fresh full-suite, scenario-input and positive receiver hosted qualification remain outstanding.",
       "affects": ["hosted group lifecycle", "live credential renewal", "canonical artifact upload", "replacement of legacy CI entrypoint"],
       "resolution": "Inspect fresh selected-group results and canonical artifacts after publication and pin updates. Do not infer acceptance success from release gates or workflow startup."
     },

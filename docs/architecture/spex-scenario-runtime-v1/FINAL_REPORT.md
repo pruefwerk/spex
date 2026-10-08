@@ -1,7 +1,6 @@
 # Scenario runtime v1 qualification
 
-Date: 8 October 2026. Published baseline: `v0.1.0-rc.41`.
-Qualified follow-up candidate: `v0.1.0-rc.42`.
+Date: 8 October 2026. Published release candidate: `v0.1.0-rc.42`.
 
 ## Implementation
 
@@ -124,7 +123,13 @@ project race/static checks passed. Hosted acceptance has restarted.
 rc.42 additionally retains allowlisted Spex failure codes in safe evidence. It
 still excludes backend messages and unknown codes. Sentinel tests, root/HTTP-probe
 security and race gates, static analysis and archive qualification passed locally.
-Publication and coordinated testbench pins remain pending for this follow-up.
+rc.42 is [published](https://github.com/pruefwerk/spex/releases/tag/v0.1.0-rc.42).
+Release run `37845026810` passed. Downloaded archive checksums and provenance
+identify commit `0b0861525435ed069e076081c557db0c902088bc`. Testbench `580ba30`
+updates tool, HTTP-bundle and qualification-module pins together. Standalone
+project race/static checks, all suite/catalog validators and 70 Action tests passed
+against rc.42. Ownership-only acceptance run `37845674927` is queued; no full-suite
+or receiver success follows from these checks.
 
 Finish that selected-group run before treating the extracted host as deployment
 qualified. Fresh full-suite and scenario-input hosted qualification remain

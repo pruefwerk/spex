@@ -460,3 +460,10 @@ afterward, and project race/static checks passed. Acceptance has restarted.
 The rc.42 follow-up retains only allowlisted Spex failure classifications in safe
 evidence, never raw backend messages or unknown codes. Sentinel regression,
 security, race, static and production/archive gates passed locally.
+
+rc.42 is published from `0b08615` after release run `37845026810` passed. Downloaded
+archives passed checksum and commit-provenance checks. Testbench `580ba30` pins
+tooling, bundle and the qualification module together. Project race/static checks,
+all suite/catalog validation and 70 Action tests passed against rc.42. Ownership
+run `37845674927` is queued. Full-suite and receiver acceptance remain outstanding;
+the caller allowlist has not changed.
