@@ -94,6 +94,37 @@ their values. The host's `schema_prefix` names private execution ledgers, not
 new policy formats. Earlier prefix-based policy identifiers remain accepted
 for compatibility; use the Spex identifiers for new configuration.
 
+Source admission can use an organization boundary instead of individual caller
+lists:
+
+```json
+{
+  "schema": "spex.receiver-source-policy/v1",
+  "sources": [
+    {"organization": "example-org", "visibilities": ["internal", "private"]}
+  ]
+}
+```
+
+Spex verifies organization ownership and visibility through GitHub before fetching
+source artifacts. Organization entries must declare `internal`, `private`, or
+both; they cannot admit public repositories. GitHub credentials and permissions
+control who can dispatch. Action/reusable-workflow access settings do not replace
+this check of caller-supplied source identities.
+
+Each entry has exactly one selector: `organization` or an exact `repository`.
+Optional `workflow`, `branch` and `actors` fields narrow that entry. Omit them to
+avoid maintaining per-workflow, branch or developer lists. A present `actors`
+array must not be empty. Entries are alternatives: one matching entry admits a
+source. Existing exact-repository policies remain supported; an empty `sources`
+array denies all. Unknown fields and malformed selectors fail closed.
+
+The host still verifies the active first source-run attempt, excludes forks and
+pull-request runs, correlates artifact/run/commit identities and checks artifact
+age. Request digest verification and durable replay claims remain separate gates.
+Earlier releases without organization-selector support reject these new fields;
+upgrade the host executable before deploying an organization policy.
+
 Do not put literal secrets in the host definition. Use credential references
 and the existing private hook environment. The host never prints its raw policy
 or persists expanded credentials. Runtime-produced evidence remains subject to

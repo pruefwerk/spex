@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pruefwerk/spex/pkg/receiver"
@@ -58,16 +60,47 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 	}
 	repository := env("SOURCE_REPOSITORY")
 	entries := []hostconfig.SourceEntry{}
-	if !h.resolver.IsSourcePolicySchema(policy.Schema) || policy.Sources == nil {
+	if !h.resolver.IsSourcePolicySchema(policy.Schema) || policy.Validate() != nil {
 		return runMetadata{}, fail
 	}
 	for _, entry := range policy.Sources {
-		if entry.Repository == repository {
+		if strings.EqualFold(entry.Repository, repository) ||
+			(entry.Organization != "" && strings.EqualFold(entry.Organization, strings.SplitN(repository, "/", 2)[0])) {
 			entries = append(entries, entry)
 		}
 	}
 	if len(entries) == 0 {
 		return runMetadata{}, fail
+	}
+	// Read ownership and visibility from GitHub, never from dispatch inputs or
+	// the source artifact. Missing metadata must not relax a visibility rule.
+	var source struct {
+		FullName   string `json:"full_name"`
+		Visibility string
+		Owner      struct{ Login, Type string }
+	}
+	needsMetadata := false
+	for _, entry := range entries {
+		needsMetadata = needsMetadata || entry.Organization != "" || entry.Visibilities != nil
+	}
+	if needsMetadata {
+		if api.Get(ctx, fmt.Sprintf("/repos/%s", repository), &source) != nil || !strings.EqualFold(source.FullName, repository) {
+			return runMetadata{}, fail
+		}
+		filtered := entries[:0]
+		for _, entry := range entries {
+			if entry.Organization != "" && (source.Owner.Type != "Organization" || !strings.EqualFold(source.Owner.Login, entry.Organization)) {
+				continue
+			}
+			if entry.Visibilities != nil && !slices.Contains(entry.Visibilities, source.Visibility) {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		entries = filtered
+		if len(entries) == 0 {
+			return runMetadata{}, fail
+		}
 	}
 	var run runMetadata
 	if api.Get(ctx, fmt.Sprintf("/repos/%s/actions/runs/%d", repository, runID), &run) != nil || run.ID != runID || run.Attempt != 1 || run.Status != "in_progress" || string(run.Conclusion) != "null" || (run.Event != "push" && run.Event != "workflow_dispatch") || run.Repository.FullName != repository || run.HeadRepository.FullName != repository || !commitID.MatchString(run.SHA) || run.Workflow < 1 {
@@ -79,12 +112,10 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 	}
 	allowed := false
 	for _, entry := range entries {
-		if entry.Workflow == workflow.Path && entry.Branch == run.Branch {
-			for _, actor := range entry.Actors {
-				if actor == run.Actor.Login {
-					allowed = true
-				}
-			}
+		if (entry.Workflow == "" || entry.Workflow == workflow.Path) &&
+			(entry.Branch == "" || entry.Branch == run.Branch) &&
+			(entry.Actors == nil || slices.Contains(entry.Actors, run.Actor.Login)) {
+			allowed = true
 		}
 	}
 	if !allowed {
