@@ -343,3 +343,70 @@ pin that release. The default testbench execution remains the legacy suite path;
 scenario-runtime qualification remains explicit. No testbench acceptance workflow
 was dispatched. The success-only credential-hook fixture now allows ten seconds
 for process startup; dedicated expiry tests and production timeouts are unchanged.
+
+## Native testbench consolidation — 8 October 2026
+
+The current working tree supplies native lifecycle, scheduling, exact Kind/image
+ownership, checked Helm reuse and console capture APIs. Suite inspection calls the
+existing loader and validator. Portable source transport/extraction and credential
+renewal accept host-owned policy; image fingerprints bind explicit inputs without
+absolute checkout paths or timestamps.
+
+Migration-testbench now uses one Go host for suite YAML, scenario TOML, local,
+split CI and receiver execution. Its production Python adapters and harness were
+removed after native parity checks. Source allowlists, profiles, role policy,
+service fixtures and chart/image pins remain in that repository.
+
+Spex passed 705 tests, the full race suite, vet and `make verify`. The host passed
+120 tests, race checks, vet, module verification and build. All 24 suite entrypoints
+and the 42-step catalog validated, including 73 migration scenarios. Real Spex
+projection, live unscheduled host admission and overlapping Kind isolation passed
+separately. These checks do not establish private-chart or AWS acceptance.
+
+rc.39 lacks the pending SDK packages. Local qualification links the repositories
+in a Go workspace; standalone published-pin builds remain blocked. No new release,
+tag, commit or pin update accompanied consolidation. Publish and update SDK/tool
+pins together before hosted acceptance qualification.
+
+## Configured executable host — 2026-10-08
+
+Spex now supplies `spex runtime --config <host.toml>` through
+`pkg/runtimehost/engine`. Strict typed host definitions select existing runtime
+inputs and project policy. Migration-testbench no longer compiles a Go host;
+its command aliases invoke Spex and its `runtime/` contains policy only.
+
+The resolver, final scenario overlay, owned lifecycle and capacity mechanisms
+remain shared. Prepared executions record a host-policy fingerprint and refuse
+drift before execution. A bounded catalog matcher cache avoids repeated expression
+compilation without changing capture semantics.
+
+Qualification passed: 734 Spex race checks, vet, `make verify`, 107 historical
+host parity checks, all 16 setup fixtures, project black-box checks, all 24 suite
+validators and live overlapping Kind cancellation/survivor qualification.
+Temporary parity code was removed. These checks do not qualify private charts,
+published tooling or AWS. rc.39 remains the pin; publication and coordinated tool
+and qualification dependency updates are still required.
+
+## Repository quality review — 2026-10-08
+
+Host configuration, scope resolution and release version now belong to immutable
+host instances. Compatibility bindings return defensive copies. The inherited
+resolver's environment boundary remains serialized, and every host operation
+restores its environment on success, failure and cancellation. Regression tests
+cover independent hosts, stable scope names and environment restoration.
+
+The executable has one command composition entrypoint. Tests invoke the built
+binary for runtime selection, validation and commit-tag/workflow-dispatch inputs;
+release archive qualification invokes the packaged binary as well. CI and release
+workflows require race tests and vet. Manual release builds record the commit of
+the checked-out tag rather than the workflow's original commit, with a regression
+test that deliberately makes those commits differ.
+
+The root dependency update to `golang.org/x/text v0.41.0` removes the reachable
+GO-2026-6629 finding. Root and HTTP-probe security scans, race tests, vet and
+migration-testbench compatibility checks passed. `make production-candidate-check`
+passed, including archive verification and packaged-binary tests. All 24 testbench
+suite entrypoints and the 42-step catalog validated with the updated executable.
+The live shared-daemon qualifier passed cancellation and survivor-isolation
+checks. These changes have not been published and do not establish private-chart
+or AWS acceptance.

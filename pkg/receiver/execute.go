@@ -49,6 +49,7 @@ type Host struct {
 	DefaultRuntime      string
 	Execution           Execution
 	ResourceCoordinator *resourceclaims.Coordinator
+	Scheduling          *Scheduling
 }
 
 type Result struct {
@@ -217,7 +218,7 @@ func Execute(ctx context.Context, request Request, checkout Checkout, host Host,
 		return fail("planning")
 	}
 	receipt.PlannedTests = len(prepared.Plan.Summary().Tests)
-	result, runErr := scenarioruntime.Run(ctx, prepared, sink)
+	result, runErr := RunScheduled(ctx, prepared, sink, e.RequestID, host.Scheduling)
 	if result.Schema == "" {
 		if runErr == nil {
 			runErr = errors.New("receiver execution returned no result")

@@ -4,16 +4,23 @@
     {
       "id": "live-acceptance-infrastructure",
       "status": "BLOCKED",
-      "evidence": "Docker daemon socket is absent; Kind executable is unavailable; custom ECR charts are accessible only in the enterprise GitHub environment.",
+      "evidence": "Local Docker/Kind ownership qualification passes. Custom ECR charts remain accessible only in the enterprise GitHub environment; the extracted configured host still needs fresh full acceptance qualification there.",
       "affects": ["fresh full acceptance baseline", "runtime acceptance parity", "inline live qualification", "file live qualification", "final full acceptance qualification"],
       "resolution": "Run the qualification workflows in the existing authorized GitHub environment after local checks pass. Do not mark live acceptance PASS from static validation."
     },
     {
       "id": "hosted-scenario-qualification",
       "status": "PENDING",
-      "evidence": "Spex v0.1.0-rc.38 is published. Full Gateway Migration scenario-path qualification was dispatched at https://github.com/VFCOM-DigitalEngineering-ST-GK/migration-testbench/actions/runs/37524238938 on testbench commit c932888607948093267c15e67cae181b10cb591b. Initial group selection passed; acceptance results are pending.",
+      "evidence": "The v0.1.0-rc.40 candidate passes local quality checks. Coordinated testbench pins and fresh hosted qualification are pending. The historical rc.38 run is no longer retrievable and cannot establish candidate acceptance.",
       "affects": ["hosted group lifecycle", "live credential renewal", "canonical artifact upload", "replacement of legacy CI entrypoint"],
-      "resolution": "Inspect all selected groups and canonical artifacts from the dispatched run before changing defaults. Do not infer acceptance success from release gates or workflow startup."
+      "resolution": "Inspect fresh selected-group results and canonical artifacts after publication and pin updates. Do not infer acceptance success from release gates or workflow startup."
+    },
+    {
+      "id": "positive-receiver-qualification",
+      "status": "BLOCKED",
+      "evidence": "The migration-testbench receiver denies all callers by default. An explicit caller repository/ref and authorized source-artifact read credentials are required for a positive hosted run.",
+      "affects": ["hosted Action-to-receiver qualification"],
+      "resolution": "Approve a caller identity and supply scoped credentials without weakening the default-deny policy."
     }
   ]
 }

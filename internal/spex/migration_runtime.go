@@ -55,6 +55,9 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err != nil {
 		return nil, errors.New("could not resolve runtime suite")
 	}
+	if err := requireSuiteHost(resolved, flags); err != nil {
+		return nil, err
+	}
 	inline := map[string][]byte{}
 	logicalSources := map[string]string{}
 	if len(request.Scenario.Tests) > 0 {

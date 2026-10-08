@@ -926,7 +926,24 @@ func matchStepInvocation(invocation StepInvocation, steps []StepDefinition) (map
 	return nil, CatalogExpansion{}, false, nil
 }
 
-func matchCatalogExpression(expression, text string) (map[string]string, bool, error) {
+type compiledCatalogExpression struct {
+	names   []string
+	pattern *regexp.Regexp
+}
+
+// Catalogs repeat the same expressions across every scenario. Reuse compiled
+// matchers without retaining an unbounded history of caller-provided catalogs.
+var catalogMatchers = struct {
+	sync.Mutex
+	entries map[string]compiledCatalogExpression
+}{entries: make(map[string]compiledCatalogExpression)}
+
+func catalogMatcher(expression string) (compiledCatalogExpression, error) {
+	catalogMatchers.Lock()
+	defer catalogMatchers.Unlock()
+	if compiled, ok := catalogMatchers.entries[expression]; ok {
+		return compiled, nil
+	}
 	var names []string
 	pattern := regexp.QuoteMeta(expression)
 	for _, match := range catalogVariablePattern.FindAllStringSubmatch(expression, -1) {
@@ -942,14 +959,27 @@ func matchCatalogExpression(expression, text string) (map[string]string, bool, e
 	}
 	re, err := regexp.Compile("^" + pattern + "$")
 	if err != nil {
+		return compiledCatalogExpression{}, err
+	}
+	compiled := compiledCatalogExpression{names, re}
+	if len(catalogMatchers.entries) >= 1024 {
+		clear(catalogMatchers.entries)
+	}
+	catalogMatchers.entries[expression] = compiled
+	return compiled, nil
+}
+
+func matchCatalogExpression(expression, text string) (map[string]string, bool, error) {
+	compiled, err := catalogMatcher(expression)
+	if err != nil {
 		return nil, false, err
 	}
-	matches := re.FindStringSubmatch(text)
+	matches := compiled.pattern.FindStringSubmatch(text)
 	if matches == nil {
 		return nil, false, nil
 	}
 	values := map[string]string{}
-	for i, name := range names {
+	for i, name := range compiled.names {
 		values[name] = matches[i+1]
 	}
 	return values, true, nil

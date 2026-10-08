@@ -28,6 +28,12 @@ test:
 	$(GO_TOOL) test ./...
 	cd bundles/http/probe && $(GO_TOOL) test ./...
 
+.PHONY: quality-check
+quality-check: dependency-check
+	$(GO_TOOL) test -race ./...
+	$(GO_TOOL) vet ./...
+	cd bundles/http/probe && $(GO_TOOL) test -race ./... && $(GO_TOOL) vet ./...
+
 dependency-check:
 	$(GO_TOOL) mod verify
 
@@ -125,6 +131,7 @@ release-archive-check:
 	$(MAKE) release-archive DISTDIR=$(RELEASE_CHECK_DISTDIR) VERSION=$(VERSION) COMMIT=$(COMMIT) BUILD_DATE=$(BUILD_DATE) RELEASE_ARCHIVE_FLAGS=--force
 	test -f $(RELEASE_CHECK_DISTDIR)/$(ARCHIVE_NAME).tar.gz
 	test -f $(RELEASE_CHECK_DISTDIR)/$(ARCHIVE_NAME).tar.gz.sha256
+	SPEX_TEST_BINARY="$(abspath $(RELEASE_CHECK_DISTDIR))/spex" $(GO_TOOL) test -count=1 ./cmd/spex
 
 production-check:
 	@if [ -n "$(BUNDLE_LOCK)" ]; then $(GO_RUN) ./cmd/spex bundle verify --suite $(SUITE) --lock $(BUNDLE_LOCK); fi

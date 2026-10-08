@@ -40,6 +40,7 @@ jobs:
           cache: true
       - run: make install-vulncheck
       - run: make security-check
+      - run: make quality-check
       - run: make production-candidate-check VERSION=ci COMMIT="${GITHUB_SHA}" BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" RELEASE_CHECK_DISTDIR=dist
         env:
           SPEX_MQTT_PASSWORD: ci-secret-scan-password

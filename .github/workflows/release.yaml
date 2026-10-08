@@ -30,11 +30,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - name: Resolve release metadata
         id: meta
         shell: bash
@@ -42,6 +37,9 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          release_helper="$(mktemp "$RUNNER_TEMP/spex-release-commit.XXXXXX")"
+          cp scripts/release_commit.sh "$release_helper"
+          trap 'rm -f "$release_helper"' EXIT
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             tag="${INPUT_TAG}"
             git fetch --tags --force
@@ -55,11 +53,17 @@ jobs:
             exit 2
           fi
           version="${tag#v}"
+          commit="$(bash "$release_helper" "$tag")"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
           echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
-          echo "archive=spex_${version}_$(go env GOOS)_$(go env GOARCH).tar.gz" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Install vulnerability scanner
         run: make install-vulncheck
@@ -67,10 +71,18 @@ jobs:
       - name: Security gate
         run: make security-check
 
+      - name: Race tests and static analysis
+        run: |
+          set -eu
+          go test -race ./...
+          go vet ./...
+          (cd bundles/http/probe && go test -race ./... && go vet ./...)
+
       - name: Production candidate gate
-        run: make production-candidate-check VERSION="${VERSION}" COMMIT="${GITHUB_SHA}" BUILD_DATE="${BUILD_DATE}" RELEASE_CHECK_DISTDIR=.release-check
+        run: make production-candidate-check VERSION="${VERSION}" COMMIT="${RELEASE_COMMIT}" BUILD_DATE="${BUILD_DATE}" RELEASE_CHECK_DISTDIR=.release-check
         env:
           VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_COMMIT: ${{ steps.meta.outputs.commit }}
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
           SPEX_MQTT_PASSWORD: ci-secret-scan-password
           SPEX_GRAPHQL_TOKEN: ci-secret-scan-token
@@ -78,9 +90,10 @@ jobs:
           SPEX_KEYCLOAK_ADMIN_PASSWORD: ci-secret-scan-admin-password
 
       - name: Build release archive
-        run: make release-archive VERSION="${VERSION}" COMMIT="${GITHUB_SHA}" BUILD_DATE="${BUILD_DATE}" DISTDIR=dist
+        run: make release-archive VERSION="${VERSION}" COMMIT="${RELEASE_COMMIT}" BUILD_DATE="${BUILD_DATE}" DISTDIR=dist
         env:
           VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_COMMIT: ${{ steps.meta.outputs.commit }}
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
 
       - name: Package HTTP integration bundle

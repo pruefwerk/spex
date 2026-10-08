@@ -6,6 +6,25 @@ credentials without changing the suite's compiled inputs or parent environment.
 Use [report summaries and Kubernetes diagnostics](docs/reporting-and-diagnostics.md)
 to inspect incomplete runs without adding project-specific reporting logic.
 
+Use [host-managed execution](docs/host-managed-execution.md) when an environment
+requires trusted admission before tests may run. Keep that policy out of setup
+commands and integration profiles.
+
+Use [execution scheduling](docs/scheduling.md) to admit participating workers
+through a durable capacity queue, independently of application resource claims.
+
+Use the [host-owned lifecycle helper](docs/runtime-lifecycle.md) to share setup,
+cancellation and bounded cleanup handling without moving resource policy into Spex.
+
+Use the [runtime host SDK](docs/runtime-host-sdk.md) for persisted execution
+checkpoints and cleanup-gated capacity release across separate processes or CI steps.
+
+Use the [owned Kind library](docs/owned-kind.md) to create and clean up isolated
+clusters and private image tags on a shared Docker daemon.
+
+Use [native host helpers](docs/runtime-support.md) for portable console capture
+and checked Helm reuse through the pinned executable or Go SDK.
+
 The [HTTP integration bundle](bundles/http/README.md) provides HTTP commands and
 JSON assertions without project-specific endpoints. Releases package its source
 and schemas separately so projects can build the probe with their own base-image
@@ -765,3 +784,6 @@ Generated scenarios, generated KUTTL workspaces, generated reports, and other ou
 spex is provided as is. You are responsible for deciding whether it is suitable for your environment, validating generated workspaces before running them, and accepting the risk of any damage, data loss, outage, misconfiguration, or other consequence from using it. The full warranty disclaimer and liability limits are in `LICENSE`.
 
 See [LICENSE](LICENSE), [COMMERCIAL.md](COMMERCIAL.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+See [Configured runtime host](docs/configured-runtime-host.md) for using Spex's
+executable with a runtime-owned TOML definition rather than compiling a host.

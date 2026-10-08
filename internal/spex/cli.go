@@ -85,6 +85,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runReportTools(args[1:], stdout)
 	case "diagnostics":
 		return runDiagnostics(args[1:], stdout)
+	case "runtime-support":
+		return runRuntimeSupport(args[1:], stdout)
 	case "run":
 		return runWorkspace(args[1:], stdout, stderr)
 	case "clean":
@@ -148,6 +150,7 @@ Commands:
   clean     delete generated runtime resources
   suite     validate, list, plan, compile, run, or explain a scenario suite
   scenario  build, validate, explain, or run a canonical TOML scenario (preview)
+  runtime   execute a configured runtime host provided by Spex
   catalog   list, explain, check, or document reusable catalogs
   bundle    list, explain, lock, verify, or vendor resolved integration bundles
   schema    list or print embedded JSON Schemas
@@ -155,6 +158,7 @@ Commands:
   release   verify release artifacts
   reports   summarize scenario reports or CI group execution results
   diagnostics collect read-only Kubernetes diagnostics
+  runtime-support console|helm  capture console output or verify Helm reuse
   init      scaffold a scenario repository
   new       add a scenario file to a scenario repository
   explain   explain one scenario or suite expansion
@@ -1762,6 +1766,7 @@ Examples:
 }
 
 type suiteFlags struct {
+	hostManaged               bool
 	ctx                       context.Context
 	beforeScenarioHook        string
 	beforeScenarioHookTimeout time.Duration
@@ -1956,6 +1961,9 @@ func runSuiteCompile(args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("suite: %w", err)
 	}
+	if err := requireSuiteHost(resolved, flags); err != nil {
+		return err
+	}
 	inputs, err := loadSuiteInputs(resolved, flags)
 	if err != nil {
 		return err
@@ -1983,6 +1991,9 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("suite: %w", err)
 	}
+	if err := requireSuiteHost(resolved, flags); err != nil {
+		return err
+	}
 	inputs, err := loadSuiteInputs(resolved, flags)
 	if err != nil {
 		return err
@@ -1993,6 +2004,9 @@ func runSuiteRun(args []string, stdout, stderr io.Writer) error {
 // runResolvedSuite owns execution for both legacy suites and scenario runtimes.
 // Callers resolve configuration before entering this environment-mutating path.
 func runResolvedSuite(resolved workspace.ResolvedScenarioSuite, inputs []workspace.Inputs, flags suiteFlags, stdout, stderr io.Writer) error {
+	if err := requireSuiteHost(resolved, flags); err != nil {
+		return err
+	}
 	if err := suiteContext(flags).Err(); err != nil {
 		return err
 	}
@@ -2024,6 +2038,15 @@ func runResolvedSuite(resolved workspace.ResolvedScenarioSuite, inputs []workspa
 		return err
 	}
 	fmt.Fprintf(stdout, "suite passed: %d scenario(s)\n", len(workspaces))
+	return nil
+}
+
+// Host authority comes from trusted embedding code, never a submitted definition
+// or a CLI switch. The host must implement its environment's admission policy.
+func requireSuiteHost(resolved workspace.ResolvedScenarioSuite, flags suiteFlags) error {
+	if resolved.Suite.Spec.Execution.RequireHost && !flags.hostManaged {
+		return errors.New("suite requires a trusted runtime host for execution admission; direct execution and runnable workspace export are unavailable")
+	}
 	return nil
 }
 

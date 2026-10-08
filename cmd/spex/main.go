@@ -1,15 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/pruefwerk/spex/internal/spex"
+	"github.com/pruefwerk/spex/internal/command"
 )
 
 func main() {
-	if err := spex.Run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(spex.ExitCode(err))
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := command.Run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }

@@ -133,6 +133,10 @@ func DecodeArtifact(data []byte, expected Expected) (Request, error) {
 // JSON duplicate keys and null fields are ambiguous authoring inputs. Refuse
 // them, excessive nesting and extra documents before decoding typed fields.
 func uniqueJSON(data []byte) error {
+	return checkUniqueJSON(data, false)
+}
+
+func checkUniqueJSON(data []byte, allowNull bool) error {
 	d := json.NewDecoder(bytes.NewReader(data))
 	var value func(int) error
 	value = func(depth int) error {
@@ -143,7 +147,7 @@ func uniqueJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		if token == nil {
+		if token == nil && !allowNull {
 			return errors.New("null field")
 		}
 		switch token {

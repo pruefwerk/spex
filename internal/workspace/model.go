@@ -334,6 +334,9 @@ type ScenarioSuiteSpec struct {
 }
 
 type SuiteExecution struct {
+	// RequireHost keeps environment admission with a trusted runtime host.
+	// The CLI cannot grant this authority through flags or scenario overlays.
+	RequireHost bool           `yaml:"requireHost,omitempty"`
 	Repetitions int            `yaml:"repetitions"`
 	Concurrency int            `yaml:"concurrency"`
 	RateLimit   SuiteRateLimit `yaml:"rateLimit"`
