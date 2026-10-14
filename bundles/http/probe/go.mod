@@ -1,3 +1,3 @@
 module github.com/pruefwerk/spex/bundles/http/probe
 
-go 1.23
+go 1.26.9

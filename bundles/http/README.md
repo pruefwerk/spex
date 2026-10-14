@@ -1,6 +1,6 @@
 # HTTP integration bundle
 
-Use this bundle for HTTP commands and JSON assertions. It contains no project-specific endpoints or migration rules. The probe uses Go's standard library and requires Go 1.23 or later.
+Use this bundle for HTTP commands and JSON assertions. It contains no project-specific endpoints or migration rules. The probe uses Go's standard library and requires Go 1.26.9 or later, including the current standard-library security fixes.
 
 Build the image from this directory:
 
