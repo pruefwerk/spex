@@ -338,6 +338,28 @@ func (h *Host) executionCommand(ctx context.Context, args []string, stdout io.Wr
 	if args[0] != "start" && args[0] != "check" && args[0] != "require" && args[0] != "profile" {
 		return errors.New("unknown execution operation")
 	}
+	if args[0] == "profile" {
+		// KUTTL gives profile commands its workspace-local KUBECONFIG.
+		// That copy is not the host's ownership identity. Derive the host path
+		// from the validated scope; retain strict checking of explicit flags.
+		explicit := false
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name == "kubeconfig" {
+				explicit = true
+			}
+		})
+		if !explicit {
+			ownedScope, err := h.resolver.LoadScope(*scope)
+			if err != nil {
+				return err
+			}
+			name, err := ownedScope.Name()
+			if err != nil {
+				return err
+			}
+			*kubeconfig = filepath.Join(*root, ".spex", "isolated", name, "kubeconfig")
+		}
+	}
 	cluster, err := h.checkExecution(*root, executionPaths{*scope, *suite, *kubeconfig}, nil)
 	if err != nil {
 		return err

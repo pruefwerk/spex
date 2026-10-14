@@ -75,6 +75,13 @@ the same owned lifecycle as one-shot `execution run`. Admission checkpoints and
 capacity tickets persist between processes. Cleanup releases capacity only after
 owned resources disappear. Cancellation propagates from the executable.
 
+KUTTL replaces `KUBECONFIG` with its workspace-local copy when invoking profile
+commands. The host's `execution profile` preflight therefore derives the original
+kubeconfig path from the execution scope instead of treating that environment
+variable as ownership identity. It still verifies the projected configuration,
+expected context, policy fingerprint, and exact live node IDs. An explicitly
+supplied `--kubeconfig` must match the execution-owned path.
+
 No scheduler URI means isolated execution without an aggregate concurrency
 limit. A configured but unavailable store blocks admission; it does not fall back
 to unscheduled execution. AWS does not become supported merely by changing the

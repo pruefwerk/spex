@@ -47,3 +47,24 @@ stays unchanged. Callers retain the original test exit code.
 
 Logs and pod descriptions can contain sensitive application data. Restrict access
 to diagnostic artifacts and use the same retention policy as application logs.
+
+## Scenario-runtime failures
+
+Portable scenario runs do not publish raw KUTTL output, generated manifests, or
+resolved bindings. Those files can contain credentials from setup commands and
+backend responses. Before deleting the private workspace, Spex retains a typed
+runner diagnostic in `artifacts/test-evidence.json` and summarizes it in
+`result.json`.
+
+The diagnostic identifies the last observed phase, a fixed reason hint, the
+runner exit code when available, and the number of the last observed profile
+command (starting at 1). Match that number to the integration profile's
+`kind.commands` list. It identifies the last command observed starting; it does
+not prove that command caused the failure. Reason hints come from recognized
+runner messages and may be incomplete. No command text, response text, or
+filesystem paths enter this diagnostic.
+
+A later `ci health` failure describes the environment after the original
+failure. Its output distinguishes an API-readiness failure, a failed workload
+query, missing required workloads, and unready replicas. Keep the original run
+result when interpreting these secondary diagnostics.

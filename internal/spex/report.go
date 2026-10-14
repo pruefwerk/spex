@@ -28,6 +28,7 @@ type ReportInput struct {
 	FailureClass   *string
 	FailureMessage *string
 	KUTTLOutput    string
+	RunnerExitCode *int
 }
 
 type ScenarioRunReport struct {
@@ -45,14 +46,15 @@ type ReportMetadata struct {
 }
 
 type ReportStatus struct {
-	CleanupFailed  bool    `yaml:"cleanupFailed,omitempty" json:"cleanupFailed,omitempty"`
-	Result         string  `yaml:"result" json:"result"`
-	ScenarioResult string  `yaml:"scenarioResult" json:"scenarioResult"`
-	RunnerResult   string  `yaml:"runnerResult" json:"runnerResult"`
-	StartedAt      string  `yaml:"startedAt" json:"startedAt"`
-	FinishedAt     string  `yaml:"finishedAt" json:"finishedAt"`
-	FailureClass   *string `yaml:"failureClass" json:"failureClass,omitempty"`
-	FailureMessage *string `yaml:"failureMessage" json:"failureMessage,omitempty"`
+	Runner         *RunnerDiagnostic `yaml:"runner,omitempty" json:"runner,omitempty"`
+	CleanupFailed  bool              `yaml:"cleanupFailed,omitempty" json:"cleanupFailed,omitempty"`
+	Result         string            `yaml:"result" json:"result"`
+	ScenarioResult string            `yaml:"scenarioResult" json:"scenarioResult"`
+	RunnerResult   string            `yaml:"runnerResult" json:"runnerResult"`
+	StartedAt      string            `yaml:"startedAt" json:"startedAt"`
+	FinishedAt     string            `yaml:"finishedAt" json:"finishedAt"`
+	FailureClass   *string           `yaml:"failureClass" json:"failureClass,omitempty"`
+	FailureMessage *string           `yaml:"failureMessage" json:"failureMessage,omitempty"`
 }
 
 type ReportSpec struct {
@@ -188,6 +190,9 @@ func WriteReport(input ReportInput) (string, error) {
 			Workspace:    input.Workspace,
 		},
 		Steps: steps,
+	}
+	if input.ScenarioResult == "failed" && input.KUTTLOutput != "" {
+		report.Status.Runner = diagnoseRunner(input.KUTTLOutput, input.RunnerExitCode)
 	}
 
 	reportDir := filepath.Join(input.Workspace, "reports")

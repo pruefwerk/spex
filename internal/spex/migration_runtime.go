@@ -328,10 +328,11 @@ func persistMigrationEvidence(root string, sink scenarioruntime.ArtifactSink) er
 		FailureClass string `json:"failure_class,omitempty"`
 	}
 	type test struct {
-		Index        int    `json:"index"`
-		Outcome      string `json:"outcome"`
-		Steps        []step `json:"steps"`
-		FailureClass string `json:"failure_class,omitempty"`
+		Runner       *RunnerDiagnostic `json:"runner,omitempty"`
+		Index        int               `json:"index"`
+		Outcome      string            `json:"outcome"`
+		Steps        []step            `json:"steps"`
+		FailureClass string            `json:"failure_class,omitempty"`
 	}
 	evidence := struct {
 		Schema string `json:"schema"`
@@ -350,7 +351,7 @@ func persistMigrationEvidence(root string, sink scenarioruntime.ArtifactSink) er
 		if json.Unmarshal(data, &report) != nil {
 			return errors.New("invalid test evidence")
 		}
-		item := test{Index: index, Outcome: safeEvidenceOutcome(report.Status.Result), Steps: []step{}, FailureClass: safeEvidenceFailureClass(report.Status.FailureClass)}
+		item := test{Index: index, Outcome: safeEvidenceOutcome(report.Status.Result), Steps: []step{}, FailureClass: safeEvidenceFailureClass(report.Status.FailureClass), Runner: safeRunnerDiagnostic(report.Status.Runner)}
 		for ordinal, s := range report.Steps {
 			item.Steps = append(item.Steps, step{Ordinal: ordinal, Internal: s.Internal, Outcome: safeEvidenceOutcome(s.Result), FailureClass: safeEvidenceFailureClass(s.FailureClass)})
 		}
@@ -413,6 +414,20 @@ func migrationExecutionEvidence(root string, expected int, retained bool) scenar
 		}
 		if report.Status.FailureClass != nil && *report.Status.FailureClass == "cancelled" {
 			outcome = scenarioruntime.Cancelled
+		}
+		if outcome != scenarioruntime.Passed {
+			if diagnostic := safeRunnerDiagnostic(report.Status.Runner); diagnostic != nil {
+				message := fmt.Sprintf("Runner phase: %s; reason hint: %s", diagnostic.Phase, diagnostic.Reason)
+				if diagnostic.LastProfileCommand > 0 {
+					message += fmt.Sprintf("; last observed profile command: %d (1-based)", diagnostic.LastProfileCommand)
+				}
+				if diagnostic.ExitCode != nil {
+					message += fmt.Sprintf("; exit code: %d", *diagnostic.ExitCode)
+				}
+				result.Problems = append(result.Problems, scenarioruntime.Problem{Phase: "execution", Code: "runner_failed", Message: message})
+			} else if class := safeEvidenceFailureClass(report.Status.FailureClass); class != "" {
+				result.Problems = append(result.Problems, scenarioruntime.Problem{Phase: "execution", Code: class, Message: "Runner failed; inspect typed test evidence"})
+			}
 		}
 		if report.Status.CleanupFailed || (report.Status.FailureClass != nil && *report.Status.FailureClass == "runtime_cleanup_failed") {
 			result.Cleanup = "failed"

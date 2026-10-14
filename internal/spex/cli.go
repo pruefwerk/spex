@@ -4917,6 +4917,7 @@ func runWorkspaceContext(ctx context.Context, args []string, stdout, stderr io.W
 		FailureClass:   result.FailureClass,
 		FailureMessage: result.FailureMessage,
 		KUTTLOutput:    result.Output,
+		RunnerExitCode: result.ExitCode,
 	})
 	if reportErr != nil {
 		return errors.Join(result.Err, cleanupErr, reportErr)
@@ -5001,6 +5002,7 @@ func runCleanupCommandsContext(ctx context.Context, command, workspacePath strin
 }
 
 type kuttlResult struct {
+	ExitCode       *int
 	ScenarioResult string
 	RunnerResult   string
 	FailureClass   *string
@@ -5058,7 +5060,14 @@ func executeKUTTLContext(ctx context.Context, command, workspacePath, kubeContex
 		message = "KUTTL scenario failed"
 	}
 	fmt.Fprintln(stderr, message)
+	var exitCode *int
+	var exited *exec.ExitError
+	if errors.As(err, &exited) {
+		code := exited.ExitCode()
+		exitCode = &code
+	}
 	return kuttlResult{
+		ExitCode:       exitCode,
 		ScenarioResult: "failed",
 		RunnerResult:   "passed",
 		Output:         output,

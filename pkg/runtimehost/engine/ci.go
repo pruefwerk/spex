@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -167,6 +168,10 @@ func (h *Host) planGroups(tests []migrationtestbench.SuiteTest, requested string
 }
 
 func (h *Host) healthyResources(data string) bool {
+	return h.checkResourceHealth(data, io.Discard)
+}
+
+func (h *Host) checkResourceHealth(data string, out io.Writer) bool {
 	var resources struct {
 		Items []struct {
 			Metadata struct{ Name string }   `json:"metadata"`
@@ -177,23 +182,57 @@ func (h *Host) healthyResources(data string) bool {
 		} `json:"items"`
 	}
 	if json.Unmarshal([]byte(data), &resources) != nil {
+		fmt.Fprintln(out, "Health check: invalid workload response")
 		return false
 	}
 	required := map[string]bool{}
 	for _, name := range h.config.HealthResources {
 		required[name] = true
 	}
+	unready := 0
 	for _, item := range resources.Items {
 		replicas := 1
 		if item.Spec.Replicas != nil {
 			replicas = *item.Spec.Replicas
 		}
 		if item.Status.Ready < replicas {
-			return false
+			unready++
+			// Names from cluster responses are untrusted. Only echo a matching
+			// host-configured name after validating its identifier syntax.
+			if required[item.Metadata.Name] && safeHealthName(item.Metadata.Name) {
+				fmt.Fprintf(out, "Health check: %s has %d/%d ready replicas\n", item.Metadata.Name, item.Status.Ready, replicas)
+			}
 		}
 		delete(required, item.Metadata.Name)
 	}
-	return len(required) == 0
+	missing := []string{}
+	for name := range required {
+		if safeHealthName(name) {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	for _, name := range missing {
+		fmt.Fprintf(out, "Health check: required workload %s is missing\n", name)
+	}
+	if len(required) > 0 || unready > 0 {
+		fmt.Fprintf(out, "Health check: %d missing required workloads; %d unready workloads\n", len(required), unready)
+		return false
+	}
+	fmt.Fprintln(out, "Health check: required workloads are ready")
+	return true
+}
+
+func safeHealthName(name string) bool {
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	for _, c := range name {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
 }
 
 func appendCI(path, value string) error {
@@ -337,6 +376,7 @@ func (h *Host) ciCommand(ctx context.Context, args []string, out io.Writer) erro
 		return primary
 	case "health":
 		if *config == "" {
+			fmt.Fprintln(out, "Health check: private kubeconfig was not supplied")
 			return errors.New("private kubeconfig required")
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -344,10 +384,15 @@ func (h *Host) ciCommand(ctx context.Context, args []string, out io.Writer) erro
 		runner := ownedkind.CommandRunner{}
 		command := []string{"kubectl", "--kubeconfig", *config, "--request-timeout=10s"}
 		if _, err := runner.Run(ctx, append(append([]string{}, command...), "get", "--raw=/readyz")...); err != nil {
-			return err
+			fmt.Fprintln(out, "Health check: Kubernetes API readiness could not be confirmed")
+			return errors.New("Kubernetes API readiness unconfirmed")
 		}
 		data, err := runner.Run(ctx, append(command, "-n", h.config.Namespace, "get", "deploy,statefulset", "-o", "json")...)
-		if err != nil || !h.healthyResources(data) {
+		if err != nil {
+			fmt.Fprintln(out, "Health check: workload query failed")
+			return errors.New("workload query failed")
+		}
+		if !h.checkResourceHealth(data, out) {
 			return errors.New("shared infrastructure unhealthy")
 		}
 		return nil

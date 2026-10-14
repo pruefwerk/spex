@@ -13,7 +13,7 @@ func TestMigrationEvidenceRetainsOnlyKnownFailureClasses(t *testing.T) {
 	const sentinel = "SECRET_BACKEND_FAILURE"
 	known, private := "before_scenario_hook_failed", sentinel
 	report := ScenarioRunReport{
-		Status: ReportStatus{Result: "error", FailureClass: &known, FailureMessage: &private},
+		Status: ReportStatus{Result: "error", FailureClass: &known, FailureMessage: &private, Runner: &RunnerDiagnostic{Phase: "profile_setup", Reason: sentinel}},
 		Steps:  []ReportStep{{Result: "failed", FailureClass: &private, FailureMessage: &private}},
 	}
 	path := filepath.Join(root, "scenario", "reports", "scenario-run-report.json")
