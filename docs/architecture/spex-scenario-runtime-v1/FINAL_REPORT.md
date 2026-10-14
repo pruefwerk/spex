@@ -1,6 +1,32 @@
 # Scenario runtime v1 qualification
 
-Updated: 9 October 2026. Published release candidate: `v0.1.0-rc.43`.
+Updated: 14 October 2026. Published release candidate: `v0.1.0-rc.45`.
+
+## rc.45 release qualification
+
+Commit `b40e4ca` adds caller-owned test resolution, shared catalog/binding
+inheritance, caller precedence, optional repository defaults and host guardrails.
+Caller source files stay in the verified caller checkout; inherited setup stays
+in the runtime checkout. Admission remains disabled unless the host enables it.
+The implementation passed 812 root race tests, 37 HTTP tests and static analysis.
+Receiver transport/execution tests use simulated Kubernetes, not company charts.
+
+The rc.44 release attempt stopped at its security gate because Go 1.26.7 had newly
+reported reachable standard-library vulnerabilities. The tag remains immutable;
+no rc.44 GitHub release was published. Commit `489b1d2` requires patched Go 1.26.9
+for Spex and the HTTP probe, including its default Docker builder. Local security
+checks report zero reachable findings; non-reachable dependency advisories remain.
+
+Tag `v0.1.0-rc.45` points to `489b1d2eb5e69a2ff682094b79e3c9e57d5bd10b`.
+[Release run 38544717813](https://github.com/pruefwerk/spex/actions/runs/38544717813)
+passed security, race/static analysis, production-candidate and packaging gates.
+Downloaded binary and HTTP-bundle checksums passed; version/provenance records
+match the tag and identify Go 1.26.9. The release is a published prerelease.
+
+Migration-testbench remains pinned to rc.43. Its existing qualification still
+passes; activating caller-owned configuration requires a coordinated pin and host
+policy update. Hosted caller-to-receiver execution and private-chart acceptance
+through the new composition path remain outstanding.
 
 ## rc.43 release qualification
 
