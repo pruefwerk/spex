@@ -22,6 +22,27 @@ type sourceAPI interface {
 	Download(context.Context, string, int64) ([]byte, error)
 }
 
+// A workflow_call runs in the caller context. Inputs cannot select another
+// repository/run; source and artifact reads use this job's GITHUB_TOKEN.
+func reusableSourceEnvironment(env func(string) string) func(string) string {
+	return func(key string) string {
+		switch key {
+		case "SPEX_ADMISSION_MODE":
+			return "reusable"
+		case "TRANSPORT_SCHEMA":
+			return "spex.transport/v1"
+		case "SOURCE_REPOSITORY":
+			return env("GITHUB_REPOSITORY")
+		case "SOURCE_RUN_ID":
+			return env("GITHUB_RUN_ID")
+		case "SOURCE_READ_TOKEN":
+			return env("GITHUB_TOKEN")
+		default:
+			return env(key)
+		}
+	}
+}
+
 // Explicit tags distinguish the repository from the fork/head repository.
 type runMetadata struct {
 	ID         int64 `json:"id"`
@@ -59,6 +80,9 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 		return runMetadata{}, fail
 	}
 	repository := env("SOURCE_REPOSITORY")
+	if env("SPEX_ADMISSION_MODE") == "reusable" && (repository != env("GITHUB_REPOSITORY") || env("SOURCE_RUN_ID") != env("GITHUB_RUN_ID") || !commitID.MatchString(env("GITHUB_SHA"))) {
+		return runMetadata{}, fail
+	}
 	entries := []hostconfig.SourceEntry{}
 	if !h.resolver.IsSourcePolicySchema(policy.Schema) || policy.Validate() != nil {
 		return runMetadata{}, fail
@@ -104,6 +128,9 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 	}
 	var run runMetadata
 	if api.Get(ctx, fmt.Sprintf("/repos/%s/actions/runs/%d", repository, runID), &run) != nil || run.ID != runID || run.Attempt != 1 || run.Status != "in_progress" || string(run.Conclusion) != "null" || (run.Event != "push" && run.Event != "workflow_dispatch") || run.Repository.FullName != repository || run.HeadRepository.FullName != repository || !commitID.MatchString(run.SHA) || run.Workflow < 1 {
+		return runMetadata{}, fail
+	}
+	if env("SPEX_ADMISSION_MODE") == "reusable" && (run.SHA != env("GITHUB_SHA") || run.Event != env("GITHUB_EVENT_NAME") || run.Actor.Login != env("GITHUB_ACTOR")) {
 		return runMetadata{}, fail
 	}
 	var workflow struct{ Path string }
@@ -197,6 +224,15 @@ func (h *Host) admitSource(ctx context.Context, root string, env func(string) st
 		return err
 	}
 	admitted := admissionContext{Schema: h.resolver.Protocol("receiver-admission"), Expected: receiver.Expected{RequestID: env("REQUEST_ID"), SHA256: env("REQUEST_SHA256"), Repository: env("SOURCE_REPOSITORY"), Commit: run.SHA, SourceRunID: run.ID}, Checkout: receiver.Checkout{Directory: filepath.Join(private, "source"), Repository: env("SOURCE_REPOSITORY"), Commit: run.SHA}, Artifact: filepath.Join(private, "request.zip"), Root: root, Suite: suite, Scope: scopePath, Kubeconfig: filepath.Join(root, ".spex/isolated", name, "kubeconfig"), Actor: run.Actor.Login}
+	if env("SPEX_ADMISSION_MODE") == "reusable" {
+		var identity struct {
+			Release string `json:"release"`
+		}
+		if readJSON(filepath.Join(root, ".spex/runtime-release.json"), &identity) != nil || !regexp.MustCompile(`^bundle-[a-f0-9]{64}$`).MatchString(identity.Release) {
+			return errors.New("trusted runtime bundle identity unavailable")
+		}
+		admitted.Mode, admitted.Release = "reusable", identity.Release
+	}
 	data, err := json.Marshal(admitted)
 	if err != nil {
 		return err

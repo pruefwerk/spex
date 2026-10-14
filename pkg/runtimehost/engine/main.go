@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -31,6 +32,8 @@ type admissionContext struct {
 	Scope      string            `json:"scope"`
 	Kubeconfig string            `json:"kubeconfig"`
 	Actor      string            `json:"actor"`
+	Mode       string            `json:"mode,omitempty"`
+	Release    string            `json:"runtime_release,omitempty"`
 }
 
 func readJSON(path string, into any) error {
@@ -79,7 +82,16 @@ func (h *Host) run(ctx context.Context, contextPath string, stdout, stderr io.Wr
 	if admitted.Actor == "" {
 		return 1
 	}
-	runtime, err := h.newKindRuntime(admitted, "git-"+os.Getenv("GITHUB_SHA"))
+	release := "git-" + os.Getenv("GITHUB_SHA")
+	if admitted.Mode == "reusable" {
+		if !regexp.MustCompile(`^bundle-[a-f0-9]{64}$`).MatchString(admitted.Release) {
+			return 1
+		}
+		release = admitted.Release
+	} else if admitted.Mode != "" {
+		return 1
+	}
+	runtime, err := h.newKindRuntime(admitted, release)
 	if err != nil {
 		return 1
 	}
@@ -152,8 +164,15 @@ func (h *Host) run(ctx context.Context, contextPath string, stdout, stderr io.Wr
 // Run loads a host snapshot and executes one operation. Use separate processes
 // for concurrent operations that need the inherited resolver's environment.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
+	if len(args) > 0 && args[0] == "stage" {
+		if stageRuntime(ctx, args[1:], os.Getenv, stdout) != nil {
+			fmt.Fprintln(stderr, "Trusted runtime staging failed; no test environment created")
+			return 2
+		}
+		return 0
+	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "help") {
-		fmt.Fprintln(stdout, "Usage: spex runtime --config <host.toml> <operation>\nOperations: validate, execution, kind, config, ci, source-admit, receiver-cleanup, credentials, helpers\nRun execution commands from the trusted runtime checkout.")
+		fmt.Fprintln(stdout, "Usage: spex runtime --config <host.toml> <operation>\nOperations: stage, validate, execution, kind, config, ci, source-admit, source-admit-reusable, receiver-cleanup, credentials, helpers\nRun execution commands from the trusted runtime checkout.")
 		return 0
 	}
 	h, err := New(pathFromArgs(args), version)
@@ -202,11 +221,15 @@ func (h *Host) runOperation(ctx context.Context, args []string, stdout, stderr i
 		}
 		fmt.Fprintln(stdout, "Runtime host definition valid; no environment changes performed")
 		return 0
-	case "source-admit":
+	case "source-admit", "source-admit-reusable":
 		if len(args) != 1 {
 			return 2
 		}
-		if h.admitSource(ctx, ".", os.Getenv, receiver.GitHubSource{Token: os.Getenv("SOURCE_READ_TOKEN")}) != nil {
+		env := os.Getenv
+		if args[0] == "source-admit-reusable" {
+			env = reusableSourceEnvironment(os.Getenv)
+		}
+		if h.admitSource(ctx, ".", env, receiver.GitHubSource{Token: env("SOURCE_READ_TOKEN")}) != nil {
 			fmt.Fprintln(stderr, "Receiver source admission failed; execution did not start")
 			return 1
 		}
