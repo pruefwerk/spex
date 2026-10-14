@@ -16,16 +16,22 @@ Action and a reusable workflow; request processing remains in Spex.
 | Reusable workflow syntax | PASS | actionlint v1.7.7 |
 | Inline MongoDB planning | PASS | Candidate stages the actual testbench and plans an inline Gherkin smoke test with the inherited catalog and binding |
 | Runtime-owned baseline planning | PASS | Candidate stages the gateway profile and plans only the existing baseline without commit-tag selection |
-| Published reusable-capable Spex | BLOCKED | rc.45 predates these commands; publish and pin its qualified successor |
+| Published reusable-capable Spex | PASS | rc.46 includes these commands; the runtime's shared Action still needs its pin updated |
 | Hosted shared Action and reusable workflow | BLOCKED | Publish changes and enable private Action sharing; pin both interfaces to the same reviewed release |
 | Inline MongoDB execution on GitHub | BLOCKED | Needs the published components, caller permissions, runner and ECR OIDC access |
 | Baseline execution through the reusable workflow | BLOCKED | Needs hosted qualification with private chart/image pins and required fixture secrets |
 
-No new release, remote dispatch, production deployment or application-release
-workflow change occurred during this implementation. Existing testbench rc.43
-entrypoints retain their pins and behavior. The preview shared Action pins rc.45
-and rejects it before staging because reusable admission is unavailable there.
-After release, change that single host-owned pin before attempting hosted tests.
+Spex rc.46 was published on 2026-10-14 from commit
+`b3415312876f8e75de3fcd0a23263e20fe6833fd`. Local and hosted security,
+race, static-analysis and production-candidate gates passed. Downloaded Linux
+amd64 and HTTP-bundle archive checksums match the release assets; version and
+provenance records identify the release commit.
+
+No remote dispatch, production deployment or application-release workflow change
+occurred. Existing testbench rc.43 entrypoints retain their pins and behavior.
+The preview shared Action still pins rc.45 and rejects it before staging because
+reusable admission is unavailable there. Update that host-owned pin to rc.46
+before attempting hosted tests.
 
 The caller's `GITHUB_TOKEN` reads its own request artifact and source. Contents
 write permits the existing durable replay-claim mechanism in the caller repo.
