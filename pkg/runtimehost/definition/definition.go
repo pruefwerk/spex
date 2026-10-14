@@ -88,6 +88,9 @@ type Credentials struct {
 	DurationSeconds    int    `toml:"duration_seconds"`
 }
 type Definition struct {
+	CallerTests               bool              `toml:"caller_tests"`
+	CallerConfiguration       []string          `toml:"caller_configuration"`
+	RepositoryDefaults        map[string]string `toml:"repository_defaults"`
 	Schema                    string            `toml:"schema"`
 	Runtime                   string            `toml:"runtime"`
 	Suite                     string            `toml:"suite"`
@@ -191,6 +194,18 @@ func (d Definition) Validate() error {
 	invalid := errors.New("runtime host policy incomplete or invalid")
 	name := regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	env := regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	for repository, path := range d.RepositoryDefaults {
+		if !regexp.MustCompile(`^[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+$`).MatchString(repository) || !relative(path) {
+			return invalid
+		}
+	}
+	for _, field := range d.CallerConfiguration {
+		switch field {
+		case "configuration.binding", "configuration.catalogs", "probe.image", "probe.image_pull_policy", "execution.fail_fast", "execution.repetitions", "execution.concurrency", "execution.max_failures", "execution.collect_resource_usage", "selection.exclude_tags":
+		default:
+			return invalid
+		}
+	}
 	if d.Schema != Schema || d.Runtime != "migration-testbench/v1" || !name.MatchString(d.ScopePrefix) ||
 		!name.MatchString(d.SchemaPrefix) || !env.MatchString(d.ScopeEnvironment) || d.Namespace == "" ||
 		d.LocalRepository == "" || len(d.Groups) == 0 || d.BaselineTag == "" || d.SummaryTitle == "" ||

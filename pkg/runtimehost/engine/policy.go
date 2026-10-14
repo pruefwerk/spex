@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
+	"github.com/pruefwerk/spex/pkg/migrationtestbench"
 	"github.com/pruefwerk/spex/pkg/receiver"
 	"github.com/pruefwerk/spex/pkg/scenario"
 )
@@ -76,7 +78,7 @@ func (p *policy) Claim(ctx context.Context, id string) error {
 }
 
 func (p *policy) Allow(_ context.Context, s scenario.Scenario) error {
-	if s.Runtime != p.host.config.Runtime || s.RuntimeRelease != p.release || len(s.Tests) != 0 || len(s.Dependencies) != 0 || !s.RuntimeOverlay.Empty() {
+	if s.Runtime != p.host.config.Runtime || s.RuntimeRelease != p.release || (!p.host.config.CallerTests && (len(s.Tests) != 0 || len(s.Dependencies) != 0)) || !s.RuntimeOverlay.Empty() {
 		return errors.New("only trusted runtime-discovered tests are admitted")
 	}
 	if s.Metadata.Timeout != nil {
@@ -89,12 +91,16 @@ func (p *policy) Allow(_ context.Context, s scenario.Scenario) error {
 		Selection struct {
 			IncludeTags    *[]string `toml:"include_tags"`
 			IncludeAnyTags *[]string `toml:"include_any_tags"`
+			ExcludeTags    *[]string `toml:"exclude_tags"`
 		} `toml:"selection"`
 	}
-	if err := s.RuntimeConfig.DecodeStrict(&overlay); err != nil {
-		return errors.New("only group selection is admitted")
+	if err := migrationtestbench.ValidateReceiverConfig(s.RuntimeConfig, p.host.config.CallerConfiguration); err != nil {
+		return errors.New("runtime configuration violates host guardrails")
 	}
-	for _, tags := range []*[]string{overlay.Selection.IncludeTags, overlay.Selection.IncludeAnyTags} {
+	if err := toml.Unmarshal(s.RuntimeConfig.Bytes(), &overlay); err != nil {
+		return errors.New("invalid runtime configuration")
+	}
+	for _, tags := range []*[]string{overlay.Selection.IncludeTags, overlay.Selection.IncludeAnyTags, overlay.Selection.ExcludeTags} {
 		if tags != nil {
 			for _, tag := range *tags {
 				if !p.host.allowedGroupTags()[tag] {

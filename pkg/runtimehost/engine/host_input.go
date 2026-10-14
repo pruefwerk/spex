@@ -76,8 +76,8 @@ func (h *Host) prepareSelectedHostInput(ctx context.Context, root string, paths 
 			s.RuntimeRelease = "local"
 		}
 	}
-	// Until custom source/resource qualification lands, local and split CI runs
-	// accept the same trusted discovery/selection surface as receiver execution.
+	// Local and split CI runs honor the same host-defined caller/configuration
+	// guardrails as authenticated receiver execution.
 	if err := (&policy{host: h, release: "local"}).Allow(ctx, s); err != nil {
 		return scenarioruntime.Prepared{}, err
 	}

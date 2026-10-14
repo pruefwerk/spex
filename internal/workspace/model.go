@@ -376,6 +376,8 @@ type ResolvedScenarioRef struct {
 }
 
 type ResolvedScenarioSuite struct {
+	BindingOverlayPaths    []string
+	CatalogOverlayPaths    []string
 	Path                   string
 	Suite                  ScenarioSuite
 	BindingPath            string

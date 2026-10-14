@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/pruefwerk/spex/internal/workspace"
 	"github.com/pruefwerk/spex/pkg/definition"
 	"github.com/pruefwerk/spex/pkg/scenario"
@@ -21,7 +22,11 @@ import (
 // supplies repository configuration through the same flags as the legacy CLI;
 // the adapter carries no service topology or company-specific defaults.
 type migrationRuntime struct {
-	flags suiteFlags
+	flags               suiteFlags
+	sourceRoot          string
+	requiredNamespace   string
+	requiredKubeContext string
+	defaults            scenario.RawRuntimeConfig
 }
 
 func (migrationRuntime) ID() string { return "migration-testbench/v1" }
@@ -30,17 +35,47 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	overlay, err := decodeMigrationOverlay(request.Scenario.RuntimeConfig)
+	callerOverlay, err := decodeMigrationOverlay(request.Scenario.RuntimeConfig)
 	if err != nil {
 		return nil, err
 	}
+	defaultOverlay, err := decodeMigrationOverlay(r.defaults)
+	if err != nil {
+		return nil, err
+	}
+	defaultConfiguration := defaultOverlay.Configuration
+	defaultOverlay.Configuration = migrationConfigurationOverlay{}
+	defaultBytes, err := toml.Marshal(defaultOverlay)
+	if err != nil {
+		return nil, err
+	}
+	defaults, err := scenario.ParseRuntimeConfig(defaultBytes)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := r.MergeConfig(defaults, request.Scenario.RuntimeConfig)
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := decodeMigrationOverlay(merged)
+	if err != nil {
+		return nil, err
+	}
+	sourceRoot := request.Workspace
+	if r.sourceRoot != "" {
+		sourceRoot = r.sourceRoot
+	}
 	flags := r.flags
-	flags, err = overlay.ResolveControls(flags, request.Workspace)
+	controlRoot := request.Workspace
+	if flags.hostManaged && flags.repoRoot != "" {
+		controlRoot = flags.repoRoot
+	}
+	flags, err = overlay.ResolveControls(flags, controlRoot)
 	if err != nil {
 		return nil, err
 	}
 	if overlay.Suite != nil {
-		flags.suitePath, err = scenario.SourcePath(request.Workspace, *overlay.Suite)
+		flags.suitePath, err = scenario.SourcePath(controlRoot, *overlay.Suite)
 		if err != nil {
 			return nil, errors.New("runtime suite is unavailable or outside workspace")
 		}
@@ -58,6 +93,27 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	if err := requireSuiteHost(resolved, flags); err != nil {
 		return nil, err
 	}
+	for _, layer := range []struct {
+		config migrationConfigurationOverlay
+		root   string
+	}{{defaultConfiguration, flags.repoRoot}, {callerOverlay.Configuration, sourceRoot}} {
+		if layer.config.Binding != nil {
+			path, err := scenario.SourcePath(layer.root, *layer.config.Binding)
+			if err != nil {
+				return nil, errors.New("binding overlay unavailable or outside source workspace")
+			}
+			resolved.BindingOverlayPaths = append(resolved.BindingOverlayPaths, path)
+		}
+		if layer.config.Catalogs != nil {
+			for _, path := range *layer.config.Catalogs {
+				ref, err := scenario.SourcePath(layer.root, path)
+				if err != nil {
+					return nil, errors.New("catalog overlay unavailable or outside source workspace")
+				}
+				resolved.CatalogOverlayPaths = append(resolved.CatalogOverlayPaths, ref)
+			}
+		}
+	}
 	inline := map[string][]byte{}
 	logicalSources := map[string]string{}
 	if len(request.Scenario.Tests) > 0 {
@@ -67,7 +123,7 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 		for index, source := range request.Scenario.Tests {
 			var sourcePath string
 			if source.File != nil {
-				sourcePath, err = scenario.SourcePath(request.Workspace, *source.File)
+				sourcePath, err = scenario.SourcePath(sourceRoot, *source.File)
 				if err != nil {
 					return nil, &scenarioSourceError{index: index}
 				}
@@ -75,7 +131,7 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 			} else {
 				content := []byte(*source.Inline)
 				digest := sha256.Sum256(content)
-				sourcePath = filepath.Join(request.Workspace, fmt.Sprintf("inline-%x-%d%s", digest[:12], index, inlineSourceExtension(*source.Inline)))
+				sourcePath = filepath.Join(sourceRoot, fmt.Sprintf("inline-%x-%d%s", digest[:12], index, inlineSourceExtension(*source.Inline)))
 				inline[sourcePath] = content
 				logicalSources[sourcePath] = fmt.Sprintf("scenario.toml:test[%d]", index)
 			}
@@ -109,6 +165,11 @@ func (r migrationRuntime) Resolve(ctx context.Context, request scenarioruntime.R
 	resolved, inputs, flags, err = overlay.Apply(resolved, inputs, flags)
 	if err != nil {
 		return nil, err
+	}
+	for _, input := range inputs {
+		if (r.requiredNamespace != "" && input.Namespace != r.requiredNamespace) || (r.requiredKubeContext != "" && input.KubeContext != r.requiredKubeContext) {
+			return nil, errors.New("resolved binding violates runtime isolation guardrails")
+		}
 	}
 	return &preparedMigrationRuntime{resolved: resolved, inputs: inputs, flags: flags, overridePresent: !request.Scenario.RuntimeConfig.Empty(), logicalSources: logicalSources}, nil
 }
@@ -157,6 +218,12 @@ func (r *preparedMigrationRuntime) Plan(ctx context.Context) (scenarioruntime.Ex
 	}
 	if len(r.resolved.CatalogPaths) > 0 {
 		summary.ConfigurationSources = append(summary.ConfigurationSources, "catalogs")
+	}
+	if len(r.resolved.CatalogOverlayPaths) > 0 {
+		summary.ConfigurationSources = append(summary.ConfigurationSources, "catalog overlays")
+	}
+	if len(r.resolved.BindingOverlayPaths) > 0 {
+		summary.ConfigurationSources = append(summary.ConfigurationSources, "binding overlays")
 	}
 	for _, input := range inputs {
 		if input.Integration != nil {

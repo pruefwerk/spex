@@ -40,16 +40,20 @@ func (h *Host) newKindRuntime(admitted admissionContext, release string) (receiv
 	if _, err := h.checkExecution(root, executionPaths{admitted.Scope, admitted.Suite, admitted.Kubeconfig}, nil); err != nil {
 		return nil, err
 	}
-	base, err := migrationtestbench.New(migrationtestbench.Config{RepositoryRoot: root, SuitePath: admitted.Suite, Release: release})
+	scope, err := h.resolver.LoadScope(admitted.Scope)
+	if err != nil {
+		return nil, err
+	}
+	name, err := scope.Name()
+	if err != nil {
+		return nil, err
+	}
+	base, err := migrationtestbench.New(migrationtestbench.Config{RepositoryRoot: root, SuitePath: admitted.Suite, Release: release, SourceRoot: admitted.Checkout.Directory, RequiredNamespace: h.config.Namespace, RequiredKubeContext: "kind-" + name, RepositoryConfig: h.config.RepositoryDefaults[admitted.Expected.Repository]})
 	if err != nil {
 		return nil, err
 	}
 	command := func(ctx context.Context, operation string) error {
 		return h.kindOperation(ctx, root, admitted.Scope, operation)
-	}
-	scope, err := h.resolver.LoadScope(admitted.Scope)
-	if err != nil {
-		return nil, err
 	}
 	return &kindRuntime{host: h, Implementation: base, lifecycle: command, root: root, scope: scope}, nil
 }
@@ -71,16 +75,25 @@ func (h *Host) kindOperation(ctx context.Context, root, scope, operation string)
 }
 
 func (r *kindRuntime) Resolve(ctx context.Context, request scenarioruntime.ResolveRequest) (scenarioruntime.PreparedRuntime, error) {
-	if len(request.Scenario.Tests) != 0 || len(request.Scenario.Dependencies) != 0 {
+	if !r.host.config.CallerTests && (len(request.Scenario.Tests) != 0 || len(request.Scenario.Dependencies) != 0) {
 		return nil, errors.New("receiver currently supports trusted runtime discovery only")
+	}
+	if len(request.Scenario.Tests) > 0 {
+		for _, test := range request.Scenario.Tests {
+			if test.File != nil {
+				if _, err := scenario.SourcePath(request.Workspace, *test.File); err != nil {
+					return nil, errors.New("caller test unavailable")
+				}
+			}
+		}
 	}
 	id, err := scenario.Identity(request.Scenario)
 	if err != nil {
 		return nil, err
 	}
-	// With no caller file sources admitted, runtime-owned profiles and hooks use
-	// the trusted checkout. The canonical scenario remains the caller's overlay;
-	// these host defaults are inherited execution r.host.configuration, not authoring.
+	// Profiles and credential hooks stay in the trusted runtime checkout.
+	// The base runtime resolves caller tests and overlays from its separate,
+	// authenticated source root. These defaults never enter canonical authoring.
 	defaultConfig := ""
 	if os.Getenv("GITHUB_ACTIONS") == "true" && r.host.config.BeforeScenarioHook != "" {
 		policy := r.host.config

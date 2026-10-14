@@ -68,3 +68,60 @@ func TestReceiverUsesExistingMigrationRuntime(t *testing.T) {
 		}
 	}
 }
+
+func TestReceiverCallerFeatureUsesHostCatalog(t *testing.T) {
+	root, source, bin := repoRoot(t), t.TempDir(), t.TempDir()
+	feature := `Feature: Repository-owned acceptance
+  Scenario: Shared steps remain reusable
+    Given tenant "tenant-dev"
+    And device "device-dev-1"
+    When device "device-dev-1" publishes energy reading 42.5 as "reading-1"
+    Then Redpanda contains reading "reading-1" with value 42.5
+`
+	if err := os.WriteFile(filepath.Join(source, "acceptance.feature"), []byte(feature), 0600); err != nil {
+		t.Fatal(err)
+	}
+	document := `schema = "spex.scenario/v1"
+runtime = "migration-testbench/v1"
+[[tests]]
+file = "acceptance.feature"
+`
+	if err := os.WriteFile(filepath.Join(source, "scenario.toml"), []byte(document), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewReceiverMigrationRuntimeWithSources(root, "examples/suites/mqtt-local.yaml", "v1.0.0", ReceiverMigrationSources{Directory: source, RequiredNamespace: "spex-test", RequiredKubeContext: "local-dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake, err := os.ReadFile(writeFakeKubectl(t, 0, "PRIVATE_BACKEND_SENTINEL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "kubectl"), fake, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	envelope := receiver.Envelope{Schema: "spex.transport/v1", RequestID: strings.Repeat("d", 32), Source: receiver.Source{Repository: "owner/source", Commit: strings.Repeat("b", 40), Root: ".", RunID: 9}, Authoring: receiver.Authoring{DefinitionFiles: []string{"scenario.toml"}}}
+	data, _ := json.Marshal(envelope)
+	sum := sha256.Sum256(data)
+	request, err := receiver.Decode(data, receiver.Expected{RequestID: envelope.RequestID, SHA256: hex.EncodeToString(sum[:]), Repository: envelope.Source.Repository, Commit: envelope.Source.Commit, SourceRunID: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink, err := scenarioruntime.NewFileArtifacts(t.TempDir(), "runs", request.SHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.Close()
+	host := receiver.Host{Policy: fixtureReceiverPolicy{}, DefaultRuntime: runtime.ID(), Runtimes: []receiver.Choice{{Runtime: runtime, Default: true}}, Execution: receiver.Execution{WorkflowSHA: strings.Repeat("c", 40), RunID: 42, RunAttempt: 1, SpexVersion: Version}}
+	receipt, err := receiver.Execute(context.Background(), request, receiver.Checkout{Directory: source, Repository: envelope.Source.Repository, Commit: envelope.Source.Commit}, host, sink)
+	if err != nil || receipt.Result.Outcome != scenarioruntime.Passed || receipt.PlannedTests != 1 {
+		t.Fatalf("%+v %v", receipt, err)
+	}
+	for _, name := range []string{"scenario.toml", "result.json", "plan.json", "receipt.json"} {
+		data, err := os.ReadFile(filepath.Join(sink.Directory(), name))
+		if err != nil || strings.Contains(string(data), "PRIVATE_BACKEND_SENTINEL") {
+			t.Fatal("invalid or unsafe receiver evidence", name, err)
+		}
+	}
+}

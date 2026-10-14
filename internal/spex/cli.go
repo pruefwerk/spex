@@ -2785,6 +2785,13 @@ func loadSuiteSourceInputs(resolved workspace.ResolvedScenarioSuite, flags suite
 	if err != nil {
 		return nil, fmt.Errorf("catalogs: %w", err)
 	}
+	for _, overlayPath := range resolved.CatalogOverlayPaths {
+		overrides, err := workspace.LoadCatalogBundle([]string{overlayPath})
+		if err != nil {
+			return nil, fmt.Errorf("catalog overlays: %w", err)
+		}
+		catalogs = workspace.OverlayCatalogBundle(catalogs, overrides)
+	}
 	ordinal := 0
 	scenarioRefs := resolved.ScenarioRefs
 	if len(scenarioRefs) == 0 {
@@ -2799,7 +2806,14 @@ func loadSuiteSourceInputs(resolved workspace.ResolvedScenarioSuite, flags suite
 	for _, scenarioRef := range scenarioRefs {
 		var scenarioInputs []workspace.Inputs
 		var err error
-		if content, ok := inline[scenarioRef.Path]; ok {
+		if len(resolved.BindingOverlayPaths) > 0 {
+			content, ok := inline[scenarioRef.Path]
+			if ok {
+				scenarioInputs, err = workspace.LoadSourceInputsWithBindingOverlay(content, scenarioRef.Path, scenarioRef.BindingPath, resolved.BindingOverlayPaths[0], catalogs, resolved.Providers, resolved.BindingOverlayPaths[1:]...)
+			} else {
+				scenarioInputs, err = workspace.LoadInputsWithBindingOverlays(scenarioRef.Path, scenarioRef.BindingPath, resolved.BindingOverlayPaths, catalogs, resolved.Providers)
+			}
+		} else if content, ok := inline[scenarioRef.Path]; ok {
 			scenarioInputs, err = workspace.LoadSourceInputs(content, scenarioRef.Path, scenarioRef.BindingPath, catalogs, resolved.Providers)
 		} else {
 			scenarioInputs, err = workspace.LoadInputsWithCatalogsManyAndProviders(scenarioRef.Path, scenarioRef.BindingPath, catalogs, resolved.Providers)

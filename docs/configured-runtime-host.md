@@ -125,6 +125,66 @@ age. Request digest verification and durable replay claims remain separate gates
 Earlier releases without organization-selector support reject these new fields;
 upgrade the host executable before deploying an organization policy.
 
+### Caller-owned acceptance definitions
+
+The receiver can resolve caller tests against runtime-owned catalogs, bindings and
+setup. Enable this in the trusted host definition, not in the caller request:
+
+```toml
+caller_tests = true
+caller_configuration = ["configuration.binding", "configuration.catalogs", "probe.image"]
+
+[repository_defaults]
+"example-org/service" = "runtime/service-defaults.toml"
+```
+
+`repository_defaults` selects a runtime-config TOML fragment by the authenticated
+source repository. The fragment and its configuration references stay inside the
+trusted runtime checkout. Repository defaults are optional; without a matching
+entry, the existing suite remains the inherited base.
+
+A caller can submit a scenario TOML through the existing Action definition inputs:
+
+```toml
+schema = "spex.scenario/v1"
+runtime = "migration-testbench/v1"
+
+[[tests]]
+file = "acceptance/migration.feature"
+
+[runtime_config.configuration]
+binding = "acceptance/binding.yaml"
+catalogs = ["acceptance/steps.yaml"]
+```
+
+Omit `configuration` to inherit the host binding and catalog. Omit `tests` to
+discover the existing host suite. Caller file references resolve inside the
+verified source checkout; inherited setup and credential hooks still use the
+runtime checkout. The Action neither merges these layers nor selects defaults.
+
+Resolution applies the suite, optional host repository defaults, and caller
+scenario configuration in that order. YAML binding overlays use strict typed
+decoding: omitted fields inherit, explicit false/zero values replace, arrays
+replace, and map entries replace by key while unmentioned keys inherit. Catalog
+overlays inherit unmatched definitions and replace equal flow names or exact
+step kind/expression pairs. Later catalog files win; different expressions that
+match the same sentence still trigger the existing ambiguity error. Catalog
+reference arrays replace within TOML authoring merges; the selected catalogs
+then layer over the inherited catalog definitions.
+
+Host guardrails reject unapproved runtime-config fields before planning. The
+existing default admits only group selection and no caller tests. Hosts can admit
+the listed binding/catalog fields, probe image fields, selected execution counts,
+fail-fast/resource-usage settings and tag exclusion. Suite replacement, credential
+hooks, namespace/context overrides and retained resources remain receiver-owned.
+Resolved bindings must retain the execution-owned namespace and Kind context;
+an incompatible binding fails rather than being silently rewritten.
+
+Catalogs and YAML operations describe executable test behavior. Admit them only
+from source repositories trusted to author tests for this runtime's permissions.
+Field guardrails and isolated Kind resources do not sandbox arbitrary catalog
+behavior or establish safe AWS execution. Review new definitions accordingly.
+
 Do not put literal secrets in the host definition. Use credential references
 and the existing private hook environment. The host never prints its raw policy
 or persists expanded credentials. Runtime-produced evidence remains subject to

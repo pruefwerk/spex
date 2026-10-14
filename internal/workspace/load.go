@@ -89,6 +89,12 @@ func LoadInputsWithCatalogsManyAndProviders(scenarioPath, bindingPath string, ca
 // validation as a file. sourcePath supplies its language extension and base
 // directory for existing relative references; no temporary file is required.
 func LoadSourceInputs(content []byte, sourcePath, bindingPath string, catalogs CatalogBundle, providers []Provider) ([]Inputs, error) {
+	return LoadSourceInputsWithBindingOverlay(content, sourcePath, bindingPath, "", catalogs, providers)
+}
+
+// LoadSourceInputsWithBindingOverlay preserves inherited fields through typed
+// YAML decoding. Explicit arrays replace; maps merge by key, including false/zero.
+func LoadSourceInputsWithBindingOverlay(content []byte, sourcePath, bindingPath, overlayPath string, catalogs CatalogBundle, providers []Provider, extraOverlays ...string) ([]Inputs, error) {
 	var scenarios []Scenario
 	if strings.HasSuffix(sourcePath, ".feature") {
 		if len(content) > int(maxFeatureInputFileSize) {
@@ -109,13 +115,56 @@ func LoadSourceInputs(content []byte, sourcePath, bindingPath string, catalogs C
 		}
 		scenarios = []Scenario{source}
 	}
-	return loadScenarioInputs(scenarios, sourcePath, bindingPath, catalogs, providers)
+	return loadScenarioInputs(scenarios, sourcePath, bindingPath, catalogs, providers, append([]string{overlayPath}, extraOverlays...)...)
 }
 
-func loadScenarioInputs(scenarios []Scenario, scenarioPath, bindingPath string, catalogs CatalogBundle, providers []Provider) ([]Inputs, error) {
+func LoadInputsWithBindingOverlays(sourcePath, bindingPath string, overlays []string, catalogs CatalogBundle, providers []Provider) ([]Inputs, error) {
+	limit := maxYAMLInputFileSize
+	if strings.HasSuffix(sourcePath, ".feature") {
+		limit = maxFeatureInputFileSize
+	}
+	content, err := readRegularInputFile(sourcePath, limit)
+	if err != nil {
+		return nil, err
+	}
+	return LoadSourceInputsWithBindingOverlay(content, sourcePath, bindingPath, "", catalogs, providers, overlays...)
+}
+
+func loadScenarioInputs(scenarios []Scenario, scenarioPath, bindingPath string, catalogs CatalogBundle, providers []Provider, overlays ...string) ([]Inputs, error) {
 	binding, err := loadYAML[TargetBinding](bindingPath)
 	if err != nil {
 		return nil, fmt.Errorf("binding: %w", err)
+	}
+	for _, overlay := range overlays {
+		if overlay == "" {
+			continue
+		}
+		content, err := readRegularInputFile(overlay, maxYAMLInputFileSize)
+		if err != nil {
+			return nil, fmt.Errorf("binding overlay unavailable or too large")
+		}
+		if err := decodeYAMLInto(content, &binding); err != nil {
+			return nil, fmt.Errorf("invalid binding overlay")
+		}
+		// Keep caller-relative secret-file references beside their defining
+		// overlay, not beside the inherited host binding. Never accept a caller
+		// absolute path or a traversal into the trusted host checkout.
+		var supplied TargetBinding
+		if err := decodeYAMLInto(content, &supplied); err != nil {
+			return nil, fmt.Errorf("invalid binding overlay")
+		}
+		for key, secret := range supplied.Spec.Secrets {
+			if secret.EnvFile == "" {
+				continue
+			}
+			clean := filepath.Clean(secret.EnvFile)
+			if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("secret file must stay beside its binding overlay")
+			}
+			value := binding.Spec.Secrets[key]
+			value.EnvFile = filepath.Join(filepath.Dir(overlay), clean)
+			binding.Spec.Secrets[key] = value
+		}
 	}
 	if err := validateBinding(binding); err != nil {
 		return nil, fmt.Errorf("binding: %w", err)

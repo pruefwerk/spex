@@ -3,6 +3,7 @@ package spex
 import (
 	"errors"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -14,11 +15,45 @@ import (
 // The first overlay surface intentionally excludes credentials and service
 // topology. Those remain in the repository's existing configuration.
 type migrationOverlay struct {
-	Suite       *string                     `toml:"suite,omitempty"`
-	Environment migrationEnvironmentOverlay `toml:"environment,omitempty"`
-	Probe       migrationProbeOverlay       `toml:"probe,omitempty"`
-	Execution   migrationExecutionOverlay   `toml:"execution,omitempty"`
-	Selection   migrationSelectionOverlay   `toml:"selection,omitempty"`
+	Suite         *string                       `toml:"suite,omitempty"`
+	Configuration migrationConfigurationOverlay `toml:"configuration,omitempty"`
+	Environment   migrationEnvironmentOverlay   `toml:"environment,omitempty"`
+	Probe         migrationProbeOverlay         `toml:"probe,omitempty"`
+	Execution     migrationExecutionOverlay     `toml:"execution,omitempty"`
+	Selection     migrationSelectionOverlay     `toml:"selection,omitempty"`
+}
+
+// ValidateReceiverMigrationConfig uses the same typed overlay decoder as local
+// execution. The table walk checks field presence only; it does not merge config.
+func ValidateReceiverMigrationConfig(raw scenario.RawRuntimeConfig, fields []string) error {
+	if _, err := decodeMigrationOverlay(raw); err != nil {
+		return err
+	}
+	var values map[string]any
+	if err := toml.Unmarshal(raw.Bytes(), &values); err != nil {
+		return err
+	}
+	allowed := append([]string{"selection.include_tags", "selection.include_any_tags"}, fields...)
+	var check func(map[string]any, string) error
+	check = func(table map[string]any, prefix string) error {
+		for key, value := range table {
+			path := prefix + key
+			if nested, ok := value.(map[string]any); ok {
+				if err := check(nested, path+"."); err != nil {
+					return err
+				}
+			} else if !slices.Contains(allowed, path) {
+				return errors.New("runtime configuration field not admitted")
+			}
+		}
+		return nil
+	}
+	return check(values, "")
+}
+
+type migrationConfigurationOverlay struct {
+	Binding  *string   `toml:"binding,omitempty"`
+	Catalogs *[]string `toml:"catalogs,omitempty"`
 }
 
 type migrationSelectionOverlay struct {
@@ -56,6 +91,18 @@ func decodeMigrationOverlay(raw scenario.RawRuntimeConfig) (migrationOverlay, er
 	if overlay.Suite != nil {
 		if _, err := scenario.RelativePath(*overlay.Suite); err != nil {
 			return overlay, errors.New("runtime suite must be workspace-relative")
+		}
+	}
+	paths := []string{}
+	if overlay.Configuration.Binding != nil {
+		paths = append(paths, *overlay.Configuration.Binding)
+	}
+	if overlay.Configuration.Catalogs != nil {
+		paths = append(paths, (*overlay.Configuration.Catalogs)...)
+	}
+	for _, path := range paths {
+		if _, err := scenario.RelativePath(path); err != nil {
+			return overlay, errors.New("configuration paths must be workspace-relative")
 		}
 	}
 	if hook := overlay.Execution.BeforeScenarioHook; hook != nil && *hook != "" {
@@ -105,6 +152,8 @@ func (migrationRuntime) MergeConfig(baseRaw, overrideRaw scenario.RawRuntimeConf
 		return scenario.RawRuntimeConfig{}, err
 	}
 	base.Suite = overlayValue(base.Suite, override.Suite)
+	base.Configuration.Binding = overlayValue(base.Configuration.Binding, override.Configuration.Binding)
+	base.Configuration.Catalogs = overlayStrings(base.Configuration.Catalogs, override.Configuration.Catalogs)
 	base.Selection.IncludeTags = overlayStrings(base.Selection.IncludeTags, override.Selection.IncludeTags)
 	base.Selection.IncludeAnyTags = overlayStrings(base.Selection.IncludeAnyTags, override.Selection.IncludeAnyTags)
 	base.Selection.ExcludeTags = overlayStrings(base.Selection.ExcludeTags, override.Selection.ExcludeTags)
