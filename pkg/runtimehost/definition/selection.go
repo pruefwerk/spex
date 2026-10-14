@@ -77,6 +77,12 @@ type TestSelection struct {
 }
 
 func GroupFlags(groups string, tests []TestSelection, declared map[string]bool) ([]string, error) {
+	return Defaults().GroupFlags(groups, tests, declared)
+}
+
+// GroupFlags translates group names to scenario tags, including the host's
+// configured baseline tag. An empty selection continues to include every test.
+func (d Definition) GroupFlags(groups string, tests []TestSelection, declared map[string]bool) ([]string, error) {
 	requested, err := Names(groups)
 	if err != nil {
 		return nil, err
@@ -84,6 +90,9 @@ func GroupFlags(groups string, tests []TestSelection, declared map[string]bool) 
 	available := map[string]bool{}
 	for _, test := range tests {
 		for _, tag := range test.Tags {
+			if tag == d.BaselineTag {
+				available["baseline"] = true
+			}
 			if strings.HasPrefix(tag, "group-") {
 				available[strings.TrimPrefix(tag, "group-")] = true
 			}
@@ -111,6 +120,9 @@ func GroupFlags(groups string, tests []TestSelection, declared map[string]bool) 
 	tags := make([]string, len(requested))
 	for i, group := range requested {
 		tags[i] = "group-" + group
+		if group == "baseline" {
+			tags[i] = d.BaselineTag
+		}
 	}
 	return []string{"--include-any-tag", strings.Join(tags, ",")}, nil
 }

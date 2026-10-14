@@ -21,6 +21,12 @@ import (
 
 func (h *Host) ciGroupNames() []string { return h.config.Groups }
 
+// Selection errors contain only validated group names or fixed diagnostics.
+// Other CI errors may contain configuration values and must remain private.
+type ciSelectionError struct{ cause error }
+
+func (e ciSelectionError) Error() string { return "CI group selection failed: " + e.cause.Error() }
+
 type groupEntry struct {
 	Scenarios int    `json:"scenarios"`
 	Selected  bool   `json:"selected"`
@@ -96,8 +102,8 @@ func (h *Host) planGroups(tests []migrationtestbench.SuiteTest, requested string
 	for i, test := range tests {
 		selection[i].Tags = test.Tags
 	}
-	if _, err := hostconfig.GroupFlags(requested, selection, declared); err != nil {
-		return nil, err
+	if _, err := h.config.GroupFlags(requested, selection, declared); err != nil {
+		return nil, ciSelectionError{err}
 	}
 	plan := map[string]groupEntry{}
 	for _, name := range h.ciGroupNames() {
@@ -254,9 +260,9 @@ func (h *Host) ciCommand(ctx context.Context, args []string, out io.Writer) erro
 			for i, test := range tests {
 				selection[i].Tags = test.Tags
 			}
-			filtered, err := hostconfig.GroupFlags(*requested, selection, declared)
+			filtered, err := h.config.GroupFlags(*requested, selection, declared)
 			if err != nil {
-				return err
+				return ciSelectionError{err}
 			}
 			tags := []string{}
 			if len(filtered) > 0 {

@@ -241,7 +241,12 @@ func (h *Host) runOperation(ctx context.Context, args []string, stdout, stderr i
 		}
 		return fail("AWS scenario credential renewal failed", 1, h.renewCredentials(ctx, stdout))
 	case "ci":
-		return fail("CI planning, validation or reporting failed", 1, h.ciCommand(ctx, args[1:], stdout))
+		err := h.ciCommand(ctx, args[1:], stdout)
+		var selection ciSelectionError
+		if errors.As(err, &selection) {
+			return fail(selection.Error(), 1, err)
+		}
+		return fail("CI planning, validation or reporting failed", 1, err)
 	case "helpers", "gateway":
 		return fail("Configured helper failed; check input or readiness", 1, h.helperCommand(ctx, args[1:], stdout))
 	case "receiver-cleanup":
