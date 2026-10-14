@@ -7,18 +7,18 @@ available for standalone/legacy clients. The new Action contract uses the public
 [receiver API](receiver.md). Runtime repositories must still implement and qualify
 their own GitHub workflow, authenticated source fetching and admission policy.
 
-This adds a client transport around the existing in-process runtime. The receiver
-still runs Spex locally; no plugin ABI or subprocess runtime protocol is introduced.
-The GitHub Action packages/uploads/submits from the caller repository instead of
-preparing the acceptance environment in the caller job.
+The client transport uses the existing in-process runtime. The receiver still
+runs Spex locally, without a plugin ABI or subprocess runtime protocol. The GitHub
+Action packages, uploads and submits from the caller repository; the receiver
+prepares the acceptance environment.
 
 ## Unified authoring
 
 `scenario build` and `scenario package` accept either `--definition-inline-file`
 (a transport file holding inline content) or repeatable `--definition-file`
 (workspace-relative paths or glob patterns). Spex recognizes scenario/request TOML, Spex YAML and
-Gherkin. A complete TOML definition must stand alone: no extra tests and no second
-TOML definition. Inline YAML/Gherkin supports `---` separators; external test files
+Gherkin. Supply a complete TOML definition on its own, without extra tests or a
+second TOML definition. Inline YAML/Gherkin supports `---` separators; external test files
 contain one document, with `.feature` for Gherkin. Omit both to retain discovery.
 Do not mix these flags with legacy source flags, which remain supported separately.
 
@@ -33,7 +33,7 @@ for zero or more directory levels. Matches are sorted and deduplicated; every
 pattern must match a file. `.git` is skipped; directory symlinks are not traversed;
 file symlinks must resolve within the source root. Scans stop after 100,000 entries
 or 1,000 matches. Regex and exclusion syntax are not supported. Globs apply to
-definition-file arguments, not dependency declarations. In the Action, the source
+definition-file arguments only; dependency declarations do not accept them. In the Action, the source
 base comes from its actual current directory relative to the workflow workspace;
 the receiver chooses its own checkout locations and performs expansion at the
 source commit. CLI --workspace remains available for explicit local execution.

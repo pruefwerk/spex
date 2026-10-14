@@ -12,7 +12,7 @@ control-plane Kind configuration without extra mounts or port mappings.
 
 ## Ownership checks
 
-Creation refuses pre-existing nodes with the requested Kind label. Create-only
+Creation fails if nodes already have the requested Kind label. Create-only
 ledgers record the attempt and exact Docker node IDs, including nodes left by a
 failed or cancelled creation. Cancellation stops the child tool process; a
 separate bounded context captures remaining nodes for cleanup.

@@ -1,8 +1,8 @@
 # Runtime host SDK
 
 Use `pkg/runtimehost` when a trusted runtime spans separate processes or CI
-steps. It composes the existing scheduler; it does not implement another test
-engine, choose an environment or generate workflows.
+steps. It uses the existing scheduler without adding another test engine,
+choosing an environment or generating workflows.
 
 `Session` persists an execution identity and admission mode. Call `Gate` with
 `Acquire` once, `Check` before each subsequent step and `Finish` during recovery
@@ -49,4 +49,4 @@ cleanup policy as typed trusted data. The SDK owns
 checkpoint persistence, cross-step state checks, ticket resumption and release
 ordering. Cleanup callbacks must honor their contexts. Use the existing
 `scenarioruntime.Lifecycle` for in-process setup/test/cleanup and primary outcome
-preservation; these APIs are complementary, not separate execution engines.
+preservation. These APIs work together within the same execution engine.

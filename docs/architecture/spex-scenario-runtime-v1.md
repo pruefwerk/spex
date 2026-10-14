@@ -5,8 +5,8 @@
 Spex starts at `c7a76476dd042a9212818aa098500ea655f6ee11` (rc.37).
 Migration-testbench starts at `d28942f24ac9debab2cd1d766c143f4a337cfdfa`.
 Both worktrees were clean before this campaign. The user reported all Gateway
-Migration acceptance scenarios passing in CI. That report is the historical
-acceptance baseline, not a new execution from this workspace.
+Migration acceptance scenarios passing in CI. This historical report supplies
+the acceptance baseline; this workspace did not repeat that execution.
 
 Fresh qualification results and external blockers live in
 `spex-scenario-runtime-v1/BASELINE.md` and `blockers.json`.
@@ -18,7 +18,7 @@ Fresh qualification results and external blockers live in
 bundles; it expands operations and generates KUTTL workspaces. `internal/probe`
 executes protocol operations. `bundles/http/probe` is a separate Go module.
 The existing test languages are YAML and Gherkin `.feature` files. The proposed
-brace-language examples are illustrative; v1 must preserve the existing languages.
+brace-language examples only illustrate the idea. v1 must preserve the existing languages.
 
 ## Current migration-testbench entrypoint
 
@@ -26,7 +26,7 @@ brace-language examples are illustrative; v1 must preserve the existing language
 groups and invokes `spex suite`. GitHub runs `scripts/kind_ci.sh prepare`, one
 `run GROUP` per selected group, `summary`, and `cleanup`. AWS dev has its own
 suite entrypoints. The repository has no Go configuration module or single
-configuration resolver that can simply be moved into a runtime package.
+configuration resolver to move into a runtime package.
 
 ## Current configuration resolution chain
 

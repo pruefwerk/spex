@@ -1,14 +1,14 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+## Supported versions
 
-Security fixes are provided for the latest published release and the current `main` branch.
+The maintainer provides security fixes for the latest published release and the current `main` branch.
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
 Do not open a public issue for a suspected vulnerability.
 
-Report security issues by email to the project maintainer named in `LICENSE`, or through GitHub private vulnerability reporting once it is enabled for the public repository.
+Email security issues to the project maintainer named in `LICENSE`. You can also use GitHub private vulnerability reporting once the public repository enables it.
 
 Include:
 
@@ -19,7 +19,7 @@ Include:
 
 You should receive an initial response within 7 calendar days.
 
-## Handling Sensitive Artifacts
+## Handling sensitive artifacts
 
 Generated workspaces, live-run reports, KUTTL artifacts, and kubeconfigs may contain environment-specific metadata. Before uploading or retaining artifacts, run:
 
@@ -27,9 +27,9 @@ Generated workspaces, live-run reports, KUTTL artifacts, and kubeconfigs may con
 spex doctor --scan-artifacts reports --scan-artifacts generated --format json
 ```
 
-Run the scan with representative `SPEX_*PASSWORD`, `SPEX_*TOKEN`, and `SPEX_*SECRET` environment variables present. The scan fails on matching secret values and kubeconfig files.
+Provide representative `SPEX_*PASSWORD`, `SPEX_*TOKEN`, and `SPEX_*SECRET` environment variables when running the scan. It fails on matching secret values and kubeconfig files.
 
-## Dependency and Release Checks
+## Dependency and release checks
 
 Release candidates should pass:
 

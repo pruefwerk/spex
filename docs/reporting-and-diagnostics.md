@@ -11,9 +11,9 @@ Spex lists passes, failures, unreadable reports, and workspaces without a final
 report. It skips symlinks and rejects oversized report files. When a workspace
 contains scenario identity and a run ID, Spex rejects a report from another run.
 `workspaceReportsComplete` means every discovered workspace has a readable final
-report. It does not prove that the intended suite finished: scenarios whose
-workspaces were never generated cannot appear in this summary. The inspection
-command does not replace the execution exit code.
+report. Scenarios whose workspaces were never generated cannot appear in the
+summary, so it cannot prove that the intended suite finished. Keep the execution
+exit code as the result; the inspection command does not replace it.
 
 For CI groups, provide `group-plan.json` in a directory. Map each group name to
 `scenarios` (count) and `selected` (boolean). Write `<group>-result.json` with
@@ -26,7 +26,7 @@ spex reports groups --root artifacts --format markdown --title "Acceptance group
 Spex reports exit code 0 as passed, 124 as timed out, and other codes as failed.
 It marks selected groups without an execution result as not run and returns a
 nonzero exit code unless every selected group passed. Group summaries describe
-execution results, not independent proof of scenario coverage. The CI adapter
+execution results and cannot independently prove scenario coverage. The CI adapter
 chooses group names, execution order, and where to publish the Markdown.
 
 Collect Kubernetes diagnostics with an explicit scope:
@@ -42,8 +42,8 @@ Collection reads resources, namespace events, pod descriptions, and current logs
 It requests previous logs only for containers whose restart count exceeds zero,
 including init containers. It never creates or deletes resources. Each command
 has a deadline and a 1 MiB output limit; collection has a total deadline (default
-two minutes). Failures produce an incomplete diagnostic result, not a changed
-test result. Callers retain the original test exit code.
+two minutes). If collection fails, diagnostics are incomplete but the test result
+stays unchanged. Callers retain the original test exit code.
 
 Logs and pod descriptions can contain sensitive application data. Restrict access
 to diagnostic artifacts and use the same retention policy as application logs.

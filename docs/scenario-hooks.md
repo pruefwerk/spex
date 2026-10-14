@@ -15,7 +15,7 @@ one JSON object to stdout, mapping environment names to string values:
 
 Spex passes these overrides to the scenario's KUTTL process, setup commands,
 evidence collectors, and cleanup commands. It does not change the parent
-environment. Parallel scenarios receive independent environments. Hooks run
+environment. Each parallel scenario receives its own environment. Hooks run
 after rate-limit waits and before execution, including repeated scenarios.
 Without a hook, execution stays unchanged.
 
@@ -32,6 +32,6 @@ credentials from subsequent scenario commands. Running the hook directly in a
 workflow shell would expose its JSON output.
 
 Keep provider-specific authentication in the project. Spex does not implement
-GitHub OIDC or AWS role assumptions. Renewal occurs between scenarios, not during
-a scenario: each session must cover that scenario's setup, execution, evidence
-collection, and cleanup.
+GitHub OIDC or AWS role assumptions. Hooks renew credentials between scenarios,
+so each session must cover the next scenario's setup, execution, evidence
+collection, and cleanup without renewal during that scenario.

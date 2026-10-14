@@ -1,8 +1,8 @@
-# Production Readiness
+# Production readiness
 
-spex is production-candidate software. Treat production use as gated until these checks are true for the target scenario repository and platform environment.
+spex is production-candidate software. Before using it in production, complete these checks for the target scenario repository and platform environment.
 
-## Required Gates
+## Required gates
 
 - CI runs `spex suite validate`, `suite plan --format json`, `suite explain --format json`, `catalog check --format json`, `catalog docs`, and `suite compile`.
 - Project CI runs `make verify`, which covers Go module verification, Go tests, integration script smoke checks, and verified release archive validation.
@@ -22,7 +22,7 @@ spex is production-candidate software. Treat production use as gated until these
 - Generated workspaces and reports are retained as CI artifacts for failed runs.
 - GitHub Actions checkout disables persisted credentials unless a job explicitly needs to push.
 
-## Security Notes
+## Security notes
 
 `--scan-artifacts` searches generated files for exact secret values from selected environment variables and fails if kubeconfig files are present. It reports only the environment variable name and file path. It does not replace a formal security review and cannot detect secrets that are not present in the process environment.
 
@@ -30,7 +30,7 @@ Generated manifests should contain Secret names, key names, SSM parameter paths,
 
 Live proof output can include host-local paths, temporary kubeconfig references, and cluster diagnostics. Promotion workflows must scrub generated kubeconfigs before artifact upload. Upload live artifacts only after the secret-value scan has completed.
 
-## Compatibility Notes
+## Compatibility notes
 
 The current schema family is `v0.1`:
 
@@ -42,7 +42,7 @@ The current schema family is `v0.1`:
 
 Until a `v1` schema is introduced, treat schema changes as release-candidate compatible only after running the generated scenario repo checks and live proof. Do not rely on undocumented fields.
 
-## Promotion Checklist
+## Promotion checklist
 
 1. Project repo `make verify` passes.
 2. Project repo `make install-vulncheck && make security-check` passes.
@@ -56,7 +56,7 @@ Until a `v1` schema is introduced, treat schema changes as release-candidate com
 10. Bundle locks are verified when local, Git, or OCI bundles are used.
 11. Registry-hosted probe images are pinned by digest.
 
-## Reference Documents
+## Reference documents
 
 - [Scenario repository guide](scenario-repository-guide.md)
 - [Live proof](live-proof.md)

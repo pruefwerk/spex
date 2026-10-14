@@ -1,8 +1,8 @@
 # Native host helpers
 
-Spex provides portable Go helpers in `pkg/runtimehelpers`. Hosts use the SDK or
-the same command handler through the pinned executable. No Python installation,
-embedded source library or dynamic loader is required.
+Spex provides portable Go helpers in `pkg/runtimehelpers`. Hosts can call the SDK
+or use the same command handler through the pinned executable. Neither path needs
+a Python installation, embedded source library or dynamic loader.
 
 `spex runtime-support console LOG -- COMMAND ARG...` captures the full child
 stream in a private artifact, streams scenario progress and prints bounded
@@ -28,9 +28,9 @@ inputs; it does not prove application correctness or freeze live state.
 
 `RenewAWSCredentials` supplies the portable OIDC/STS mechanism. Hosts pass a typed
 role, region, session name and duration policy; Spex does not choose them.
-The helper clears stale credentials, validates expiry, keeps token files private
-outside the workspace and removes them after use. Returned credentials are
-private process input, never normal console output or an evidence artifact.
+The helper clears stale credentials and validates expiry. It keeps token files
+private outside the workspace and removes them after use. Returned credentials
+remain private process input and never enter normal console output or evidence artifacts.
 
 `receiver.GitHubSource` provides bounded metadata/archive downloads and strips
 credentials from approved archive redirects. `receiver.ExtractSource` accepts

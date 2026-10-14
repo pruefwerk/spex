@@ -40,9 +40,9 @@ a positive duration up to ten minutes; the existing default is two minutes.
 Validation and explanation never invoke the hook. Execution invokes it before
 each selected test, including repetitions, using the existing JSON environment
 contract. Credentials remain in memory and do not enter canonical artifacts.
-Only select reviewed repository code: a hook is executable code, not untrusted
-scenario text. This exposes an existing runtime facility, not a generic lifecycle
-language or a GitHub-specific credential mechanism.
+Select only reviewed repository code because hooks execute with the runtime's
+permissions. This uses the existing runtime facility without adding a generic
+lifecycle language or a GitHub-specific credential mechanism.
 
 Spex accepts its existing YAML test definitions and Gherkin features. A `.spex`
 file contains YAML. Inline text beginning with a Gherkin `Feature:` declaration
@@ -81,8 +81,8 @@ Each completed run retains `scenario.toml`, `plan.json`, `runtime.json`,
 `result.json` and `artifacts/test-evidence.json`. The evidence file records test
 and step outcomes in the same order as the result's test list. It excludes raw
 backend responses, free-form error messages, generated manifests, bindings and
-kubeconfig. This trades detailed troubleshooting output for a strict export
-boundary; it is not a replacement for complete service-side diagnostics.
+kubeconfig. This strict export boundary limits troubleshooting detail. Keep
+complete service-side diagnostics separately.
 
 The runtime uses a private temporary workspace for existing tools and removes
 it after execution. Those tools can write sensitive transient files there. Do
@@ -110,7 +110,7 @@ or timeout. `reports summarize` continues to support legacy suite workspaces.
 Local tests exercise YAML and Gherkin authoring, committed-document overrides,
 source equivalence, unknown-field rejection, shell-looking input, symlink
 confinement and non-overwriting output. Execution equivalence tests use a local
-test runner, not live Kubernetes services. Fresh live acceptance remains blocked
+test runner without live Kubernetes services. Fresh live acceptance remains blocked
 by the infrastructure listed in the architecture qualification report.
 
 Hosted Action qualification and testbench CI adoption remain outstanding. The preview

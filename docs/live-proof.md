@@ -1,8 +1,8 @@
-# Live Proof
+# Live proof
 
-The production proof is a real kind run. It is intentionally separate from normal unit CI because it needs Docker, kind, kubectl, cluster capacity, and image build time.
+The production proof runs against a real kind cluster. Run it separately from normal unit CI because it needs Docker, kind, kubectl, cluster capacity, and time to build images.
 
-## What It Proves
+## What it proves
 
 - The generator compiles scenario intent into a complete KUTTL workspace.
 - KUTTL can create or use a kind cluster.
@@ -13,7 +13,7 @@ The production proof is a real kind run. It is intentionally separate from norma
 - The Keycloak variant can obtain and use a client-credentials token.
 - Reports, evidence, resource collection, and cleanup work end to end.
 
-## Required Tools
+## Required tools
 
 - `docker`
 - `kind`
@@ -23,7 +23,7 @@ The production proof is a real kind run. It is intentionally separate from norma
 
 The Keycloak proof also needs enough local CPU and memory for Keycloak plus the demo stack.
 
-## Non-Keycloak Proof
+## Non-Keycloak proof
 
 ```sh
 make probe-image
@@ -41,7 +41,7 @@ WORKSPACE=generated/mqtt-ingestion-basic-live \
 scripts/integration_live.sh
 ```
 
-## Keycloak Proof
+## Keycloak proof
 
 ```sh
 export SPEX_MQTT_USERNAME=tester
@@ -53,7 +53,7 @@ make probe-image
 make integration-example-kind-keycloak
 ```
 
-## CI Usage
+## CI usage
 
 Use `make live-proof-kind` in a workflow that has Docker and kind available. Use `make live-proof-keycloak` for the stronger Keycloak gate.
 

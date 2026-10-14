@@ -9,9 +9,9 @@ spec:
     requireHost: true
 ```
 
-This field does not forbid shared environments. It requires the environment owner
-to control execution admission. Integration profiles still describe real setup;
-do not replace them with a setup command that deliberately fails.
+The environment owner must control execution admission, including in shared
+environments. Integration profiles still describe real setup; do not replace
+them with a setup command that deliberately fails.
 
 `suite validate`, `suite list` and `suite plan` remain available for inspection.
 Direct `suite run`, `suite compile` and standalone scenario-runtime execution
@@ -21,7 +21,7 @@ grants host authority. Existing suites inherit `requireHost: false` and retain
 their behavior.
 
 Trusted embedding code uses `migrationtestbench.New` to instantiate the receiver
-runtime. That API marks the execution path as host-managed; it does not implement
+runtime. That API marks the execution path as host-managed. It does not implement
 the host's admission policy or prove its environment safe. The host must authorize
 the source and selected operations, supply resource contracts and coordination
 where needed, own temporary resources, verify release postconditions, and report

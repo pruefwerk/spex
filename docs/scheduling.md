@@ -23,7 +23,7 @@ compare-and-swap. All participating workers must share the store, pool identity
 and capacity. A configuration mismatch or corrupt state fails closed. The
 process-local `MemoryStore` exists only for tests.
 
-Enqueue assigns a durable monotonic sequence. The oldest waiting entries receive
+Enqueuing assigns a durable monotonic sequence. The oldest waiting entries receive
 available slots, regardless of their polling speed. With capacity greater than
 one, eligible executions may start concurrently. FIFO begins at successful
 enqueue, not at workflow dispatch: runner assignment and validation can change
@@ -35,9 +35,9 @@ still occupies a worker while it waits. It bounds test-environment capacity, not
 all CPU use or every workflow on that runner. Integrate every relevant execution
 path before claiming an aggregate limit.
 
-The queue retains request/worker identities and status, not an executable request
-payload. GitHub retains the workflow and request artifacts. The scheduler is not
-a workflow dispatcher and does not automatically resume a lost worker.
+The queue retains request/worker identities and status. GitHub retains the
+workflow and request artifacts; the queue stores no executable request payload.
+The scheduler cannot dispatch workflows or automatically resume a lost worker.
 
 ## Receiver integration
 
@@ -68,7 +68,7 @@ A host may permit unscheduled execution when no scheduling backend is configured
 It should report that mode explicitly: isolation and resource-safety requirements
 still apply, but no scheduler capacity limit exists. Once an administrator
 configures scheduling, invalid configuration or backend failure must stop
-execution, never trigger an automatic unscheduled fallback.
+execution instead of falling back to unscheduled operation.
 
 ## Cancellation and recovery
 

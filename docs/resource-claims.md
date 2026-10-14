@@ -1,8 +1,8 @@
 # Coordinating resource access
 
 Spex coordinates participating executions. The runtime identifies resources and
-decides which operations can safely overlap. Resource claims grant access, not
-ownership: they never authorize deleting an existing gateway, database or topic.
+decides which operations can safely overlap. Resource claims grant access but
+do not establish ownership or authorize deleting an existing gateway, database or topic.
 
 ## Runtime responsibilities
 
@@ -12,7 +12,7 @@ execution. Each claim names a physical resource and requests `shared` or
 every other claim on that resource. Spex acquires the set atomically, so a waiting
 execution never holds some resources while waiting for others.
 
-The runtime must choose stable, non-secret identities. For example,
+Choose stable, non-secret resource identities. For example,
 `aws-dev/gateway/0200000100009001` identifies the same gateway across workflows.
 A Kind identity must include the unique cluster identity: two private clusters
 do not share their Redpanda instance merely because they use the same topic name.
@@ -94,15 +94,15 @@ prevents execution. Hosts using `Prepared.Execute` without a sink must retain th
 correlation themselves. `result.json` records the acquisition owner,
 wait duration, requested claims and final disposition: `released`,
 `recovery_required`, `not_acquired`, or `unknown` when the backend outcome is
-uncertain. Treat `unknown` as requiring inspection, not permission to retry writes.
+uncertain. Inspect an `unknown` outcome before retrying any writes.
 Secondary claim problems do not erase a failed or cancelled primary outcome.
 A passing test with unresolved claims becomes an execution error.
 
 Resource keys appear in evidence: runtimes must not use credentials or secret
 connection strings as identities. Request admission/replay protection remains
 separate from resource claims. Global runner capacity and workflow queuing also
-remain separate. Waiting is cancellable polling, not a FIFO queue; fairness and
-starvation prevention are not guaranteed. Claims coordinate only participants:
+remain separate. Waiting uses cancellable polling without a FIFO queue, so it
+does not guarantee fairness or prevent starvation. Claims coordinate only participants:
 operators and other writers must honor the same boundaries.
 
 Run local tests with `go test -race ./pkg/resourceclaims ./pkg/scenarioruntime`.

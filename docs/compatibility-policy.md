@@ -1,8 +1,8 @@
-# Compatibility Policy
+# Compatibility policy
 
 Current schema family: `v0.1`.
 
-## Versioned Inputs
+## Versioned inputs
 
 - `spex.scenario.v0.1`
 - `spex.suite.v0.1`
@@ -10,9 +10,9 @@ Current schema family: `v0.1`.
 - `spex.integration.v0.1`
 - `spex.catalog.v0.1`
 
-Unknown fields are rejected. Trailing YAML documents are rejected. Inputs are expected to be regular files with bounded size.
+Spex rejects unknown fields and trailing YAML documents. Inputs must be regular files within the size limit.
 
-## Compatibility Promise Before v1
+## Compatibility promise before v1
 
 Before `v1`, releases may still refine validation and generated manifests. A change is acceptable only when:
 
@@ -21,7 +21,7 @@ Before `v1`, releases may still refine validation and generated manifests. A cha
 - reference scenario repo checks pass.
 - at least one live proof passes before promotion if generated runtime behavior changed.
 
-## Breaking Changes
+## Breaking changes
 
 Treat these as breaking changes:
 
@@ -44,6 +44,6 @@ Breaking changes require:
 
 Do not remove a documented field in the same release where it is deprecated. Mark it as deprecated in docs and schema descriptions first, then remove it in a later schema version.
 
-## Generated Workspace Compatibility
+## Generated workspace compatibility
 
-Generated KUTTL workspaces are build artifacts. They are inspectable and retained for evidence, but the compatibility contract is the input schemas, CLI behavior, and report schemas, not hand-edited generated files.
+Generated KUTTL workspaces are build artifacts that you can inspect and retain as evidence. The compatibility contract covers input schemas, CLI behavior, and report schemas. It does not cover hand-edited generated files.

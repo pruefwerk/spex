@@ -1,28 +1,38 @@
 # spex
 
+spex compiles acceptance scenarios into inspectable KUTTL workspaces. Test authors
+can describe behavior without hand-writing KUTTL steps, probe Jobs, ConfigMaps,
+or report mappings. It targets Kubernetes-based integration testing, with
+provider-shaped operations for MQTT, Redpanda, Keycloak, GraphQL, MongoDB,
+PostgreSQL, RabbitMQ, Redis, InfluxDB, and Kind-backed local proof runs.
+
+Status: production-candidate. Use it for controlled pilots and promotion pipelines
+that run the validation, security, artifact-scan, and live proof gates described
+in the production-readiness and live-proof docs.
+
 [Before-scenario hooks](docs/scenario-hooks.md) renew project-specific runtime
 credentials without changing the suite's compiled inputs or parent environment.
 
-Use [report summaries and Kubernetes diagnostics](docs/reporting-and-diagnostics.md)
-to inspect incomplete runs without adding project-specific reporting logic.
+[Report summaries and Kubernetes diagnostics](docs/reporting-and-diagnostics.md)
+help inspect incomplete runs without project-specific reporting logic.
 
 Use [host-managed execution](docs/host-managed-execution.md) when an environment
 requires trusted admission before tests may run. Keep that policy out of setup
 commands and integration profiles.
 
-Use [execution scheduling](docs/scheduling.md) to admit participating workers
-through a durable capacity queue, independently of application resource claims.
+[Execution scheduling](docs/scheduling.md) admits participating workers through a
+durable capacity queue, independently of application resource claims.
 
 Use the [host-owned lifecycle helper](docs/runtime-lifecycle.md) to share setup,
 cancellation and bounded cleanup handling without moving resource policy into Spex.
 
-Use the [runtime host SDK](docs/runtime-host-sdk.md) for persisted execution
-checkpoints and cleanup-gated capacity release across separate processes or CI steps.
+The [runtime host SDK](docs/runtime-host-sdk.md) persists execution checkpoints and
+gates capacity release on cleanup across separate processes or CI steps.
 
 Use the [owned Kind library](docs/owned-kind.md) to create and clean up isolated
 clusters and private image tags on a shared Docker daemon.
 
-Use [native host helpers](docs/runtime-support.md) for portable console capture
+[Native host helpers](docs/runtime-support.md) provide portable console capture
 and checked Helm reuse through the pinned executable or Go SDK.
 
 The [HTTP integration bundle](bundles/http/README.md) provides HTTP commands and
@@ -30,23 +40,22 @@ JSON assertions without project-specific endpoints. Releases package its source
 and schemas separately so projects can build the probe with their own base-image
 mirrors. GET requests poll; writes require an explicit opt-in to retry.
 
-spex lets testers describe acceptance scenarios once and generate an inspectable KUTTL workspace from that intent.
-
-It is built for Kubernetes-based integration testing where the test author should not have to hand-write KUTTL steps, probe Jobs, ConfigMaps, or report mapping. The current implementation focuses on provider-shaped operations for MQTT, Redpanda, Keycloak, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, InfluxDB, and Kind-backed local proof runs.
-
-Status: production-candidate. Use it for controlled pilots and promotion pipelines that run the validation, security, artifact-scan, and live proof gates described in the production-readiness and live-proof docs.
-
 ![spex architecture](assets/spex_architecture.png)
 
-This diagram shows how spex turns acceptance-test intent into a repeatable Kubernetes proof run.
+Test authors describe scenarios using YAML, Gherkin features, GraphQL queries,
+suite configuration, and optional shared catalogs. Platform and test-infrastructure
+owners maintain target bindings, integration profiles, secrets, and runtime
+settings separately.
 
-Test authors describe the scenario once, using YAML, Gherkin features, GraphQL queries, suite configuration, and optional shared catalogs. Platform and test-infrastructure owners keep the environment-specific pieces separate: target bindings, integration profiles, secrets, and runtime settings.
-
-spex connects both sides. It validates the suite, explains what will run, resolves the required references, and compiles an inspectable KUTTL workspace. From that workspace, spex generates the probe jobs and assertions that exercise the target system through provider capabilities such as MQTT, Redpanda, Keycloak, GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, and InfluxDB.
+spex validates the suite, explains what will run, resolves references, and compiles
+the KUTTL workspace. It generates probe jobs and assertions that exercise the
+target system through provider capabilities such as MQTT, Redpanda, Keycloak,
+GraphQL, MongoDB, PostgreSQL, RabbitMQ, Redis, and InfluxDB.
 
 Teams can stop after compilation and review the generated workspace, or they can run the suite against kind or another Kubernetes target. During a live proof run, spex executes the generated probes, observes the system under test, collects results, and cleans up runtime resources.
 
-The output is not just a pass/fail signal. spex produces scenario reports, KUTTL artifacts, logs, and optional resource-usage evidence so CI pipelines and reviewers can inspect what happened after the run.
+spex produces scenario reports, KUTTL artifacts, logs, and optional resource-usage
+evidence, so CI pipelines and reviewers can inspect what happened after a run.
 
 ## Commands
 
@@ -112,7 +121,7 @@ spec:
       source: ../bundles/custom-echo
 ```
 
-A local bundle directory contains `bundle.yaml`. Bundle capabilities register provider-qualified operation types, binding kinds, operation/result schemas, declarative probe invocation metadata, and optional step/flow catalogs. Bundle schema `path` refs are resolved relative to the bundle manifest. Bundle catalogs load before local suite catalogs, so teams can use bundle-provided default steps and append project catalogs in `suite.spec.catalogRefs`. Core still renders the KUTTL Job and writes the lowered operation file; bundles do not generate KUTTL directly.
+A local bundle directory contains `bundle.yaml`. Bundle capabilities register provider-qualified operation types, binding kinds, operation/result schemas, declarative probe invocation metadata, and optional step/flow catalogs. Spex resolves bundle schema `path` refs relative to the bundle manifest. Bundle catalogs load before local suite catalogs, so teams can use bundle-provided default steps and append project catalogs in `suite.spec.catalogRefs`. Core renders the KUTTL Job and writes the lowered operation file; bundles do not generate KUTTL directly.
 
 ```yaml
 apiVersion: spex.bundle.v0.1
@@ -173,8 +182,8 @@ make redis-probe-image
 make influxdb-probe-image
 ```
 
-This builds `spex-probe-redis:dev` from `examples/integration/probe-redis/Dockerfile`.
-This builds `spex-probe-influxdb:dev` from `examples/integration/probe-influxdb/Dockerfile`.
+These targets build `spex-probe-redis:dev` from `examples/integration/probe-redis/Dockerfile`
+and `spex-probe-influxdb:dev` from `examples/integration/probe-influxdb/Dockerfile`.
 The release archive includes the matching `spex-probe-redis` and `spex-probe-influxdb` binaries for building or wrapping those probes without the aggregate `spex-probe` entrypoint.
 
 Inspect reusable catalogs:
@@ -209,9 +218,10 @@ spex schema show integration-bundle > integration-bundle.schema.json
 
 Available schema names are `scenario`, `scenario-suite`, `target-binding`, `integration-profile`, `integration-bundle`, `flow-catalog`, and `step-catalog`.
 
-## Scenario Repositories
+## Scenario repositories
 
-A scenario repository should contain tester-owned scenario intent and pipeline configuration, not generated KUTTL.
+Keep tester-owned scenarios and pipeline configuration in the scenario repository.
+Leave generated KUTTL out of source control.
 
 Minimal layout:
 
@@ -232,7 +242,7 @@ spex suite validate --suite acceptance-tests/suite.yaml
 spex suite compile --suite acceptance-tests/suite.yaml
 ```
 
-The scaffold includes `.schemas/*.schema.json`, `.vscode/settings.json`, `.gitignore`, `README.md`, `ci/spex-validate.sh`, `.github/workflows/spex.yaml`, and a Makefile with `doctor`, `validate`, `plan`, `explain`, `catalog`, `catalog-docs`, `compile`, `ci`, `run`, `clean`, and `schemas` targets. The generated workflow intentionally performs non-cluster checks only; platform teams can add a live `suite run` job once bindings, secrets, and cluster provisioning are available. Re-running `init scenario-repo` is intentionally non-destructive and fails if a scaffolded file already exists. The generated schemas intentionally catch common authoring mistakes early, including empty refs, empty matcher arrays, duplicate report formats, and empty secret key maps.
+The scaffold includes `.schemas/*.schema.json`, `.vscode/settings.json`, `.gitignore`, `README.md`, `ci/spex-validate.sh`, `.github/workflows/spex.yaml`, and a Makefile with `doctor`, `validate`, `plan`, `explain`, `catalog`, `catalog-docs`, `compile`, `ci`, `run`, `clean`, and `schemas` targets. The generated workflow runs non-cluster checks only. Platform teams can add a live `suite run` job once bindings, secrets, and cluster provisioning are available. Re-running `init scenario-repo` fails if a scaffolded file already exists, protecting existing files. The generated schemas catch common authoring mistakes early, including empty refs, empty matcher arrays, duplicate report formats, and empty secret key maps.
 
 Keep generated workspaces, live reports, KUTTL artifacts, and kubeconfigs out of source control. The scaffolded `.gitignore` excludes `generated/` and `reports/`; CI may upload those as short-lived artifacts after `doctor --scan-artifacts` has run. The artifact scan fails if a file named `kubeconfig`, a file ending in `.kubeconfig`, or kubeconfig-shaped content is present.
 
@@ -331,7 +341,7 @@ For shorthand refs, the default base URL is `https://github.com`. Set this for G
 export SPEX_GIT_REF_BASE_URL=https://github.example.com
 ```
 
-For GitHub Enterprise, replace the value with your own host, for example `https://github.example.com`.
+Replace `https://github.example.com` with your GitHub Enterprise host.
 
 Git refs are cloned into `.spex/git` next to the suite file by default. Override that cache location in CI if needed:
 
@@ -339,7 +349,8 @@ Git refs are cloned into `.spex/git` next to the suite file by default. Override
 export SPEX_GIT_CACHE_DIR="$PWD/.cache/spex/git"
 ```
 
-That keeps scenario repositories independent while still allowing centrally owned target bindings and integration profiles.
+Scenario repositories can keep their own files while sharing centrally owned
+target bindings and integration profiles.
 
 Reusable catalogs can be referenced the same way:
 
@@ -363,7 +374,8 @@ spec:
         value: "42.5"
 ```
 
-Step catalogs are the pre-Gherkin bridge. They map controlled text expressions to generated ScenarioModel operations without recompiling the binary:
+Step catalogs map controlled text expressions to generated ScenarioModel operations
+without recompiling the binary. You can use them before adopting Gherkin:
 
 ```yaml
 spec:
@@ -442,10 +454,10 @@ Feature: MQTT ingestion
       | reading-2     | 11.0  |
 ```
 
-Gherkin support is intentionally constrained to tags, `Background`, multiple `Scenario` blocks per `.feature` file, `Scenario Outline` with one `Examples` table, and `Given`/`When`/`Then`/`And`/`But` steps backed by catalog expressions.
+Gherkin support covers tags, `Background`, multiple `Scenario` blocks per `.feature` file, `Scenario Outline` with one `Examples` table, and `Given`/`When`/`Then`/`And`/`But` steps backed by catalog expressions.
 If a step does not match any catalog expression, validation fails with the unmatched text and the available expressions for that step kind.
 
-## Provider Operations
+## Provider operations
 
 spex supports provider-shaped operations through the generic operation IR:
 
@@ -467,7 +479,7 @@ operations:
           equalsString: reading-1
 ```
 
-Provider operations always use a fully qualified `type` such as `redis.assertValueEquals`, `influxdb.expect`, or `hawkbit.publishGatewayMessage`. The `with` object is validated by the provider capability schema, then lowered into one operation file for the probe container. The probe writes one normalized result envelope that spex validates and includes in reports.
+Provider operations always use a fully qualified `type` such as `redis.assertValueEquals`, `influxdb.expect`, or `hawkbit.publishGatewayMessage`. Spex validates the `with` object against the provider capability schema, then lowers it into one operation file for the probe container. The probe writes one normalized result envelope that spex validates and includes in reports.
 
 Generic bindings keep target configuration separate from scenario intent:
 
@@ -505,11 +517,11 @@ See `examples/providers/influxdb/influxdb-reading-exists.yaml`, `examples/bindin
 
 Hawkbit gateway bridge operations use the existing MQTT and RabbitMQ binding sections and expose `hawkbit.publishGatewayMessage` plus `hawkbit.expectGatewayMessage` for gateway-message forwarding tests. Use `protocolVersion: legacy`/`v1`/`old` for the `/gw-.../dm/hawkbit/...` topic layout, or `protocolVersion: v2`/`new`/`current` for the `gateway/.../hawkbit/...` layout.
 
-## Integration Proof
+## Integration proof
 
 The live proof compiles a KUTTL workspace that can own Kind and stack setup natively. The integration profile is rendered into `kuttl-test.yaml` and setup `TestStep` files: `startKIND`, `kindConfig`, `kindContainers`, top-level KUTTL commands, and Helm/app setup commands live in generated KUTTL.
 
-The cluster needs MQTT, Redpanda, GraphQL, and optionally Keycloak endpoints matching the selected binding. Those components should be deployed as real services through KUTTL setup commands, usually Helm installs or manifest applies. Fakes are not part of the default path; use them only when a scenario explicitly requests a fake or WireMock-style dependency.
+The cluster needs MQTT, Redpanda, GraphQL, and optionally Keycloak endpoints matching the selected binding. Deploy those components as real services through KUTTL setup commands, usually Helm installs or manifest applies. Use fakes only when a scenario explicitly requests a fake or WireMock-style dependency; they are not part of the default path.
 
 `examples/integration/local-kind-profile.yaml` and `examples/integration/local-kind-keycloak-profile.yaml` are runnable local proof profiles. They build the probe and demo stack images, load them into a KUTTL-managed Kind cluster, apply real local manifests for EMQX, Redpanda, GraphQL, and optionally Keycloak, then run the generated KUTTL scenario.
 
@@ -599,7 +611,7 @@ spec:
       repo: https://charts.example.com/team
 ```
 
-Parent `kind` commands, setup commands, containers, and Helm apps are appended before the child profile, while scalar child fields override parent scalar fields.
+Spex appends parent `kind` commands, setup commands, containers, and Helm apps before the child profile. Child scalar fields override parent scalar fields.
 
 Integration profile shape:
 
@@ -779,11 +791,11 @@ The public license allows internal business use, including internal development,
 
 It does not allow commercial redistribution, resale, external hosted or managed offerings, embedding spex in a third-party product or service, making spex available to third parties, or AI training use without a separate commercial license.
 
-Generated scenarios, generated KUTTL workspaces, generated reports, and other output produced by spex may be used for permitted internal business operations, as long as the output does not redistribute, expose, or provide spex itself as an external offering.
+You may use generated scenarios, KUTTL workspaces, reports, and other spex output for permitted internal business operations, as long as the output does not redistribute, expose, or provide spex itself as an external offering.
 
 spex is provided as is. You are responsible for deciding whether it is suitable for your environment, validating generated workspaces before running them, and accepting the risk of any damage, data loss, outage, misconfiguration, or other consequence from using it. The full warranty disclaimer and liability limits are in `LICENSE`.
 
 See [LICENSE](LICENSE), [COMMERCIAL.md](COMMERCIAL.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-See [Configured runtime host](docs/configured-runtime-host.md) for using Spex's
-executable with a runtime-owned TOML definition rather than compiling a host.
+See [Configured runtime host](docs/configured-runtime-host.md) to use Spex's
+executable with a runtime-owned TOML definition without compiling a host.

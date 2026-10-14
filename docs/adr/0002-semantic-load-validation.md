@@ -1,18 +1,18 @@
-# ADR 0002: Semantic Load Validation
+# ADR 0002: Semantic load validation
 
 Status: accepted
 
 ## Context
 
-spex is a deterministic scenario compiler and evidence collector. It is good at proving that a scenario produced the expected cross-system behavior. It is not intended to compete with load-generation tools such as k6, JMeter, Gatling, or Locust.
+spex compiles deterministic scenarios and collects evidence of expected cross-system behavior. It leaves load generation to tools such as k6, JMeter, Gatling, or Locust.
 
-Classic load tools are optimized for traffic volume, load profiles, latency percentiles, dashboards, and distributed workers. spex's strength is different: correctness validation across system boundaries.
+Classic load tools optimize for traffic volume, load profiles, latency percentiles, dashboards, and distributed workers. Spex validates correctness across system boundaries.
 
 ## Decision
 
-spex supports semantic load validation, not generic load testing.
+spex supports semantic validation under load; generic load testing remains outside its scope.
 
-The product position is:
+The execution goal is:
 
 ```text
 spex validates scenario correctness under load conditions.
@@ -34,7 +34,7 @@ spec:
 
 These controls describe bounded scenario repetition and failure aggregation for future runner behavior. Existing single-run suite behavior remains the default when `spec.execution` is omitted.
 
-## Non-Goals
+## Non-goals
 
 This decision does not add:
 
@@ -47,7 +47,7 @@ This decision does not add:
 
 External tools can generate load. spex remains responsible for deterministic scenario execution, cross-system assertions, evidence, and reports.
 
-## Design Rules
+## Design rules
 
 - Each repeated execution must get a deterministic iteration identity.
 - Iteration identity must be usable for correlation IDs, evidence paths, and reports.
@@ -56,7 +56,7 @@ External tools can generate load. spex remains responsible for deterministic sce
 - The runner must not hide correctness failures behind aggregate success metrics.
 - Generated reports should distinguish semantic pass/fail from performance measurements.
 
-## Current Milestone
+## Current milestone
 
 The first implementation adds:
 
@@ -70,6 +70,6 @@ The first implementation adds:
 - bounded concurrent suite execution when `namespacePerIteration` isolation is enabled
 - optional start-rate limiting for repeated suite runs
 
-## Follow-Up Work
+## Follow-up work
 
 - Add richer load-run summary views after real project usage shows which aggregates matter.

@@ -1,8 +1,8 @@
-# Scenario Repository Guide
+# Scenario repository guide
 
-A production scenario repository owns test intent and CI configuration. It should not own generated KUTTL.
+Keep test intent and CI configuration in the production scenario repository. Leave generated KUTTL out of source control.
 
-## Recommended Layout
+## Recommended layout
 
 ```text
 suite.yaml
@@ -20,14 +20,14 @@ ci/
 
 Use local files for small teams. Use external Git refs when bindings, integration profiles, or catalogs are owned by a platform team.
 
-## Tester-Owned Files
+## Tester-owned files
 
 - `suite.yaml`
 - `scenarios/*.yaml`
 - `features/*.feature`
 - `queries/*.graphql`
 
-## Platform-Owned Files
+## Platform-owned files
 
 - `bindings/*.yaml`
 - `integration/*.yaml`
@@ -36,7 +36,7 @@ Use local files for small teams. Use external Git refs when bindings, integratio
 - target namespace secrets
 - shared catalogs
 
-## External References
+## External references
 
 Local checked-out platform repo:
 
@@ -77,7 +77,7 @@ spec:
         tenantId: tenant-dev
 ```
 
-## CI Commands
+## CI commands
 
 Non-cluster validation:
 
@@ -113,7 +113,9 @@ spex suite run --suite suite.yaml --out generated/live --run-id live --collect-r
 
 ## Gherkin
 
-Gherkin is useful after the catalog is stable. Step text maps to catalog expressions, not compiled Go code. This lets users extend vocabulary by editing catalog YAML instead of recompiling the binary.
+Adopt Gherkin once the catalog is stable. Step text maps to catalog expressions,
+so users can extend the vocabulary by editing catalog YAML without changing
+compiled Go code or recompiling the binary.
 
 Keep Gherkin constrained:
 

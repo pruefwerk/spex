@@ -1,6 +1,6 @@
-# Third-Party Notices
+# Third-party notices
 
-This project can generate and run KUTTL-based test workspaces.
+Spex can generate and run KUTTL-based test workspaces.
 
 ## KUTTL
 
@@ -10,7 +10,7 @@ KUTTL is a Kubernetes test harness from the KUDO project.
 - License: Apache License 2.0
 - License text: https://www.apache.org/licenses/LICENSE-2.0
 
-KUTTL is not licensed under the spex repository license. If you redistribute
+KUTTL has its own license, separate from the Spex repository license. If you redistribute
 KUTTL itself, a container image that includes KUTTL, or another artifact that
 bundles KUTTL, preserve the Apache License 2.0 notices and any KUTTL NOTICE
 file required by that distribution.

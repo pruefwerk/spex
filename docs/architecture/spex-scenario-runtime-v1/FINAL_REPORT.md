@@ -9,7 +9,7 @@ inheritance, caller precedence, optional repository defaults and host guardrails
 Caller source files stay in the verified caller checkout; inherited setup stays
 in the runtime checkout. Admission remains disabled unless the host enables it.
 The implementation passed 812 root race tests, 37 HTTP tests and static analysis.
-Receiver transport/execution tests use simulated Kubernetes, not company charts.
+Receiver transport/execution tests use simulated Kubernetes without company charts.
 
 The rc.44 release attempt stopped at its security gate because Go 1.26.7 had newly
 reported reachable standard-library vulnerabilities. The tag remains immutable;
@@ -49,7 +49,7 @@ All 24 suite entrypoints and the 42-step catalog validated; ownership selection
 contains ten scenarios. The commit selects ownership-only CI. Hosted acceptance
 and positive caller-to-receiver execution remain separate, outstanding gates.
 
-The remaining sections retain the earlier campaign's evidence and limitations.
+The sections below record the earlier campaign's evidence and limitations.
 
 ## Implementation
 
@@ -90,15 +90,15 @@ the surviving execution's resources. Optional MongoDB capacity scheduling admits
 execution only when configured; an absent URI disables scheduling, while an
 invalid or unreachable configured URI blocks admission.
 
-AWS uses an existing shared stack, not an isolated deployment. The report separates
+AWS uses an existing shared stack rather than deploying an isolated stack. The report separates
 owned temporary resources, persistent test data and operator responsibilities.
 The current host refuses AWS execution until its shared-stack integration exists;
 static validation does not establish AWS acceptance.
 
 ## Qualification status
 
-`PASS` below describes the stated local scope, not a successful company-hosted
-deployment. Earlier successful gateway acceptance runs predate the host extraction
+`PASS` below applies only to the stated local scope. It does not establish a
+successful company-hosted deployment. Earlier gateway acceptance runs predate the host extraction
 and do not qualify this candidate's complete private-chart suite.
 
 | Capability | Result | Evidence or remaining gate |
@@ -185,7 +185,7 @@ qualified. Fresh full-suite and scenario-input hosted qualification remain
 outstanding. Positive receiver qualification must use an explicitly approved
 caller; the default policy intentionally rejects every caller.
 
-This report does not claim complete v1 acceptance qualification. The machine-readable
+Complete v1 acceptance qualification remains outstanding. The machine-readable
 [blocker record](blockers.json) tracks unresolved hosted gates. No dynamic plugins,
 scenario inheritance, generic workflow engine, distributed executor or runtime
 marketplace forms part of this release.

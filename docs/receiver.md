@@ -2,8 +2,8 @@
 
 A receiver is a GitHub Actions workflow in the runtime repository. For example,
 migration-testbench owns the workflow that deploys its test environment. Spex
-provides a Go API and an [example workflow](../examples/receiver/workflow.yaml),
-not a hosted acceptance service or a production receiver workflow.
+provides a Go API and an [example workflow](../examples/receiver/workflow.yaml).
+It does not provide a hosted acceptance service or a production receiver workflow.
 
 The [entrypoint walkthrough](../examples/receiver/entrypoints.md) illustrates
 authentication and fetching, tooling setup, Go execution, policy and cleanup.
@@ -34,7 +34,7 @@ independently prove that a directory contains that commit.
 ## Execution
 
 Pass the decoded request, attested checkout, runtime catalog, mandatory policy
-and artifact sink to `receiver.Execute`. It performs these steps:
+and artifact sink to `receiver.Execute`, which:
 
 1. Admit the caller and durably claim the request ID.
 2. Load definitions from the confined source root.
@@ -84,6 +84,6 @@ or arbitrary receiver directories as evidence.
 Tests cover admission data, lifecycle ordering, duplicate claims, sources,
 cancellation, failure preservation and receipt persistence. A contract test uses
 the real action request builder and receipt validator with a fixture runtime.
-Another exercises the migration-testbench adapter with a simulated Kubernetes
-runner. Neither qualifies GitHub authentication, a durable claim store, live
+Another tests the migration-testbench adapter with a simulated Kubernetes
+runner. Neither test qualifies GitHub authentication, a durable claim store, live
 deployments or the production migration-testbench receiver workflow.

@@ -1,9 +1,9 @@
 # Reusable-workflow qualification
 
-The implementation adds prepare-only Action authoring, same-run admission and
-trusted runtime staging. Reusable and dispatched requests then enter the existing
-runtime execution path. Migration-testbench supplies configuration, a shared
-Action and a reusable workflow; request processing remains in Spex.
+Prepare-only Action authoring, same-run admission and trusted runtime staging
+feed reusable and dispatched requests into the existing runtime execution path.
+Migration-testbench supplies configuration, a shared Action and a reusable
+workflow. Spex processes the requests.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -35,6 +35,6 @@ before attempting hosted tests.
 
 The caller's `GITHUB_TOKEN` reads its own request artifact and source. Contents
 write permits the existing durable replay-claim mechanism in the caller repo.
-The runtime repository still controls catalogs, profiles and guardrails. The
-reusable workflow's source context belongs to the caller; a content identity
-records the separately staged trusted runtime files.
+The runtime repository controls catalogs, profiles and guardrails. The reusable
+workflow's source context belongs to the caller. A separate content identity
+records the staged trusted runtime files.

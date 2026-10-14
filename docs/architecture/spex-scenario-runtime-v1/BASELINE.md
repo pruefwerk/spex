@@ -15,9 +15,10 @@ No behavior changed during reconnaissance.
 | Historical Gateway Migration acceptance | PASS | User reported all groups passing before this campaign |
 | Fresh live acceptance run | BLOCKED | Docker daemon absent, Kind absent, private ECR unavailable locally |
 
-The earlier fixture failure was a sandbox socket restriction. Repeating that
-unchanged baseline with loopback access passed. It was not a code regression.
+The earlier fixture failed because the sandbox restricted socket access. The
+unchanged baseline passed when repeated with loopback access, ruling out a code
+regression in that failure.
 
 Independent implementation and local qualification may proceed under execution
-rule 20. Fresh acceptance parity remains a release gate; historical acceptance
-does not qualify changed code. See `blockers.json` for the required environment.
+rule 20. Fresh acceptance parity remains a release gate because historical runs
+do not qualify changed code. See `blockers.json` for the required environment.

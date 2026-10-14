@@ -2,7 +2,7 @@
 
 ## Phase 0
 
-Inventory and baseline recorded. Local gates pass. Fresh live acceptance remains
+The inventory and baseline are recorded. Local gates pass. Fresh live acceptance remains
 blocked by the environment described in `blockers.json`.
 
 ## Phase 1
@@ -32,7 +32,7 @@ production-candidate gates; all 122 testbench harness tests passed. Runtime test
 exercise ordering, cancellation, runtime selection and primary-failure retention.
 No production runtime or new CLI command is wired yet. Live tests remain blocked.
 
-## Phase 3 — local adapter; live parity blocked
+## Phase 3: local adapter; live parity blocked
 
 The legacy `suite run` entrypoint and the in-process migration runtime now share
 `runResolvedSuite`. The adapter calls `LoadScenarioSuite` and `loadSuiteInputs`;
@@ -55,7 +55,7 @@ tests, all testbench suite validators (including 73 Gateway Migration scenarios)
 catalog validation, and the security/production-candidate gates passed. Fresh
 full acceptance parity remains blocked by the Phase 0 infrastructure constraints.
 
-## Phase 4 — first typed overlay surface
+## Phase 4: first typed overlay surface
 
 The runtime decodes strict TOML into optional typed fields and applies them after
 the existing resolver finishes. Supported fields currently cover suite selection,
@@ -70,8 +70,8 @@ Tests cover absent values, nested overrides, explicit false/zero, legal empty
 context, invalid values, unknown keys and secret-safe error text. Scenario
 execution also propagates its metadata timeout to the runtime.
 
-This is a deliberately limited surface: no map/array override fields or service
-image overrides are exposed yet. Their semantics and tests remain outstanding;
+The overlay does not yet expose map/array fields or service image overrides.
+Their semantics and tests remain outstanding;
 this checkpoint does not satisfy the entire Phase 4 acceptance matrix. No new
 CLI or Action entrypoint exposes the adapter yet. Local qualification passed:
 533 Spex race tests, `go vet`, 122 testbench harness tests, suite/catalog
@@ -96,7 +96,7 @@ qualification retains the recorded infrastructure blocker.
 The migration-testbench dependency pin and production CI remain unchanged. No
 release or remote publication has been made during this campaign.
 
-## Phase 5 — source handling and authoring CLI preview
+## Phase 5: source handling and authoring CLI preview
 
 Explicit file sources and inline sources now use the same YAML/Gherkin parsers,
 catalog expansion, binding validation and shared suite executor. Inline validation
@@ -111,14 +111,14 @@ only after runtime validation. Canonical output uses confined filesystem access,
 private file permissions and exclusive creation; it cannot overwrite an existing
 file or follow an output symlink outside the workspace.
 
-`scenario run` remains deliberately unavailable until execution artifact safety
+`scenario run` remains unavailable until execution artifact safety
 is qualified. The preview is documented in `docs/scenario-preview.md`. Local
 qualification passed: 539 Spex race tests, `go vet`, all 122 testbench harness
 tests, suite/catalog validation, and existing security/production-candidate
 checks. This is not completion of Phase 5 or of the campaign. Live acceptance
 retains the recorded infrastructure blocker.
 
-## Phase 6 — run artifacts and failure preservation
+## Phase 6: run artifacts and failure preservation
 
 `scenario run` now executes the prepared runtime and writes a canonical scenario,
 plan, runtime identity, versioned result and typed step-outcome evidence. Artifact
@@ -126,11 +126,11 @@ writes use a confined filesystem root and exclusive creation. Reruns use separat
 execution directories beneath the unchanged semantic scenario hash.
 
 The migration adapter runs existing tools in a private temporary workspace. It
-exports only a typed evidence projection, not raw logs, manifests, kubeconfig or
-resolved bindings. Normal completion and cancellation remove that workspace;
-forced termination or host failure can leave transient files behind. This is
-an artifact export boundary, not a claim that underlying tools never write
-sensitive transient files. Detailed backend diagnostics remain intentionally
+exports a typed evidence projection and excludes raw logs, manifests, kubeconfig
+and resolved bindings. Normal completion and cancellation remove that workspace;
+forced termination or host failure can leave transient files behind. This limits
+artifact exports but does not prevent underlying tools from writing sensitive
+transient files. Detailed backend diagnostics remain
 excluded until a stronger runtime-specific redaction contract is qualified.
 
 Reporting failures retain a primary failure. Reports now record cleanup failure
@@ -146,9 +146,9 @@ existing security and production-candidate checks.
 Live qualification, the Action, long-running credential renewal through the new
 entrypoint, and testbench CI adoption remain outstanding.
 
-## Phase 7 — local composite Action
+## Phase 7: local composite Action
 
-The new `pruefwerk/spex-action` repository now contains the composite metadata,
+The new `pruefwerk/spex-action` repository contains the composite metadata,
 Python transport/bootstrap, tests, documentation and a qualification workflow.
 It delegates scenario construction and execution to the same CLI used locally.
 Inline source and runtime configuration travel through private input files;
@@ -170,9 +170,9 @@ records the precise scope and remaining blockers.
 The GitHub workflow has not run, no remote repository/tag has been published,
 and no scenario-capable release is available for live installer qualification.
 Live migration acceptance, portable testbench lifecycle and CI adoption remain
-outstanding. This is not completion of Phases 8–12 or of the campaign.
+outstanding. Phases 8 through 12 and the campaign remain incomplete.
 
-## Testbench adoption preparation — selection and renewal
+## Testbench adoption preparation: selection and renewal
 
 Typed selection arrays now delegate to the existing suite tag filters. Authoring
 overrides replace arrays, including explicit empty arrays. The runtime also
@@ -196,7 +196,7 @@ Read-only scenario validation covers all 73 Gateway Migration scenarios; selecti
 verification, lifecycle and Modbus produces 31 tests. The Action also passes
 Pyright and Ruff. These results do not establish live acceptance parity.
 
-## Hosted qualification wiring — opt-in, not yet exercised live
+## Hosted qualification wiring: opt-in, not yet exercised live
 
 `reports scenario` reads canonical runtime artifacts without importing testbench
 semantics. It checks scenario identity, result schema and completion counts, and
@@ -344,9 +344,9 @@ scenario-runtime qualification remains explicit. No testbench acceptance workflo
 was dispatched. The success-only credential-hook fixture now allows ten seconds
 for process startup; dedicated expiry tests and production timeouts are unchanged.
 
-## Native testbench consolidation — 8 October 2026
+## Native testbench consolidation: 8 October 2026
 
-The current working tree supplies native lifecycle, scheduling, exact Kind/image
+The working tree at this checkpoint supplies native lifecycle, scheduling, exact Kind/image
 ownership, checked Helm reuse and console capture APIs. Suite inspection calls the
 existing loader and validator. Portable source transport/extraction and credential
 renewal accept host-owned policy; image fingerprints bind explicit inputs without
@@ -368,7 +368,7 @@ in a Go workspace; standalone published-pin builds remain blocked. No new releas
 tag, commit or pin update accompanied consolidation. Publish and update SDK/tool
 pins together before hosted acceptance qualification.
 
-## Configured executable host — 2026-10-08
+## Configured executable host: 2026-10-08
 
 Spex now supplies `spex runtime --config <host.toml>` through
 `pkg/runtimehost/engine`. Strict typed host definitions select existing runtime
@@ -387,7 +387,7 @@ Temporary parity code was removed. These checks do not qualify private charts,
 published tooling or AWS. rc.39 remains the pin; publication and coordinated tool
 and qualification dependency updates are still required.
 
-## Repository quality review — 2026-10-08
+## Repository quality review: 2026-10-08
 
 Host configuration, scope resolution and release version now belong to immutable
 host instances. Compatibility bindings return defensive copies. The inherited
@@ -411,7 +411,7 @@ The live shared-daemon qualifier passed cancellation and survivor-isolation
 checks. These changes have not been published and do not establish private-chart
 or AWS acceptance.
 
-## Publication qualification — 2026-10-08
+## Publication qualification: 2026-10-08
 
 The configured host was committed as `ff01f77` and tagged rc.40. Local security,
 race, static and production/archive checks passed, as did 70 Action adapter tests.

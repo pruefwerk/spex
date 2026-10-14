@@ -1,8 +1,8 @@
-# Failure Modes
+# Failure modes
 
-Use this page to classify failed production runs before changing scenarios or bindings.
+Identify the failure type before changing scenarios or bindings in a failed production run.
 
-## Validation Failure
+## Validation failure
 
 The scenario, binding, suite, catalog, or integration profile failed static validation.
 
@@ -18,13 +18,13 @@ Common causes:
 
 Fix the authoring input. Do not debug the cluster yet.
 
-## Workspace Completeness Failure
+## Workspace completeness failure
 
 The runner could not load the generated workspace, usually because `step-map.yaml` is missing, malformed, too large, or not a regular file.
 
 Regenerate the workspace from the scenario and binding. Do not edit generated files by hand.
 
-## KUTTL Execution Failure
+## KUTTL execution failure
 
 KUTTL or kubectl could not start, or KUTTL failed before a mapped Job existed.
 
@@ -38,7 +38,7 @@ Check:
 
 If KUTTL output identifies a generated file, the report maps the failure to that generated step.
 
-## Probe Job Failure
+## Probe Job failure
 
 A generated Job ran and failed. The report maps it through Job status, Pod termination state, probe result JSON, and logs.
 
@@ -49,7 +49,7 @@ Check:
 - `evidence/results/*.jsonl`
 - generated Job manifest for the operation
 
-## MQTT Publish Failure
+## MQTT publish failure
 
 Likely causes:
 
@@ -59,7 +59,7 @@ Likely causes:
 - network policy blocks probe Pod
 - topic name mismatch
 
-## Redpanda Assertion Failure
+## Redpanda assertion failure
 
 Likely causes:
 
@@ -71,7 +71,7 @@ Likely causes:
 
 The assertion scans from captured offsets, not from earliest. Re-run only after understanding whether the publish step happened after the snapshot.
 
-## GraphQL Assertion Failure
+## GraphQL assertion failure
 
 Likely causes:
 
@@ -84,7 +84,7 @@ Likely causes:
 
 For Keycloak, inspect token acquisition output in the GraphQL probe logs.
 
-## Missing Pod Logs
+## Missing Pod logs
 
 The report may show `pod_log_collection_missing_pod` when KUTTL reported a failure but no mapped Pod logs could be collected.
 
@@ -95,7 +95,7 @@ Check:
 - namespace is correct
 - kubectl permissions allow `logs`
 
-## Runtime Cleanup Failure
+## Runtime cleanup failure
 
 The scenario may have passed, but cleanup failed. The report result becomes `error` with `runtime_cleanup_failed`.
 
@@ -107,7 +107,7 @@ Check:
 
 Use `spex clean --workspace <workspace> --all` after fixing permissions.
 
-## Resource Usage Collection Failure
+## Resource usage collection failure
 
 Resource usage evidence is best-effort. Missing `evidence/resources/*.pods.txt` usually means metrics-server is unavailable or `kubectl top` lacks permissions.
 

@@ -15,8 +15,8 @@ Validate and plan first. Persist any required ownership evidence before calling
 5. Keeps a failed or cancelled test outcome when cleanup also fails. A cleanup
    failure changes a passed outcome to an infrastructure error.
 
-Callbacks must honor their contexts; the helper cannot forcibly stop arbitrary
-in-process code. Setup and cleanup errors stay private. The host supplies safe
+Callbacks must honor their contexts because the helper cannot forcibly stop
+arbitrary in-process code. Setup and cleanup errors stay private. The host supplies safe
 diagnostics through `SetupProblem` and `CleanupProblem` instead of exposing
 command output or credentials. Test errors retain their original identity.
 

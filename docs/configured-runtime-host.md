@@ -2,7 +2,7 @@
 
 Spex supplies the executable host for `migration-testbench/v1`. A runtime
 repository supplies a trusted TOML definition, existing suite/binding/profile
-files, fixtures and service setup scripts. It does not implement another host.
+files, fixtures and service setup scripts for that host.
 
 Run from the runtime checkout:
 
@@ -54,7 +54,7 @@ Unknown fields fail validation. Setup profiles and overrides may change only
 declared default keys. Arrays remain explicit policy data; the host does not
 recursively merge arbitrary caller maps or evaluate configuration as code.
 
-This definition belongs to the trusted runtime checkout, not the caller's
+Keep this definition in the trusted runtime checkout, outside the caller's
 scenario. Callers cannot disable ownership checks, replace the suite topology or
 bypass a configured scheduler. A prepared execution records a definition
 fingerprint; subsequent execution checks refuse policy drift. Exact-ledger
@@ -178,7 +178,7 @@ the listed binding/catalog fields, probe image fields, selected execution counts
 fail-fast/resource-usage settings and tag exclusion. Suite replacement, credential
 hooks, namespace/context overrides and retained resources remain receiver-owned.
 Resolved bindings must retain the execution-owned namespace and Kind context;
-an incompatible binding fails rather than being silently rewritten.
+Spex rejects an incompatible binding instead of silently rewriting it.
 
 Catalogs and YAML operations describe executable test behavior. Admit them only
 from source repositories trusted to author tests for this runtime's permissions.

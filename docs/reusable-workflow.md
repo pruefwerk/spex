@@ -9,8 +9,8 @@ resolves inherited configuration, plans and executes tests, and writes evidence.
 Use spex-action with `execution-mode: prepare`. It writes and uploads the request
 without transport credentials, a receiver destination or a local Spex install.
 Pass `request-id`, `request-sha256` and `request-artifact-id` as job outputs to
-the runtime repository's reusable workflow. Preparation success says nothing
-about the acceptance outcome.
+the runtime repository's reusable workflow. The preparation step does not run
+acceptance tests, so its success does not establish their outcome.
 
 The reusable workflow runs in the caller's GitHub context. It consumes artifacts
 from that same repository and run with `GITHUB_TOKEN`. It needs `actions: read`
@@ -20,9 +20,9 @@ The caller must grant these permissions; a called workflow cannot elevate them.
 
 ## Stage trusted runtime files
 
-A private reusable workflow does not give the caller token arbitrary repository
-checkout access. Distribute trusted catalogs, bindings, profiles and fixtures
-through a shared Action in the runtime repository. Enable GitHub Actions sharing
+A private reusable workflow does not grant the caller token arbitrary repository
+checkout access. Supply trusted catalogs, bindings, profiles and fixtures through
+a shared Action in the runtime repository. Enable GitHub Actions sharing
 for the intended repositories and pin that Action and the reusable workflow to
 the same reviewed release.
 
@@ -38,7 +38,7 @@ and non-regular files, and bounds file count and size. The selected definition
 becomes the staged `spex-runtime.toml`, so existing thin command aliases keep
 working. The downloaded shared Action directory remains unchanged.
 
-The command exposes `runtime-directory`, `runtime-config` and `runtime-release`
+The command writes `runtime-directory`, `runtime-config` and `runtime-release`
 through `GITHUB_OUTPUT`. The release is a deterministic content digest of the
 staged files and their executable permissions. Concurrent requests receive
 separate writable directories, even when they share a runner daemon.
@@ -86,5 +86,5 @@ preserve the execution failure even if artifact collection or cleanup also fails
 
 Local tests cover prepare-only packaging, current-run admission, private staging,
 stable bundle identities, cancellation and unchanged host execution. A hosted
-caller-to-reusable-workflow run remains a separate qualification step. The first
-release containing these commands must be published and pinned before activation.
+caller-to-reusable-workflow run still needs separate qualification. Before
+activation, publish and pin a release containing these commands.
