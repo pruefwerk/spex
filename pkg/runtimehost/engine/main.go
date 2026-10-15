@@ -229,8 +229,8 @@ func (h *Host) runOperation(ctx context.Context, args []string, stdout, stderr i
 		if args[0] == "source-admit-reusable" {
 			env = reusableSourceEnvironment(os.Getenv)
 		}
-		if h.admitSource(ctx, ".", env, receiver.GitHubSource{Token: env("SOURCE_READ_TOKEN")}) != nil {
-			fmt.Fprintln(stderr, "Receiver source admission failed; execution did not start")
+		if err := h.admitSource(ctx, ".", env, receiver.GitHubSource{Token: env("SOURCE_READ_TOKEN")}); err != nil {
+			writeAdmissionDiagnostic(stderr, err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "Receiver source admitted; no test environment created")

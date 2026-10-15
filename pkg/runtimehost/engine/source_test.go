@@ -14,17 +14,25 @@ import (
 type admissionAPI struct {
 	documents map[string]string
 	calls     []string
+	failures  map[string]error
+	download  func(string) ([]byte, error)
 }
 
 func (a *admissionAPI) Get(_ context.Context, path string, value any) error {
 	a.calls = append(a.calls, path)
+	if err := a.failures[path]; err != nil {
+		return err
+	}
 	document, ok := a.documents[path]
 	if !ok {
 		return errors.New("unavailable")
 	}
 	return json.Unmarshal([]byte(document), value)
 }
-func (*admissionAPI) Download(context.Context, string, int64) ([]byte, error) {
+func (a *admissionAPI) Download(_ context.Context, path string, _ int64) ([]byte, error) {
+	if a.download != nil {
+		return a.download(path)
+	}
 	return nil, errors.New("authentication must not download")
 }
 
@@ -97,6 +105,24 @@ func TestSourceAdmissionOrganizationBoundary(t *testing.T) {
 			_, err := h.authenticateSource(context.Background(), func(key string) string { return values[key] }, hostconfig.SourcePolicy{Schema: hostconfig.SourcePolicySchema, Sources: []hostconfig.SourceEntry{tc.entry}}, api, now)
 			if (err == nil) != tc.pass {
 				t.Fatalf("admission error=%v, want admitted=%v", err, tc.pass)
+			}
+			if err != nil {
+				want := policyRejected
+				switch tc.name {
+				case "different repository", "fork excluded", "pull request excluded", "completed run excluded":
+					want = identityMismatch
+				case "metadata unavailable":
+					want = repositoryMetadataFailed
+				case "rerun excluded":
+					want = runAttemptUnsupported
+				case "artifact from different run", "artifact from different commit", "expired artifact":
+					want = artifactIdentityMismatch
+				case "stale artifact":
+					want = artifactAgeInvalid
+				}
+				if got := classifyAdmissionFailure(err); got.Reason != want {
+					t.Fatalf("reason=%s, want %s", got.Reason, want)
+				}
 			}
 			if (tc.name == "outside organization" || tc.name == "malformed policy") && len(api.calls) != 0 {
 				t.Fatal("untrusted selector made API calls")

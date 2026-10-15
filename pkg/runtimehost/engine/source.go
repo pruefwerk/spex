@@ -63,9 +63,12 @@ type runMetadata struct {
 }
 
 func (h *Host) authenticateSource(ctx context.Context, env func(string) string, policy hostconfig.SourcePolicy, api sourceAPI, now time.Time) (runMetadata, error) {
-	fail := errors.New("source identity not admitted")
-	if env("TRANSPORT_SCHEMA") != "spex.transport/v1" || env("GITHUB_RUN_ATTEMPT") != "1" || !requestID.MatchString(env("REQUEST_ID")) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(env("REQUEST_SHA256")) || !repositoryID.MatchString(env("SOURCE_REPOSITORY")) {
+	fail := admissionError(identityMismatch, nil)
+	if env("TRANSPORT_SCHEMA") != "spex.transport/v1" || !requestID.MatchString(env("REQUEST_ID")) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(env("REQUEST_SHA256")) || !repositoryID.MatchString(env("SOURCE_REPOSITORY")) {
 		return runMetadata{}, fail
+	}
+	if env("GITHUB_RUN_ATTEMPT") != "1" {
+		return runMetadata{}, admissionError(runAttemptUnsupported, nil)
 	}
 	number := regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 	if !number.MatchString(env("SOURCE_RUN_ID")) || !number.MatchString(env("SOURCE_ARTIFACT_ID")) {
@@ -85,7 +88,7 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 	}
 	entries := []hostconfig.SourceEntry{}
 	if !h.resolver.IsSourcePolicySchema(policy.Schema) || policy.Validate() != nil {
-		return runMetadata{}, fail
+		return runMetadata{}, admissionError(policyRejected, nil)
 	}
 	for _, entry := range policy.Sources {
 		if strings.EqualFold(entry.Repository, repository) ||
@@ -94,7 +97,7 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 		}
 	}
 	if len(entries) == 0 {
-		return runMetadata{}, fail
+		return runMetadata{}, admissionError(policyRejected, nil)
 	}
 	// Read ownership and visibility from GitHub, never from dispatch inputs or
 	// the source artifact. Missing metadata must not relax a visibility rule.
@@ -108,7 +111,10 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 		needsMetadata = needsMetadata || entry.Organization != "" || entry.Visibilities != nil
 	}
 	if needsMetadata {
-		if api.Get(ctx, fmt.Sprintf("/repos/%s", repository), &source) != nil || !strings.EqualFold(source.FullName, repository) {
+		if err := api.Get(ctx, fmt.Sprintf("/repos/%s", repository), &source); err != nil {
+			return runMetadata{}, admissionError(repositoryMetadataFailed, err)
+		}
+		if !strings.EqualFold(source.FullName, repository) {
 			return runMetadata{}, fail
 		}
 		filtered := entries[:0]
@@ -123,19 +129,25 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 		}
 		entries = filtered
 		if len(entries) == 0 {
-			return runMetadata{}, fail
+			return runMetadata{}, admissionError(policyRejected, nil)
 		}
 	}
 	var run runMetadata
-	if api.Get(ctx, fmt.Sprintf("/repos/%s/actions/runs/%d", repository, runID), &run) != nil || run.ID != runID || run.Attempt != 1 || run.Status != "in_progress" || string(run.Conclusion) != "null" || (run.Event != "push" && run.Event != "workflow_dispatch") || run.Repository.FullName != repository || run.HeadRepository.FullName != repository || !commitID.MatchString(run.SHA) || run.Workflow < 1 {
+	if err := api.Get(ctx, fmt.Sprintf("/repos/%s/actions/runs/%d", repository, runID), &run); err != nil {
+		return runMetadata{}, admissionError(runMetadataFailed, err)
+	}
+	if run.ID != runID || run.Status != "in_progress" || string(run.Conclusion) != "null" || (run.Event != "push" && run.Event != "workflow_dispatch") || run.Repository.FullName != repository || run.HeadRepository.FullName != repository || !commitID.MatchString(run.SHA) || run.Workflow < 1 {
 		return runMetadata{}, fail
+	}
+	if run.Attempt != 1 {
+		return runMetadata{}, admissionError(runAttemptUnsupported, nil)
 	}
 	if env("SPEX_ADMISSION_MODE") == "reusable" && (run.SHA != env("GITHUB_SHA") || run.Event != env("GITHUB_EVENT_NAME") || run.Actor.Login != env("GITHUB_ACTOR")) {
 		return runMetadata{}, fail
 	}
 	var workflow struct{ Path string }
-	if api.Get(ctx, fmt.Sprintf("/repos/%s/actions/workflows/%d", repository, run.Workflow), &workflow) != nil {
-		return runMetadata{}, fail
+	if err := api.Get(ctx, fmt.Sprintf("/repos/%s/actions/workflows/%d", repository, run.Workflow), &workflow); err != nil {
+		return runMetadata{}, admissionError(workflowMetadataFailed, err)
 	}
 	allowed := false
 	for _, entry := range entries {
@@ -146,7 +158,7 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 		}
 	}
 	if !allowed {
-		return runMetadata{}, fail
+		return runMetadata{}, admissionError(policyRejected, nil)
 	}
 	var artifact struct {
 		ID      int64
@@ -159,12 +171,15 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 			SHA string `json:"head_sha"`
 		} `json:"workflow_run"`
 	}
-	if api.Get(ctx, fmt.Sprintf("/repos/%s/actions/artifacts/%d", repository, artifactID), &artifact) != nil || artifact.ID != artifactID || artifact.Name != "spex-request-"+env("REQUEST_ID") || artifact.Expired == nil || *artifact.Expired || artifact.Size < 1 || artifact.Size > 8<<20 || artifact.Run.ID != run.ID || artifact.Run.SHA != run.SHA {
-		return runMetadata{}, fail
+	if err := api.Get(ctx, fmt.Sprintf("/repos/%s/actions/artifacts/%d", repository, artifactID), &artifact); err != nil {
+		return runMetadata{}, admissionError(artifactMetadataFailed, err)
+	}
+	if artifact.ID != artifactID || artifact.Name != "spex-request-"+env("REQUEST_ID") || artifact.Expired == nil || *artifact.Expired || artifact.Size < 1 || artifact.Size > 8<<20 || artifact.Run.ID != run.ID || artifact.Run.SHA != run.SHA {
+		return runMetadata{}, admissionError(artifactIdentityMismatch, nil)
 	}
 	created, err := time.Parse(time.RFC3339, artifact.Created)
 	if err != nil || created.Before(now.Add(-24*time.Hour)) || created.After(now.Add(5*time.Minute)) {
-		return runMetadata{}, fail
+		return runMetadata{}, admissionError(artifactAgeInvalid, err)
 	}
 	return run, nil
 }
@@ -172,11 +187,11 @@ func (h *Host) authenticateSource(ctx context.Context, env func(string) string, 
 func (h *Host) admitSource(ctx context.Context, root string, env func(string) string, api sourceAPI) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	policy, err := h.resolver.ReadSourcePolicy(filepath.Join(root, h.config.SourcePolicy))
 	if err != nil {
-		return err
+		return admissionError(policyUnavailable, err)
 	}
 	run, err := h.authenticateSource(ctx, env, policy, api, time.Now())
 	if err != nil {
@@ -184,44 +199,44 @@ func (h *Host) admitSource(ctx context.Context, root string, env func(string) st
 	}
 	private := filepath.Join(root, ".spex/receiver-private")
 	if err := os.MkdirAll(filepath.Dir(private), 0700); err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	if err := os.Mkdir(private, 0700); err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	artifact, err := api.Download(ctx, fmt.Sprintf("/repos/%s/actions/artifacts/%s/zip", env("SOURCE_REPOSITORY"), env("SOURCE_ARTIFACT_ID")), 8<<20)
 	if err != nil {
-		return err
+		return admissionError(artifactDownloadFailed, err)
 	}
 	if err := writePrivate(filepath.Join(private, "request.zip"), artifact); err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	source, err := api.Download(ctx, fmt.Sprintf("/repos/%s/tarball/%s", env("SOURCE_REPOSITORY"), run.SHA), 64<<20)
 	if err != nil {
-		return err
+		return admissionError(sourceDownloadFailed, err)
 	}
 	if err := receiver.ExtractSource(ctx, source, filepath.Join(private, "source")); err != nil {
-		return err
+		return admissionError(sourceExtractionFailed, err)
 	}
 	workerRun, err := strconv.ParseInt(env("GITHUB_RUN_ID"), 10, 64)
 	if err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	scope, err := h.resolver.Allocate(env("GITHUB_REPOSITORY"), workerRun, 1, env("REQUEST_ID"), "kind")
 	if err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	name, _ := scope.Name()
 	scopePath := filepath.Join(root, ".spex/execution-scopes", name+".json")
 	if err := os.MkdirAll(filepath.Dir(scopePath), 0700); err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	if err := hostconfig.SaveScope(scopePath, scope); err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	suite, err := h.configureKind(root, scopePath)
 	if err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	admitted := admissionContext{Schema: h.resolver.Protocol("receiver-admission"), Expected: receiver.Expected{RequestID: env("REQUEST_ID"), SHA256: env("REQUEST_SHA256"), Repository: env("SOURCE_REPOSITORY"), Commit: run.SHA, SourceRunID: run.ID}, Checkout: receiver.Checkout{Directory: filepath.Join(private, "source"), Repository: env("SOURCE_REPOSITORY"), Commit: run.SHA}, Artifact: filepath.Join(private, "request.zip"), Root: root, Suite: suite, Scope: scopePath, Kubeconfig: filepath.Join(root, ".spex/isolated", name, "kubeconfig"), Actor: run.Actor.Login}
 	if env("SPEX_ADMISSION_MODE") == "reusable" {
@@ -229,17 +244,20 @@ func (h *Host) admitSource(ctx context.Context, root string, env func(string) st
 			Release string `json:"release"`
 		}
 		if readJSON(filepath.Join(root, ".spex/runtime-release.json"), &identity) != nil || !regexp.MustCompile(`^bundle-[a-f0-9]{64}$`).MatchString(identity.Release) {
-			return errors.New("trusted runtime bundle identity unavailable")
+			return admissionError(runtimeIdentityInvalid, errors.New("trusted runtime bundle identity unavailable"))
 		}
 		admitted.Mode, admitted.Release = "reusable", identity.Release
 	}
 	data, err := json.Marshal(admitted)
 	if err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
 	path := filepath.Join(private, "context.json")
 	if err := writePrivate(path, data); err != nil {
-		return err
+		return admissionError(preparationFailed, err)
 	}
-	return appendCI(env("GITHUB_OUTPUT"), "context-path="+path+"\nscope-path="+scopePath+"\n")
+	if err := appendCI(env("GITHUB_OUTPUT"), "context-path="+path+"\nscope-path="+scopePath+"\n"); err != nil {
+		return admissionError(preparationFailed, err)
+	}
+	return nil
 }

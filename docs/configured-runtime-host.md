@@ -132,6 +132,39 @@ age. Request digest verification and durable replay claims remain separate gates
 Earlier releases without organization-selector support reject these new fields;
 upgrade the host executable before deploying an organization policy.
 
+### Admission failure diagnostics
+
+Both `source-admit` and `source-admit-reusable` exit with code 1 when admission
+fails. They print the existing failure message followed by one JSON diagnostic:
+
+```json
+{"schema":"spex.admission-diagnostic/v1","stage":"github_api","reason":"ARTIFACT_METADATA_UNAVAILABLE","classification":"external_operation_failure"}
+```
+
+| Stage | Reason codes | Classification |
+| --- | --- | --- |
+| `identity_validation` | `IDENTITY_MISMATCH`, `RUN_ATTEMPT_UNSUPPORTED`, `ARTIFACT_IDENTITY_MISMATCH`, `ARTIFACT_AGE_INVALID` | `admission_rejection` |
+| `admission_policy` | `POLICY_REJECTED` | `intentional_refusal` |
+| `admission_policy` | `POLICY_UNAVAILABLE` | `configuration_failure` |
+| `github_api` | `REPOSITORY_METADATA_UNAVAILABLE`, `RUN_METADATA_UNAVAILABLE`, `WORKFLOW_METADATA_UNAVAILABLE`, `ARTIFACT_METADATA_UNAVAILABLE` | `external_operation_failure` |
+| `artifact_retrieval` | `ARTIFACT_DOWNLOAD_FAILED` | `retrieval_failure` |
+| `source_retrieval` | `SOURCE_DOWNLOAD_FAILED` | `retrieval_failure` |
+| `local_preparation` | `SOURCE_EXTRACTION_FAILED`, `PREPARATION_FAILED`, `RUNTIME_IDENTITY_INVALID` | `local_execution_failure` |
+| `unknown` | `ADMISSION_FAILED` | `unknown_failure` |
+
+Classification occurs where each failure originates. Output contains only the
+listed constants; wrapped errors, HTTP bodies, credentials, signed URLs and
+caller-provided text never enter the diagnostic. Unknown errors use the explicit
+fallback. Diagnostics do not change admission decisions, retry behavior or exit
+codes. An external-operation failure does not imply that retrying is authorized
+or will succeed. Retryability is omitted because these checks cannot reliably
+determine it.
+
+For `RUN_ATTEMPT_UNSUPPORTED`, start a new workflow run and prepare a new request.
+Rerunning jobs increments the run attempt and remains unsupported. For other
+codes, investigate the named stage before repeating the run. A diagnostic identifies
+the failing operation; it does not by itself establish its underlying cause.
+
 ### Caller-owned acceptance definitions
 
 The receiver can resolve caller tests against runtime-owned catalogs, bindings and
