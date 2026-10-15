@@ -36,12 +36,20 @@ func diagnoseRunner(output string, exitCode *int) *RunnerDiagnostic {
 	// These are hints from captured runner output, not proof of root cause.
 	// Copy only a fixed code, never a matching line or a captured substring.
 	lower := strings.ToLower(output)
+	missingKubeContext := false
+	for _, line := range strings.Split(lower, "\n") {
+		// Helm's normal "Release ... does not exist" message must not
+		// combine with an unrelated kube-context line to invent a failure.
+		if strings.Contains(line, `context "`) && strings.Contains(line, `" does not exist`) {
+			missingKubeContext = true
+		}
+	}
 	switch {
 	case strings.Contains(lower, `unknown command "kuttl"`):
 		d.Reason = "kuttl_plugin_unavailable"
 	case strings.Contains(lower, "no configuration has been provided"):
 		d.Reason = "kubeconfig_unavailable"
-	case strings.Contains(lower, "context") && strings.Contains(lower, "does not exist"):
+	case missingKubeContext:
 		d.Reason = "kube_context_unavailable"
 	case strings.Contains(lower, "fatal error getting client"):
 		d.Reason = "kubernetes_client_failed"

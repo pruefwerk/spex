@@ -26,6 +26,8 @@ func TestRunnerDiagnosticUsesFixedVocabulary(t *testing.T) {
 		{"logger | test/0-rerun-cleanup | starting test step 0-rerun-cleanup\nSECRET", "rerun_cleanup", "kuttl_failed", 0},
 		{"logger | test/2-rbac | starting test step 2-rbac", "static_setup", "kuttl_failed", 0},
 		{"logger | test/3-op-check | starting test step 3-op-check", "test_execution", "kuttl_failed", 0},
+		{"Set kubectl context to SECRET\nRelease SECRET does not exist. Installing it now.\nlogger | test/3-op-check | starting test step 3-op-check", "test_execution", "kuttl_failed", 0},
+		{`error: context "SECRET" does not exist`, "harness_setup", "kube_context_unavailable", 0},
 	} {
 		code := 1
 		got := diagnoseRunner(tt.output, &code)
