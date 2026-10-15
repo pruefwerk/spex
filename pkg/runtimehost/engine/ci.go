@@ -334,7 +334,7 @@ func (h *Host) ciCommand(ctx context.Context, args []string, out io.Writer) erro
 		}
 		return appendCI(os.Getenv("GITHUB_OUTPUT"), outputs.String())
 	case "result":
-		known := false
+		known := *group == "suite" // Whole-suite CI runs have no subgroup selector.
 		for _, name := range h.ciGroupNames() {
 			if name == *group {
 				known = true

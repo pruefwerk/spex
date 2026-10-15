@@ -68,6 +68,44 @@ host-owned environment values afterward, including on failure and cancellation.
 Use separate processes for concurrent executions; ownership checks and configured
 scheduling still apply across those processes.
 
+### Additional trusted suites
+
+Register other Kind suites in the same host definition:
+
+```toml
+[[suites]]
+suite = "suite-kind-cache.yaml"
+include_images = ["probe", "http-probe:test"]
+image_services = ["cache"]
+health_resources = ["cache"]
+```
+
+`include_images` selects entries from the definition's `images` inventory by
+alias. The selector `probe` selects the entry with `probe_alias = true`.
+`extra_images` accepts the same typed image-build entries for suite-specific
+fixtures. Extra build contexts also become fingerprint inputs.
+
+The registered suite's YAML supplies `bindingRef` and `integrationProfileRef`;
+the profile supplies its Kind topology. Spex confines these references to the
+trusted runtime checkout. No second binding, profile or topology model is needed.
+Image selections, image services and health-resource arrays replace the default
+suite's inventories; omitted arrays are empty. Admission, scheduling, credentials
+and other host policy remain inherited. The default suite stays unchanged.
+
+Select a registered suite with `execution ... --suite <suite.yaml>`. Spex keeps
+its original identity in `SPEX_RUNTIME_SUITE` while `SPEX_SUITE` points to the
+execution-specific projection. `prepare-start` writes both into `GITHUB_ENV`,
+and profile subprocesses inherit the same selection. These values never authorize
+an unregistered suite or adoption of another suite's resources. For split CI,
+`group-run --ci-group suite` executes the whole suite without a tag filter.
+
+An execution-gate failure prints a fixed, secret-safe diagnostic and attempts to
+retain the first failure in `.spex/runtime-diagnostics/execution-gate.json`, even
+when no scope exists yet. Its schema is `spex.execution-diagnostic/v1`; reason
+codes are `SUITE_NOT_CONFIGURED` and `EXECUTION_GATE_FAILED`. Wrapped causes and
+configuration values never enter this diagnostic. Hosts should upload this
+directory on failure alongside normal scenario evidence.
+
 ## Execution and recovery
 
 Split CI commands `prepare-start`, `check`, `group-run` and `cleanup` compose

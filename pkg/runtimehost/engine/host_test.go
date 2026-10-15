@@ -59,11 +59,15 @@ func TestHostOperationsRestoreEnvironmentAndCompatibilityBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := hostconfig.Current()
+	t.Setenv(hostconfig.SuiteEnvironment, h.config.Suite)
 	for _, key := range []string{hostconfig.ConfigEnvironment, h.config.ScopeEnvironment, "KUBECONFIG", "SPEX_SUITE"} {
 		t.Setenv(key, "parent-value")
 	}
 	assertRestored := func() {
 		t.Helper()
+		if os.Getenv(hostconfig.SuiteEnvironment) != h.config.Suite {
+			t.Fatal("suite selection environment leaked")
+		}
 		for _, key := range []string{hostconfig.ConfigEnvironment, h.config.ScopeEnvironment, "KUBECONFIG", "SPEX_SUITE"} {
 			if os.Getenv(key) != "parent-value" {
 				t.Fatal("environment leaked", key)

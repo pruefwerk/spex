@@ -11,6 +11,23 @@ import (
 	"github.com/pruefwerk/spex/pkg/migrationtestbench"
 )
 
+func TestCIWholeSuiteResultDoesNotRequireASubgroup(t *testing.T) {
+	_, file := configuredFixture(t)
+	h, err := New(file, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	var out bytes.Buffer
+	if err := h.ciCommand(context.Background(), []string{"result", "--root", root, "--group", "suite", "--status", "0"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "suite-result.json"))
+	if err != nil || !strings.Contains(string(data), `"status":"passed"`) {
+		t.Fatal("whole-suite result missing", err)
+	}
+}
+
 func TestCIPlanSelectsConfiguredBaselineAlongsideFeatureGroup(t *testing.T) {
 	_, file := configuredFixture(t)
 	h, err := New(file, "test")

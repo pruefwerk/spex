@@ -79,6 +79,11 @@ func (h *Host) run(ctx context.Context, contextPath string, stdout, stderr io.Wr
 	if err := os.Setenv("KUBECONFIG", admitted.Kubeconfig); err != nil {
 		return 1
 	}
+	// Profile subprocesses must validate the admitted, execution-owned suite,
+	// not the original template or a suite inherited from another invocation.
+	if err := os.Setenv("SPEX_SUITE", admitted.Suite); err != nil {
+		return 1
+	}
 	if admitted.Actor == "" {
 		return 1
 	}
@@ -194,13 +199,22 @@ func (h *Host) Run(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return 2
 	}
 	defer hostProcess.Unlock()
-	return h.runOperation(ctx, args, stdout, stderr)
+	selected, err := h.forOperation(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "Runtime suite policy unavailable; no environment changes performed")
+		h.executionDiagnostic(stderr, err)
+		return 1
+	}
+	return selected.runOperation(ctx, args, stdout, stderr)
 }
 
 func (h *Host) runOperation(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	restore := h.captureEnvironment()
 	defer restore()
 	if os.Setenv(hostconfig.ConfigEnvironment, h.path) != nil {
+		return 2
+	}
+	if os.Setenv(hostconfig.SuiteEnvironment, h.config.Suite) != nil {
 		return 2
 	}
 	if len(args) == 0 {
@@ -262,6 +276,9 @@ func (h *Host) runOperation(ctx context.Context, args []string, stdout, stderr i
 		return code
 	case "execution":
 		err := h.executionCommand(ctx, args[1:], stdout)
+		if err != nil && len(args) > 1 && args[1] != "run" && args[1] != "group-run" {
+			h.executionDiagnostic(stderr, err)
+		}
 		code := 1
 		if ctx.Err() != nil {
 			code = 130

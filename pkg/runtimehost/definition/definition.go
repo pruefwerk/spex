@@ -20,6 +20,7 @@ import (
 
 const Schema = "spex.runtime-host/v1"
 const ConfigEnvironment = "SPEX_RUNTIME_CONFIG"
+const SuiteEnvironment = "SPEX_RUNTIME_SUITE"
 
 // Defaults cover host mechanisms only. Projects supply environment references,
 // service inventories and application setup values.
@@ -46,6 +47,16 @@ type Image struct {
 	Alias      string `toml:"alias"`
 	ProbeAlias bool   `toml:"probe_alias"`
 	Build      Build  `toml:"build"`
+}
+
+// SuitePolicy selects resources for another trusted suite. The suite itself
+// remains the source of its binding, integration profile and Kind topology.
+type SuitePolicy struct {
+	Suite           string   `toml:"suite"`
+	IncludeImages   []string `toml:"include_images"`
+	ExtraImages     []Image  `toml:"extra_images"`
+	ImageServices   []string `toml:"image_services"`
+	HealthResources []string `toml:"health_resources"`
 }
 type TagOverride struct {
 	Tag       string            `toml:"tag"`
@@ -88,6 +99,7 @@ type Credentials struct {
 	DurationSeconds    int    `toml:"duration_seconds"`
 }
 type Definition struct {
+	Suites                    []SuitePolicy     `toml:"suites"`
 	CallerTests               bool              `toml:"caller_tests"`
 	CallerConfiguration       []string          `toml:"caller_configuration"`
 	RepositoryDefaults        map[string]string `toml:"repository_defaults"`
@@ -194,6 +206,16 @@ func (d Definition) Validate() error {
 	invalid := errors.New("runtime host policy incomplete or invalid")
 	name := regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	env := regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	suites := map[string]bool{}
+	for _, policy := range d.Suites {
+		if !relative(policy.Suite) || filepath.Clean(policy.Suite) != policy.Suite || suites[policy.Suite] || policy.Suite == d.Suite {
+			return invalid
+		}
+		suites[policy.Suite] = true
+		if _, err := d.SuiteResources(policy.Suite); err != nil {
+			return invalid
+		}
+	}
 	for repository, path := range d.RepositoryDefaults {
 		if !regexp.MustCompile(`^[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+$`).MatchString(repository) || !relative(path) {
 			return invalid

@@ -18,6 +18,7 @@ func configuredFixture(t *testing.T) (string, string) {
 	for _, key := range []string{"GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY"} {
 		t.Setenv(key, "")
 	}
+	t.Setenv(hostconfig.SuiteEnvironment, "")
 	root := t.TempDir()
 	d := hostconfig.Defaults()
 	d.Suite = "suite-kind-example.yaml"

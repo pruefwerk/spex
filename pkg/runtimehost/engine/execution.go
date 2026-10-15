@@ -28,7 +28,7 @@ type executionPaths struct {
 
 func (h *Host) supportedSuite(suite string) error {
 	if filepath.Base(suite) != filepath.Base(h.config.Suite) {
-		return errors.New("suite has no qualified execution-owned lifecycle")
+		return errSuiteNotConfigured
 	}
 	return nil
 }
@@ -310,6 +310,10 @@ func (h *Host) executionCommand(ctx context.Context, args []string, stdout io.Wr
 		return err
 	}
 	if args[0] == "group-run" {
+		// "suite" is the CI adapter's whole-suite group, not a tag selector.
+		if *group == "suite" {
+			*group = ""
+		}
 		names, err := hostconfig.Names(*group)
 		if err != nil || (*group != "" && len(names) != 1) {
 			return errors.New("group-run accepts one CI group")
@@ -413,7 +417,7 @@ func (h *Host) writeExecutionEnvironment(path string, paths executionPaths) erro
 		return errors.New("CI environment output unavailable")
 	}
 	defer file.Close()
-	if _, err := fmt.Fprintf(file, "%s=%s\nSPEX_SUITE=%s\nKUBECONFIG=%s\n", h.config.ScopeEnvironment, paths.Scope, paths.Suite, paths.Kubeconfig); err != nil {
+	if _, err := fmt.Fprintf(file, "%s=%s\n%s=%s\nSPEX_SUITE=%s\nKUBECONFIG=%s\n", hostconfig.SuiteEnvironment, h.config.Suite, h.config.ScopeEnvironment, paths.Scope, paths.Suite, paths.Kubeconfig); err != nil {
 		return err
 	}
 	return file.Sync()

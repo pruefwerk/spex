@@ -58,7 +58,7 @@ func (h *Host) captureEnvironment() func() {
 		present   bool
 	}
 	values := []value{}
-	for _, key := range []string{hostconfig.ConfigEnvironment, h.config.ScopeEnvironment, "KUBECONFIG", "SPEX_SUITE"} {
+	for _, key := range []string{hostconfig.ConfigEnvironment, hostconfig.SuiteEnvironment, h.config.ScopeEnvironment, "KUBECONFIG", "SPEX_SUITE"} {
 		text, present := os.LookupEnv(key)
 		values = append(values, value{key, text, present})
 	}
