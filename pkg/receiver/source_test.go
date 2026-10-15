@@ -8,10 +8,49 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// Git adds a global PAX header containing the commit ID before the repository
+// root. Exercise Git's archive writer rather than only hand-built tar fixtures.
+func TestSourceExtractionAcceptsGitArchive(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required to qualify source archives")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "acceptance.feature"), []byte("Feature: Connectivity\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "--quiet"},
+		{"add", "acceptance.feature"},
+		{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false", "commit", "--quiet", "-m", "Add acceptance definition"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("prepare source fixture: %v: %s", err, output)
+		}
+	}
+	cmd := exec.Command("git", "archive", "--format=tar.gz", "--prefix=repository/", "HEAD")
+	cmd.Dir = repo
+	data, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "source")
+	t.Cleanup(func() { _ = os.Chmod(destination, 0700) })
+	if err := ExtractSource(context.Background(), data, destination); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(destination, "acceptance.feature"))
+	if err != nil || string(content) != "Feature: Connectivity\n" {
+		t.Fatal("Git archive content was not preserved", err)
+	}
+}
 
 type sourceTransport func(*http.Request) (*http.Response, error)
 

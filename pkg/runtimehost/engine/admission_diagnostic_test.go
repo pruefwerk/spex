@@ -109,6 +109,10 @@ func sourceAdmissionFixture(t *testing.T) (*Host, string, map[string]string, *ad
 	var data bytes.Buffer
 	gz := gzip.NewWriter(&data)
 	archive := tar.NewWriter(gz)
+	// GitHub source archives carry Git's global commit metadata before files.
+	if err := archive.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": sha}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := archive.WriteHeader(&tar.Header{Name: "repo/acceptance.feature", Typeflag: tar.TypeReg, Mode: 0600, Size: 1}); err != nil {
 		t.Fatal(err)
 	}

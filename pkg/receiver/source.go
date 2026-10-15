@@ -112,7 +112,8 @@ func (g GitHubSource) Download(ctx context.Context, ref string, limit int64) ([]
 }
 
 // ExtractSource accepts only a bounded, single-root tar.gz containing regular
-// files and directories. Files stay read-only and never retain executable bits.
+// files and directories. It discards global PAX metadata, such as Git's commit
+// comment. Files stay read-only and never retain executable bits.
 func ExtractSource(ctx context.Context, data []byte, destination string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -144,6 +145,11 @@ func ExtractSource(ctx context.Context, data []byte, destination string) error {
 		total += member.Size
 		if count > 10000 || total > 128<<20 || member.Size < 0 || member.Size > 16<<20 {
 			return errors.New("source archive exceeds limits")
+		}
+		// archive/tar returns global PAX headers as entries. They describe the
+		// archive, not checkout paths; never materialize or apply their metadata.
+		if member.Typeflag == tar.TypeXGlobalHeader {
+			continue
 		}
 		name := strings.TrimSuffix(member.Name, "/")
 		parts := strings.Split(name, "/")
@@ -184,7 +190,7 @@ func ExtractSource(ctx context.Context, data []byte, destination string) error {
 			return errors.New("source entry incomplete")
 		}
 	}
-	if count == 0 {
+	if prefix == "" {
 		return errors.New("source archive empty")
 	}
 	return filepath.WalkDir(destination, func(name string, entry os.DirEntry, err error) error {
