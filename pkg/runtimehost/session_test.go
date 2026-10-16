@@ -54,14 +54,14 @@ func TestConfiguredFailureCannotDowngradeOrRelease(t *testing.T) {
 	calls, cleanups := 0, 0
 	s.ScheduledOperation = func(context.Context, Operation, string) error { calls++; return errors.New("SENTINEL_SECRET") }
 	s.Cleanup = func(context.Context) error { cleanups++; return nil }
-	if err := s.Gate(context.Background(), Acquire); err != ErrAdmission {
+	if err := s.Gate(context.Background(), Acquire); !errors.Is(err, ErrAdmission) {
 		t.Fatal(err)
 	}
 	s.Identity.Mode = "disabled"
 	if s.Gate(context.Background(), Check) != ErrIdentity {
 		t.Fatal("mode downgraded")
 	}
-	if s.Gate(context.Background(), Finish) != ErrAdmission || calls != 2 || cleanups != 1 {
+	if !errors.Is(s.Gate(context.Background(), Finish), ErrAdmission) || calls != 2 || cleanups != 1 {
 		t.Fatal("cleanup released uncertain capacity", calls, cleanups)
 	}
 	if _, err := os.Stat(filepath.Join(s.Directory, "cleanup.json")); !os.IsNotExist(err) {
@@ -89,8 +89,56 @@ func TestFailedCleanupLeavesExecutionActive(t *testing.T) {
 	s := session(t, "disabled")
 	s.Cleanup = func(context.Context) error { return errors.New("unfinished") }
 	ctx := context.Background()
-	if s.Gate(ctx, Acquire) != nil || s.Gate(ctx, Finish) != ErrCleanup || s.Gate(ctx, Check) != nil {
+	if s.Gate(ctx, Acquire) != nil || !errors.Is(s.Gate(ctx, Finish), ErrCleanup) || s.Gate(ctx, Check) != nil {
 		t.Fatal("cleanup changed admission state")
+	}
+}
+
+func TestCleanupCausesSurviveScheduledAndUnscheduledCheckpoints(t *testing.T) {
+	for _, mode := range []string{"enabled", "disabled"} {
+		t.Run(mode, func(t *testing.T) {
+			s := session(t, mode)
+			cause := errors.New("SENTINEL_SECRET")
+			calls := 0
+			s.Cleanup = func(context.Context) error { calls++; return cause }
+			s.ScheduledOperation = func(_ context.Context, operation Operation, _ string) error {
+				if operation == Finish {
+					return cause
+				}
+				return nil
+			}
+			if err := s.Gate(context.Background(), Acquire); err != nil {
+				t.Fatal(err)
+			}
+			err := s.Gate(context.Background(), Finish)
+			outcome := ErrCleanup
+			if mode == "enabled" {
+				outcome = ErrAdmission
+			}
+			if !errors.Is(err, outcome) || !errors.Is(err, cause) || err.Error() != outcome.Error() || calls != 1 {
+				t.Fatal("cause lost or exposed; cleanup semantics changed", err, calls)
+			}
+			if _, err := os.Stat(filepath.Join(s.Directory, "cleanup.json")); !os.IsNotExist(err) {
+				t.Fatal("failed cleanup published a success receipt")
+			}
+		})
+	}
+}
+
+func TestCapacityRetainsCleanupCauseAndRecoveryState(t *testing.T) {
+	c, scheduler := capacity(t)
+	cause := errors.New("SENTINEL_SECRET")
+	c.Cleanup = func(context.Context) error { return cause }
+	if err := c.Run(context.Background(), Acquire); err != nil {
+		t.Fatal(err)
+	}
+	err := c.Run(context.Background(), Finish)
+	if !errors.Is(err, ErrCleanup) || !errors.Is(err, cause) || err.Error() != ErrCleanup.Error() {
+		t.Fatal("capacity discarded or printed cleanup cause", err)
+	}
+	state, err := scheduler.Inspect(context.Background())
+	if err != nil || len(state.Entries) != 1 || state.Entries[0].Status != "recovery_required" {
+		t.Fatal("failed cleanup released capacity", state, err)
 	}
 }
 func TestMissingAdmissionStillAllowsOwnedRecovery(t *testing.T) {

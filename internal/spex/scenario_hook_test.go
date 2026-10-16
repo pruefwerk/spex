@@ -128,7 +128,9 @@ func TestScenarioHookEnvironmentIsolation(t *testing.T) {
 	results := make(chan []string, 2)
 	for _, path := range paths {
 		go func(path string) {
-			environment, err := executeScenarioHook(path, hook, time.Second)
+			// This test checks isolation, not shell startup speed under race instrumentation.
+			// TestScenarioHookRejectsInvalidOutputAndTimeout checks deadline enforcement.
+			environment, err := executeScenarioHook(path, hook, 10*time.Second)
 			if err != nil {
 				results <- nil
 				return

@@ -37,16 +37,35 @@ func (h *Host) readCapacity(path string) (capacityContext, string, error) {
 func (h *Host) capacityCommand(ctx context.Context, operation, path string) int {
 	return h.capacityWithStore(ctx, operation, path, h.openScheduling)
 }
+func (h *Host) capacityOperation(ctx context.Context, operation, path string) error {
+	return h.runCapacity(ctx, operation, path, h.openScheduling, func(ctx context.Context, root, scope string) error {
+		return h.kindOperation(ctx, root, scope, "cleanup")
+	})
+}
 func (h *Host) capacityWithStore(ctx context.Context, operation, path string, open func(context.Context, string, string) (*receiver.Scheduling, func(), error)) int {
 	return h.capacityWithCleanup(ctx, operation, path, open, func(ctx context.Context, root, scope string) error {
 		return h.kindOperation(ctx, root, scope, "cleanup")
 	})
 }
 func (h *Host) capacityWithCleanup(ctx context.Context, operation, path string, open func(context.Context, string, string) (*receiver.Scheduling, func(), error), cleanupOwned func(context.Context, string, string) error) int {
+	err := h.runCapacity(ctx, operation, path, open, cleanupOwned)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if errors.Is(err, runtimehost.ErrOperation) {
+			return 2
+		}
+		if operation == "capacity-acquire" && ctx.Err() != nil {
+			return 130
+		}
+		return 1
+	}
+	return 0
+}
+
+func (h *Host) runCapacity(ctx context.Context, operation, path string, open func(context.Context, string, string) (*receiver.Scheduling, func(), error), cleanupOwned func(context.Context, string, string) error) error {
 	value, reportPath, err := h.readCapacity(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Capacity context invalid")
-		return 1
+		return runtimehost.ErrIdentity
 	}
 	capacity := runtimehost.Capacity{
 		Identity: value, ReportPath: reportPath, CleanupTimeout: hostconfig.Deadline(h.config.CleanupTimeout), ReleaseTimeout: 15 * time.Second,
@@ -59,15 +78,5 @@ func (h *Host) capacityWithCleanup(ctx context.Context, operation, path string, 
 		},
 		Cleanup: func(ctx context.Context) error { return cleanupOwned(ctx, value.Root, value.ScopePath) },
 	}
-	if err := capacity.Run(ctx, runtimehost.Operation(strings.TrimPrefix(operation, "capacity-"))); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		if errors.Is(err, runtimehost.ErrOperation) {
-			return 2
-		}
-		if operation == "capacity-acquire" && ctx.Err() != nil {
-			return 130
-		}
-		return 1
-	}
-	return 0
+	return capacity.Run(ctx, runtimehost.Operation(strings.TrimPrefix(operation, "capacity-")))
 }

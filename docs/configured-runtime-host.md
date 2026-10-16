@@ -102,9 +102,21 @@ an unregistered suite or adoption of another suite's resources. For split CI,
 An execution-gate failure prints a fixed, secret-safe diagnostic and attempts to
 retain the first failure in `.spex/runtime-diagnostics/execution-gate.json`, even
 when no scope exists yet. Its schema is `spex.execution-diagnostic/v1`; reason
-codes are `SUITE_NOT_CONFIGURED` and `EXECUTION_GATE_FAILED`. Wrapped causes and
-configuration values never enter this diagnostic. Hosts should upload this
-directory on failure alongside normal scenario evidence.
+codes include `SUITE_NOT_CONFIGURED` and `EXECUTION_GATE_FAILED`. Cleanup failures
+identify the originating stage, such as node deletion, image inspection or image
+deletion, with a fixed reason code. They also report how many owned nodes and
+image tags Spex successfully removed before the failure. Wrapped error strings and
+configuration values never enter these diagnostics.
+
+Each cleanup attempt also writes a private, uniquely named
+`.spex/runtime-diagnostics/cleanup-*.json` report with schema
+`spex.cleanup-diagnostic/v1` and status `succeeded`, `failed` or `incomplete`.
+These reports are best-effort evidence: failure to write one does not replace the
+cleanup outcome. They do not replace the durable capacity receipt, whose
+persistence remains mandatory. Hosts should upload this directory alongside
+ownership and scenario evidence. SDK callers should use `errors.Is` and
+`errors.As` to inspect failures; cleanup errors retain their causes behind a
+secret-safe error message.
 
 ## Execution and recovery
 

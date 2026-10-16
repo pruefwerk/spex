@@ -177,7 +177,7 @@ func (h *Host) capacityIdentity(root, scopePath string, env func(string) string)
 	return value, filepath.Join(root, ".spex/capacity", name), nil
 }
 
-type capacityHost func(context.Context, string, string) int
+type capacityHost func(context.Context, string, string) error
 
 func (h *Host) gateCapacity(ctx context.Context, operation, root, scope string, env func(string) string, host capacityHost, cleanup func(context.Context, string, string) error) error {
 	value, dir, err := h.capacityIdentity(root, scope, env)
@@ -187,10 +187,10 @@ func (h *Host) gateCapacity(ctx context.Context, operation, root, scope string, 
 	session := runtimehost.Session{
 		Identity: value, Directory: dir, CleanupSchema: h.resolver.Protocol("capacity-cleanup"),
 		ScheduledOperation: func(ctx context.Context, operation runtimehost.Operation, path string) error {
-			if host == nil || host(ctx, "capacity-"+string(operation), path) != 0 {
+			if host == nil {
 				return runtimehost.ErrAdmission
 			}
-			return nil
+			return host(ctx, "capacity-"+string(operation), path)
 		},
 	}
 	if cleanup != nil {
@@ -335,9 +335,10 @@ func (h *Host) executionCommand(ctx context.Context, args []string, stdout io.Wr
 		}
 		cleanup, cancel := context.WithTimeout(context.Background(), hostconfig.Deadline(h.config.CleanupTimeout))
 		defer cancel()
-		return h.gateCapacity(cleanup, "finish", *root, *scope, os.Getenv, h.capacityCommand, func(ctx context.Context, root, scope string) error {
+		err := h.gateCapacity(cleanup, "finish", *root, *scope, os.Getenv, h.capacityOperation, func(ctx context.Context, root, scope string) error {
 			return h.kindOperation(ctx, root, scope, "cleanup")
 		})
+		return h.cleanupResult(err)
 	}
 	if args[0] != "start" && args[0] != "check" && args[0] != "require" && args[0] != "profile" {
 		return errors.New("unknown execution operation")
@@ -372,7 +373,7 @@ func (h *Host) executionCommand(ctx context.Context, args []string, stdout io.Wr
 		return h.startExecution(ctx, *root, executionPaths{*scope, *suite, *kubeconfig})
 	}
 	if args[0] == "check" {
-		if err := h.gateCapacity(ctx, "check", *root, *scope, os.Getenv, h.capacityCommand, nil); err != nil {
+		if err := h.gateCapacity(ctx, "check", *root, *scope, os.Getenv, h.capacityOperation, nil); err != nil {
 			return err
 		}
 	}
@@ -397,7 +398,7 @@ func (h *Host) startExecution(ctx context.Context, root string, paths executionP
 	if _, err := h.prepareHostInput(ctx, root, paths, ""); err != nil {
 		return err
 	}
-	if err := h.gateCapacity(ctx, "acquire", root, paths.Scope, os.Getenv, h.capacityCommand, nil); err != nil {
+	if err := h.gateCapacity(ctx, "acquire", root, paths.Scope, os.Getenv, h.capacityOperation, nil); err != nil {
 		return err
 	}
 	return cluster.Create(ctx)

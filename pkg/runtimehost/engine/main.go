@@ -267,7 +267,11 @@ func (h *Host) runOperation(ctx context.Context, args []string, stdout, stderr i
 		if len(args) != 1 {
 			return 2
 		}
-		return fail("Receiver cleanup incomplete; inspect ownership evidence", 1, h.cleanupReceiver("."))
+		err := h.cleanupReceiver(".")
+		if err != nil {
+			h.executionDiagnostic(stderr, err)
+		}
+		return fail("Receiver cleanup incomplete; inspect ownership evidence", 1, err)
 	case "runtime-support":
 		code, err := runtimehelpers.RunCLI(ctx, args[1:], stdout)
 		if err != nil {

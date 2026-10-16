@@ -72,7 +72,11 @@ func (c Capacity) Run(ctx context.Context, operation Operation) error {
 		return nil
 	}
 	cleanup, cancel := context.WithTimeout(context.Background(), c.CleanupTimeout)
-	safe := c.Cleanup != nil && c.Cleanup(cleanup) == nil
+	var cleanupErr error
+	if c.Cleanup != nil {
+		cleanupErr = c.Cleanup(cleanup)
+	}
+	safe := c.Cleanup != nil && cleanupErr == nil
 	cancel()
 	release, stop := context.WithTimeout(context.Background(), c.ReleaseTimeout)
 	defer stop()
@@ -87,7 +91,7 @@ func (c Capacity) Run(ctx context.Context, operation Operation) error {
 		return ErrPersistence
 	}
 	if report.Status != "released" {
-		return ErrCleanup
+		return retainCause(ErrCleanup, cleanupErr)
 	}
 	return nil
 }

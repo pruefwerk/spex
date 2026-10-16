@@ -28,7 +28,8 @@ func (h *Host) cleanupReceiver(root string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hostconfig.Deadline(h.config.CleanupTimeout))
 	defer cancel()
-	return h.gateCapacity(ctx, "finish", root, admitted.Scope, os.Getenv, h.capacityCommand, func(ctx context.Context, root, scope string) error {
+	err = h.gateCapacity(ctx, "finish", root, admitted.Scope, os.Getenv, h.capacityOperation, func(ctx context.Context, root, scope string) error {
 		return h.kindOperation(ctx, root, scope, "cleanup")
 	})
+	return h.cleanupResult(err)
 }

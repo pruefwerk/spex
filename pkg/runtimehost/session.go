@@ -2,6 +2,7 @@ package runtimehost
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,15 +77,22 @@ func (s Session) Gate(ctx context.Context, operation Operation) error {
 		}
 	}
 	if identity.Mode == "enabled" {
-		if s.ScheduledOperation == nil || s.ScheduledOperation(ctx, operation, path) != nil {
+		var operationErr error
+		if s.ScheduledOperation != nil {
+			operationErr = s.ScheduledOperation(ctx, operation, path)
+		}
+		if s.ScheduledOperation == nil || operationErr != nil {
 			if operation == Finish && s.Cleanup != nil {
-				_ = s.Cleanup(ctx)
+				operationErr = errors.Join(operationErr, s.Cleanup(ctx))
 			}
-			return ErrAdmission
+			return retainCause(ErrAdmission, operationErr)
 		}
 	} else if operation == Finish {
-		if s.Cleanup == nil || s.Cleanup(ctx) != nil {
+		if s.Cleanup == nil {
 			return ErrCleanup
+		}
+		if err := s.Cleanup(ctx); err != nil {
+			return retainCause(ErrCleanup, err)
 		}
 	}
 	if operation == Finish {

@@ -209,20 +209,25 @@ func (c *Cluster) OwnedNodes(ctx context.Context) ([]string, error) {
 }
 
 func (c *Cluster) Cleanup(ctx context.Context) error {
+	nodesRemoved, imagesRemoved := 0, 0
+	failure := func(reason string, cause error) error {
+		return &CleanupError{reason: reason, nodesRemoved: nodesRemoved, imagesRemoved: imagesRemoved, cause: cause}
+	}
 	if _, err := os.Lstat(filepath.Join(c.config.StateDirectory, "nodes.json")); os.IsNotExist(err) {
 		if _, err := os.Lstat(filepath.Join(c.config.StateDirectory, "creation.json")); os.IsNotExist(err) {
 			return nil
 		}
-		return errors.New("creation interrupted without node ledger; manual review required")
+		return failure("NODE_LEDGER_INCOMPLETE", errors.New("creation interrupted without node ledger; manual review required"))
 	}
 	nodes, err := c.OwnedNodes(ctx)
 	if err != nil {
-		return err
+		return failure("NODE_OWNERSHIP_UNCONFIRMED", err)
 	}
 	for _, node := range nodes {
 		if _, err := c.call(ctx, "docker", "rm", "--force", "--volumes", node); err != nil {
-			return err
+			return failure("NODE_DELETION_FAILED", err)
 		}
+		nodesRemoved++
 	}
 	// Independent image uncertainty must not prevent deletion of verified nodes.
 	// Retain incomplete image evidence and return failure so capacity stays held.
@@ -230,21 +235,25 @@ func (c *Cluster) Cleanup(ctx context.Context) error {
 	for _, record := range images {
 		present, err := c.call(ctx, "docker", "image", "ls", "--quiet", record.Tag)
 		if err != nil {
-			return err
+			return failure("IMAGE_LOOKUP_FAILED", err)
 		}
 		if present == "" {
 			continue
 		}
 		actual, err := c.call(ctx, "docker", "image", "inspect", record.Tag, "--format", "{{.Id}}")
 		if err != nil {
-			return err
+			return failure("IMAGE_INSPECTION_FAILED", err)
 		}
 		if actual != record.ID {
-			return errors.New("image ownership changed; refusing deletion")
+			return failure("IMAGE_OWNERSHIP_CHANGED", errors.New("image ownership changed; refusing deletion"))
 		}
 		if _, err := c.call(ctx, "docker", "image", "rm", record.Tag); err != nil {
-			return err
+			return failure("IMAGE_DELETION_FAILED", err)
 		}
+		imagesRemoved++
 	}
-	return ledgerErr
+	if ledgerErr != nil {
+		return failure("IMAGE_LEDGER_INVALID", ledgerErr)
+	}
+	return nil
 }

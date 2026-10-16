@@ -106,7 +106,7 @@ func (h *Host) runHostGroupAt(ctx context.Context, root string, paths executionP
 		return scenarioruntime.ExecutionResult{}, "", errors.New("group runtime unavailable")
 	}
 	owned.groupGuard = func(ctx context.Context) error {
-		if err := h.gateCapacity(ctx, "check", root, paths.Scope, os.Getenv, h.capacityCommand, nil); err != nil {
+		if err := h.gateCapacity(ctx, "check", root, paths.Scope, os.Getenv, h.capacityOperation, nil); err != nil {
 			return err
 		}
 		cluster, err := h.checkExecution(root, paths, nil)
